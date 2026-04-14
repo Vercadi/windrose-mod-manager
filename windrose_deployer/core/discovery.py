@@ -109,8 +109,7 @@ def _validate_server_root(path: Path) -> bool:
     if not path.is_dir():
         return False
     has_exe = (path / SERVER_EXE).is_file()
-    has_desc = (path / SERVER_DESC).is_file()
-    return has_exe and has_desc
+    return has_exe
 
 
 def _local_appdata() -> Optional[Path]:

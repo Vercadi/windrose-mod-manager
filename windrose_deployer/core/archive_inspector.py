@@ -3,12 +3,12 @@ from __future__ import annotations
 
 import logging
 import re
-import zipfile
 from collections import defaultdict
 from pathlib import Path, PurePosixPath
 from typing import Optional
 
 from ..models.archive_info import ArchiveEntry, ArchiveInfo, ArchiveType, VariantGroup
+from .archive_handler import ArchiveReader, open_archive, is_supported_archive
 
 log = logging.getLogger(__name__)
 
@@ -21,23 +21,33 @@ VARIANT_PATTERN = re.compile(
 
 
 def inspect_archive(archive_path: Path) -> ArchiveInfo:
-    """Open a zip archive, enumerate entries, classify, and return analysis."""
+    """Open an archive, enumerate entries, classify, and return analysis."""
     info = ArchiveInfo(archive_path=str(archive_path))
 
     if not archive_path.is_file():
         info.warnings.append(f"Archive not found: {archive_path}")
         return info
 
-    if not zipfile.is_zipfile(archive_path):
-        info.warnings.append("File is not a valid zip archive.")
+    if not is_supported_archive(archive_path):
+        info.warnings.append(
+            f"Unsupported archive format: {archive_path.suffix}\n"
+            "Supported formats: .zip, .7z, .rar"
+        )
         return info
 
     try:
-        with zipfile.ZipFile(archive_path, "r") as zf:
-            _enumerate(zf, info)
-    except zipfile.BadZipFile as exc:
-        info.warnings.append(f"Corrupt zip archive: {exc}")
+        reader = open_archive(archive_path)
+    except Exception as exc:
+        info.warnings.append(f"Failed to open archive: {exc}")
         return info
+
+    try:
+        _enumerate(reader, info)
+    except Exception as exc:
+        info.warnings.append(f"Error reading archive: {exc}")
+        return info
+    finally:
+        reader.close()
 
     _detect_root_prefix(info)
     _classify(info)
@@ -61,12 +71,12 @@ def inspect_archive(archive_path: Path) -> ArchiveInfo:
 # ------------------------------------------------------------------ internals
 
 
-def _enumerate(zf: zipfile.ZipFile, info: ArchiveInfo) -> None:
-    for zi in zf.infolist():
+def _enumerate(reader: ArchiveReader, info: ArchiveInfo) -> None:
+    for ei in reader.list_entries():
         entry = ArchiveEntry(
-            path=zi.filename,
-            is_dir=zi.is_dir(),
-            size=zi.file_size,
+            path=ei.filename,
+            is_dir=ei.is_dir,
+            size=ei.file_size,
         )
         info.entries.append(entry)
 

@@ -44,8 +44,10 @@ class AppPaths:
 
     @property
     def server_description_json(self) -> Optional[Path]:
-        if self.server_root:
-            return self.server_root / "ServerDescription.json"
+        """ServerDescription.json lives at <client_root>/R5/, not inside the
+        dedicated server folder."""
+        if self.client_root:
+            return self.client_root / "R5" / "ServerDescription.json"
         return None
 
     @property

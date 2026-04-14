@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import logging
-import zipfile
 from pathlib import Path
 from typing import Optional
 
@@ -11,6 +10,7 @@ from ..models.mod_install import InstallTarget, ModInstall
 from ..utils.filesystem import ensure_dir, safe_delete
 from ..utils.hashing import hash_file
 from ..utils.naming import sanitize_mod_id, timestamp_slug
+from .archive_handler import open_archive
 from .backup_manager import BackupManager
 from .deployment_planner import DeploymentPlan
 
@@ -42,7 +42,8 @@ class Installer:
         installed_paths: list[str] = []
         backed_up_paths: list[str] = []
 
-        with zipfile.ZipFile(archive_path, "r") as zf:
+        reader = open_archive(archive_path)
+        try:
             for pf in plan.files:
                 dest = pf.dest_path
                 ensure_dir(dest.parent)
@@ -58,7 +59,7 @@ class Installer:
                     )
 
                 try:
-                    data = zf.read(pf.archive_entry_path)
+                    data = reader.read_file(pf.archive_entry_path)
                     dest.write_bytes(data)
                     log.info("Installed: %s", dest)
                 except Exception as exc:
@@ -75,6 +76,8 @@ class Installer:
                 deployed_files.append(df)
                 if backup_record:
                     backed_up_paths.append(backup_record.backup_path)
+        finally:
+            reader.close()
 
         mod = ModInstall(
             mod_id=mod_id,

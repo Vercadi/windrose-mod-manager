@@ -7,6 +7,12 @@ from typing import Optional
 
 import customtkinter as ctk
 
+try:
+    import tkinterdnd2
+    _DND_AVAILABLE = True
+except ImportError:
+    _DND_AVAILABLE = False
+
 from .. import __app_name__, __version__
 from ..core.backup_manager import BackupManager
 from ..core.discovery import discover_all
@@ -14,6 +20,7 @@ from ..core.installer import Installer
 from ..core.logging_service import setup_logging
 from ..core.manifest_store import ManifestStore
 from ..core.server_config_service import ServerConfigService
+from ..core.world_config_service import WorldConfigService
 from ..models.app_paths import AppPaths
 from ..utils.json_io import read_json, write_json
 from ..utils.filesystem import ensure_dir
@@ -28,17 +35,26 @@ SETTINGS_FILE = DEFAULT_DATA_DIR / "settings.json"
 
 
 class AppWindow(ctk.CTk):
-    """Root application window."""
+    """Root application window with optional drag-and-drop support."""
 
     def __init__(self):
+        ctk.set_appearance_mode("dark")
+        ctk.set_default_color_theme("blue")
         super().__init__()
+
+        # Inject tkdnd so all widgets get drop_target_register / dnd_bind
+        self._dnd_enabled = False
+        if _DND_AVAILABLE:
+            try:
+                tkinterdnd2.TkinterDnD._require(self)
+                self._dnd_enabled = True
+                log.info("Drag-and-drop enabled via tkdnd")
+            except Exception as exc:
+                log.warning("tkdnd init failed, drag-and-drop disabled: %s", exc)
 
         self.title(f"{__app_name__} v{__version__}")
         self.geometry("1100x750")
         self.minsize(900, 600)
-
-        ctk.set_appearance_mode("dark")
-        ctk.set_default_color_theme("blue")
 
         self._init_services()
         self._build_ui()
@@ -63,6 +79,7 @@ class AppWindow(ctk.CTk):
         self.manifest = ManifestStore(self.paths.data_dir)
         self.installer = Installer(self.backup)
         self.server_config_svc = ServerConfigService(self.backup)
+        self.world_config_svc = WorldConfigService(self.backup)
 
         log.info("Services initialized")
 

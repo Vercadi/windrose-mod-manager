@@ -22,8 +22,6 @@ def validate_server_root(path: Path) -> tuple[bool, str]:
         return False, f"Directory does not exist: {path}"
     if not (path / "WindroseServer.exe").is_file():
         return False, "WindroseServer.exe not found."
-    if not (path / "ServerDescription.json").is_file():
-        return False, "ServerDescription.json not found."
     return True, "Valid server root."
 
 
