@@ -32,7 +32,6 @@ class SettingsTab(ctk.CTkFrame):
         self._build_paths_section()
         self._build_actions_section()
         self._build_info_section()
-        self._build_about_section()
         self._populate()
 
     def _build_paths_section(self) -> None:
@@ -117,43 +116,6 @@ class SettingsTab(ctk.CTkFrame):
                                         font=ctk.CTkFont(family="Consolas", size=11))
         self._info_box.grid(row=2, column=0, sticky="nsew", padx=8, pady=(4, 4))
         self.grid_rowconfigure(2, weight=1)
-
-    def _build_about_section(self) -> None:
-        import webbrowser
-        from ... import __app_name__, __version__
-
-        frame = ctk.CTkFrame(self)
-        frame.grid(row=3, column=0, sticky="ew", padx=8, pady=(0, 8))
-        frame.grid_columnconfigure(1, weight=1)
-
-        # App name + version
-        ctk.CTkLabel(
-            frame,
-            text=f"{__app_name__} v{__version__}",
-            font=ctk.CTkFont(size=14, weight="bold"),
-        ).grid(row=0, column=0, sticky="w", padx=8, pady=(8, 2))
-
-        ctk.CTkLabel(
-            frame, text="by Vercadi  •  MIT License",
-            text_color="#95a5a6", font=ctk.CTkFont(size=12),
-        ).grid(row=1, column=0, sticky="w", padx=8, pady=(0, 2))
-
-        links_frame = ctk.CTkFrame(frame, fg_color="transparent")
-        links_frame.grid(row=2, column=0, sticky="w", padx=4, pady=(0, 8))
-
-        nexus_btn = ctk.CTkButton(
-            links_frame, text="Nexus Page", width=100,
-            fg_color="#d98f40", hover_color="#b87530",
-            command=lambda: webbrowser.open("https://www.nexusmods.com/windrose/mods/29"),
-        )
-        nexus_btn.pack(side="left", padx=4)
-
-        github_btn = ctk.CTkButton(
-            links_frame, text="GitHub", width=80,
-            fg_color="#555555", hover_color="#666666",
-            command=lambda: webbrowser.open("https://github.com/Vercadi/windrose-mod-manager"),
-        )
-        github_btn.pack(side="left", padx=4)
 
     # ---------------------------------------------------------- populate
 

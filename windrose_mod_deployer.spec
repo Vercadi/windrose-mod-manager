@@ -51,7 +51,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Windrose Mod Deployer',
+    name='Windrose Mod Manager',
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -68,5 +68,5 @@ coll = COLLECT(
     strip=False,
     upx=True,
     upx_exclude=[],
-    name='Windrose Mod Deployer',
+    name='Windrose Mod Manager',
 )

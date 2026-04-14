@@ -43,6 +43,13 @@ class InstalledTab(ctk.CTkFrame):
         self._refresh_btn = ctk.CTkButton(frame, text="Refresh", width=80, command=self.refresh)
         self._refresh_btn.pack(side="right", padx=8)
 
+        self._uninstall_all_btn = ctk.CTkButton(
+            frame, text="Uninstall All", width=100,
+            fg_color="#c0392b", hover_color="#962d22",
+            command=self._on_uninstall_all,
+        )
+        self._uninstall_all_btn.pack(side="right", padx=4)
+
         self._search_var = ctk.StringVar()
         self._search_var.trace_add("write", self._on_search)
         self._search_entry = ctk.CTkEntry(frame, textvariable=self._search_var,
@@ -72,16 +79,21 @@ class InstalledTab(ctk.CTkFrame):
         btn_frame = ctk.CTkFrame(self._details, fg_color="transparent")
         btn_frame.pack(fill="x", padx=8, pady=(4, 8))
 
-        self._toggle_btn = ctk.CTkButton(btn_frame, text="Disable", width=90,
+        self._toggle_btn = ctk.CTkButton(btn_frame, text="Disable", width=80,
                                          command=self._on_toggle)
         self._toggle_btn.pack(side="left", padx=(0, 4))
 
-        self._uninstall_btn = ctk.CTkButton(btn_frame, text="Uninstall", width=90,
+        self._uninstall_btn = ctk.CTkButton(btn_frame, text="Uninstall", width=80,
                                             fg_color="#c0392b", hover_color="#962d22",
                                             command=self._on_uninstall)
         self._uninstall_btn.pack(side="left", padx=4)
 
-        self._open_folder_btn = ctk.CTkButton(btn_frame, text="Open Folder", width=90,
+        self._reinstall_btn = ctk.CTkButton(btn_frame, text="Reinstall", width=80,
+                                            fg_color="#2980b9", hover_color="#2471a3",
+                                            command=self._on_reinstall)
+        self._reinstall_btn.pack(side="left", padx=4)
+
+        self._open_folder_btn = ctk.CTkButton(btn_frame, text="Open Folder", width=80,
                                               command=self._on_open_folder)
         self._open_folder_btn.pack(side="left", padx=4)
 
@@ -203,6 +215,89 @@ class InstalledTab(ctk.CTkFrame):
         self.app.manifest.remove_mod(mod.mod_id)
         self.refresh()
         log.info("Uninstalled mod: %s", mod.mod_id)
+
+    def _on_reinstall(self) -> None:
+        if not self._selected_mod:
+            return
+        mod = self._selected_mod
+        archive_path = Path(mod.source_archive) if mod.source_archive else None
+        if not archive_path or not archive_path.is_file():
+            messagebox.showerror(
+                "Archive Not Found",
+                f"The original archive is no longer available:\n{mod.source_archive}\n\n"
+                "You can re-install manually from the Mods tab.",
+            )
+            return
+
+        confirm = messagebox.askyesno(
+            "Confirm Reinstall",
+            f"Reinstall '{mod.display_name}'?\n\n"
+            f"This will uninstall the current version ({mod.file_count} files) "
+            f"and install again from:\n{archive_path.name}",
+        )
+        if not confirm:
+            return
+
+        # Uninstall first
+        record = self.app.installer.uninstall(mod)
+        self.app.manifest.add_record(record)
+        self.app.manifest.remove_mod(mod.mod_id)
+
+        # Re-install using the same archive, target, and variant
+        try:
+            from ...core.archive_inspector import inspect_archive
+            from ...core.deployment_planner import plan_deployment
+            from ...models.mod_install import InstallTarget
+
+            info = inspect_archive(archive_path)
+            target = InstallTarget(mod.targets[0]) if mod.targets else InstallTarget.CLIENT
+            plan = plan_deployment(info, self.app.paths, target,
+                                   mod.selected_variant, mod.display_name)
+
+            if not plan.valid:
+                messagebox.showerror("Reinstall Failed", "\n".join(plan.warnings))
+                self.refresh()
+                return
+
+            new_mod, new_record = self.app.installer.install(plan)
+            self.app.manifest.add_mod(new_mod)
+            self.app.manifest.add_record(new_record)
+            log.info("Reinstalled mod: %s", new_mod.display_name)
+        except Exception as exc:
+            log.error("Reinstall failed: %s", exc)
+            messagebox.showerror("Reinstall Failed", str(exc))
+
+        self.refresh()
+        self.app.refresh_backups_tab()
+
+    def _on_uninstall_all(self) -> None:
+        mods = self.app.manifest.list_mods()
+        if not mods:
+            messagebox.showinfo("Nothing to Uninstall", "No mods are currently installed.")
+            return
+
+        confirm = messagebox.askyesno(
+            "Uninstall All Mods",
+            f"This will uninstall all {len(mods)} installed mod(s) and "
+            "return your game to a vanilla state.\n\nAre you sure?",
+        )
+        if not confirm:
+            return
+
+        count = 0
+        for mod in list(mods):
+            try:
+                record = self.app.installer.uninstall(mod)
+                self.app.manifest.add_record(record)
+                self.app.manifest.remove_mod(mod.mod_id)
+                count += 1
+            except Exception as exc:
+                log.error("Failed to uninstall %s: %s", mod.mod_id, exc)
+
+        self.refresh()
+        self.app.refresh_backups_tab()
+        messagebox.showinfo("Done", f"Uninstalled {count} of {len(mods)} mod(s).")
+        log.info("Uninstall all: removed %d mods", count)
 
     def _on_open_folder(self) -> None:
         if not self._selected_mod or not self._selected_mod.installed_files:

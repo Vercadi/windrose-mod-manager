@@ -1,4 +1,10 @@
-"""Mods tab — add, inspect, and install mod archives with drag-and-drop."""
+"""Mods tab — add, inspect, and install mod archives with drag-and-drop.
+
+Features:
+- Persistent archive library (left sidebar) remembering previously added archives
+- Multi-archive drag-and-drop and browse support
+- Inspect, configure, and install from the library
+"""
 from __future__ import annotations
 
 import logging
@@ -16,6 +22,7 @@ from ...core.deployment_planner import plan_deployment
 from ...models.archive_info import ArchiveInfo, ArchiveType
 from ...models.mod_install import InstallTarget
 from ...ui.widgets.file_preview import FilePreview
+from ...utils.json_io import read_json, write_json
 
 if TYPE_CHECKING:
     from ..app_window import AppWindow
@@ -36,21 +43,58 @@ class ModsTab(ctk.CTkFrame):
         super().__init__(master, **kwargs)
         self.app = app
         self._current_info: Optional[ArchiveInfo] = None
+        self._library: list[dict] = []
+        self._library_widgets: list[ctk.CTkFrame] = []
 
-        self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(2, weight=1)
+        self.grid_columnconfigure(0, weight=0)
+        self.grid_columnconfigure(1, weight=1)
+        self.grid_rowconfigure(0, weight=1)
 
-        self._build_drop_zone()
-        self._build_options_section()
-        self._build_preview_section()
+        self._build_library_panel()
+        self._build_right_panel()
+        self._load_library()
         self._register_dnd()
 
-    # ---------------------------------------------------------- layout
+    # ========================================================== layout
 
-    def _build_drop_zone(self) -> None:
-        self._drop_frame = ctk.CTkFrame(self, height=100, border_width=2,
+    def _build_library_panel(self) -> None:
+        """Left sidebar — persistent list of known archives."""
+        panel = ctk.CTkFrame(self, width=230)
+        panel.grid(row=0, column=0, sticky="nsew", padx=(8, 4), pady=8)
+        panel.grid_propagate(False)
+        panel.grid_rowconfigure(1, weight=1)
+        panel.grid_columnconfigure(0, weight=1)
+
+        header = ctk.CTkFrame(panel, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=4, pady=(4, 2))
+
+        ctk.CTkLabel(header, text="Archive Library",
+                     font=ctk.CTkFont(size=13, weight="bold")).pack(side="left", padx=4)
+
+        ctk.CTkButton(header, text="Clear", width=50, height=24,
+                      fg_color="#555555", hover_color="#666666",
+                      font=ctk.CTkFont(size=11),
+                      command=self._on_clear_library).pack(side="right", padx=2)
+
+        self._library_list = ctk.CTkScrollableFrame(panel)
+        self._library_list.grid(row=1, column=0, sticky="nsew", padx=4, pady=(2, 4))
+        self._library_list.grid_columnconfigure(0, weight=1)
+
+    def _build_right_panel(self) -> None:
+        """Right side — drop zone, options, preview."""
+        right = ctk.CTkFrame(self, fg_color="transparent")
+        right.grid(row=0, column=1, sticky="nsew", padx=(4, 8), pady=8)
+        right.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(2, weight=1)
+
+        self._build_drop_zone(right)
+        self._build_options_section(right)
+        self._build_preview_section(right)
+
+    def _build_drop_zone(self, parent) -> None:
+        self._drop_frame = ctk.CTkFrame(parent, height=90, border_width=2,
                                         border_color="#555555")
-        self._drop_frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
+        self._drop_frame.grid(row=0, column=0, sticky="ew", pady=(0, 4))
         self._drop_frame.grid_columnconfigure(0, weight=1)
         self._drop_frame.grid_propagate(False)
 
@@ -59,7 +103,7 @@ class ModsTab(ctk.CTkFrame):
 
         self._drop_label = ctk.CTkLabel(
             self._drop_inner,
-            text="Drop mod archive here  (.zip  .7z  .rar)\nor click Browse to select",
+            text="Drop mod archive(s) here  (.zip  .7z  .rar)\nor click Browse to select",
             font=ctk.CTkFont(size=14),
             text_color="#aaaaaa",
             justify="center",
@@ -76,9 +120,9 @@ class ModsTab(ctk.CTkFrame):
         self._status_label = ctk.CTkLabel(btn_row, text="", anchor="w", width=400)
         self._status_label.pack(side="left", padx=8)
 
-    def _build_options_section(self) -> None:
-        frame = ctk.CTkFrame(self)
-        frame.grid(row=1, column=0, sticky="ew", padx=8, pady=4)
+    def _build_options_section(self, parent) -> None:
+        frame = ctk.CTkFrame(parent)
+        frame.grid(row=1, column=0, sticky="ew", pady=4)
         frame.grid_columnconfigure(5, weight=1)
 
         ctk.CTkLabel(frame, text="Target:").grid(row=0, column=0, padx=(8, 4), pady=8)
@@ -109,14 +153,103 @@ class ModsTab(ctk.CTkFrame):
         )
         self._install_btn.grid(row=0, column=6, padx=(8, 8), pady=8)
 
-    def _build_preview_section(self) -> None:
-        self._preview = FilePreview(self)
-        self._preview.grid(row=2, column=0, sticky="nsew", padx=8, pady=(4, 8))
+    def _build_preview_section(self, parent) -> None:
+        self._preview = FilePreview(parent)
+        self._preview.grid(row=2, column=0, sticky="nsew", pady=(4, 0))
 
-    # ---------------------------------------------------------- drag and drop
+    # ========================================================== archive library
+
+    def _library_path(self) -> Path:
+        from ..app_window import DEFAULT_DATA_DIR
+        return DEFAULT_DATA_DIR / "archive_library.json"
+
+    def _load_library(self) -> None:
+        data = read_json(self._library_path())
+        self._library = data.get("archives", [])
+        self._refresh_library_ui()
+
+    def _save_library(self) -> None:
+        write_json(self._library_path(), {"archives": self._library})
+
+    def _add_to_library(self, archive_path: Path) -> None:
+        """Add an archive to the library if not already present."""
+        path_str = str(archive_path)
+        for entry in self._library:
+            if entry.get("path") == path_str:
+                return
+        self._library.append({
+            "path": path_str,
+            "name": archive_path.stem,
+            "ext": archive_path.suffix.lower(),
+        })
+        self._save_library()
+        self._refresh_library_ui()
+
+    def _refresh_library_ui(self) -> None:
+        for w in self._library_widgets:
+            w.destroy()
+        self._library_widgets.clear()
+
+        for i, entry in enumerate(self._library):
+            self._add_library_row(entry, i)
+
+    def _add_library_row(self, entry: dict, idx: int) -> None:
+        path = Path(entry["path"])
+        exists = path.is_file()
+
+        row = ctk.CTkFrame(self._library_list, cursor="hand2" if exists else "arrow")
+        row.grid(row=idx, column=0, sticky="ew", pady=1)
+        row.grid_columnconfigure(0, weight=1)
+
+        color = "#ffffff" if exists else "#666666"
+        label = ctk.CTkLabel(
+            row, text=entry.get("name", path.stem),
+            anchor="w", font=ctk.CTkFont(size=12),
+            text_color=color,
+        )
+        label.grid(row=0, column=0, sticky="w", padx=6, pady=4)
+
+        ext_label = ctk.CTkLabel(
+            row, text=entry.get("ext", ""),
+            font=ctk.CTkFont(size=10), text_color="#777777",
+        )
+        ext_label.grid(row=0, column=1, padx=(0, 4), pady=4)
+
+        remove_btn = ctk.CTkButton(
+            row, text="×", width=24, height=24,
+            fg_color="transparent", hover_color="#c0392b",
+            font=ctk.CTkFont(size=14),
+            command=lambda p=entry["path"]: self._remove_from_library(p),
+        )
+        remove_btn.grid(row=0, column=2, padx=(0, 4), pady=4)
+
+        if exists:
+            for widget in (row, label, ext_label):
+                widget.bind("<Button-1>", lambda e, p=path: self._load_archive(p))
+
+        self._library_widgets.append(row)
+
+    def _remove_from_library(self, path_str: str) -> None:
+        self._library = [e for e in self._library if e.get("path") != path_str]
+        self._save_library()
+        self._refresh_library_ui()
+
+    def _on_clear_library(self) -> None:
+        if not self._library:
+            return
+        confirm = messagebox.askyesno(
+            "Clear Library",
+            f"Remove all {len(self._library)} archive(s) from the library?\n\n"
+            "This only removes the references, not the archive files themselves.",
+        )
+        if confirm:
+            self._library.clear()
+            self._save_library()
+            self._refresh_library_ui()
+
+    # ========================================================== drag and drop
 
     def _register_dnd(self) -> None:
-        """Register drag-and-drop handlers via tkinterdnd2 if available."""
         if not getattr(self.app, "_dnd_enabled", False):
             return
         try:
@@ -154,15 +287,24 @@ class ModsTab(ctk.CTkFrame):
         if not paths:
             return
 
-        archive_path = paths[0]
-        if archive_path.suffix.lower() not in SUPPORTED_EXTENSIONS:
+        valid = [p for p in paths if p.suffix.lower() in SUPPORTED_EXTENSIONS]
+        if not valid:
             self._status_label.configure(
-                text=f"Unsupported: {archive_path.suffix}",
+                text=f"No supported archives found in drop",
                 text_color="#c0392b",
             )
             return
 
-        self._load_archive(archive_path)
+        for p in valid:
+            self._add_to_library(p)
+
+        if len(valid) == 1:
+            self._load_archive(valid[0])
+        else:
+            self._status_label.configure(
+                text=f"Added {len(valid)} archives to library — click one to inspect",
+                text_color="#2d8a4e",
+            )
 
     def _parse_drop_data(self, data: str) -> list[Path]:
         """Parse tkinterdnd2 drop data which may be brace-wrapped or space-separated."""
@@ -190,18 +332,32 @@ class ModsTab(ctk.CTkFrame):
 
         return paths
 
-    # ---------------------------------------------------------- handlers
+    # ========================================================== handlers
 
     def _on_browse(self) -> None:
-        path = filedialog.askopenfilename(
-            title="Select Mod Archive",
+        paths = filedialog.askopenfilenames(
+            title="Select Mod Archive(s)",
             filetypes=_FILETYPES,
         )
-        if path:
-            self._load_archive(Path(path))
+        if not paths:
+            return
+
+        valid = [Path(p) for p in paths if Path(p).suffix.lower() in SUPPORTED_EXTENSIONS]
+        for p in valid:
+            self._add_to_library(p)
+
+        if len(valid) == 1:
+            self._load_archive(valid[0])
+        elif valid:
+            self._status_label.configure(
+                text=f"Added {len(valid)} archives to library — click one to inspect",
+                text_color="#2d8a4e",
+            )
 
     def _load_archive(self, archive_path: Path) -> None:
         """Inspect an archive and populate all UI fields."""
+        self._add_to_library(archive_path)
+
         self._status_label.configure(text="Inspecting...", text_color="#aaaaaa")
         self.update_idletasks()
 
