@@ -173,11 +173,12 @@ class AppWindow(ctk.CTk):
         tab_installed = self._tabview.add("Installed")
         tab_server = self._tabview.add("Server")
         tab_backups = self._tabview.add("Backups")
+        tab_remote = self._tabview.add("Remote Server")
         tab_settings = self._tabview.add("Settings")
         tab_about = self._tabview.add("About")
 
         for tab in (tab_mods, tab_installed, tab_server, tab_backups,
-                     tab_settings, tab_about):
+                     tab_remote, tab_settings, tab_about):
             tab.grid_columnconfigure(0, weight=1)
             tab.grid_rowconfigure(0, weight=1)
 
@@ -185,6 +186,7 @@ class AppWindow(ctk.CTk):
         from .tabs.installed_tab import InstalledTab
         from .tabs.server_tab import ServerTab
         from .tabs.backups_tab import BackupsTab
+        from .tabs.remote_tab import RemoteTab
         from .tabs.settings_tab import SettingsTab
         from .tabs.about_tab import AboutTab
 
@@ -199,6 +201,9 @@ class AppWindow(ctk.CTk):
 
         self._backups_tab = BackupsTab(tab_backups, app=self)
         self._backups_tab.grid(row=0, column=0, sticky="nsew")
+
+        self._remote_tab = RemoteTab(tab_remote, app=self)
+        self._remote_tab.grid(row=0, column=0, sticky="nsew")
 
         self._settings_tab = SettingsTab(tab_settings, app=self)
         self._settings_tab.grid(row=0, column=0, sticky="nsew")
@@ -328,6 +333,11 @@ class AppWindow(ctk.CTk):
 
     # ---------------------------------------------------------- cross-tab helpers
 
+    @property
+    def remote_tab(self):
+        """Public accessor for the Remote Server tab (used by ModsTab)."""
+        return self._remote_tab
+
     def refresh_installed_tab(self) -> None:
         self._installed_tab.refresh()
         self._update_mod_badge()
@@ -341,3 +351,11 @@ class AppWindow(ctk.CTk):
             self._mod_count_label.configure(text=f"{count} mod{'s' if count != 1 else ''} installed")
         else:
             self._mod_count_label.configure(text="")
+
+    def destroy(self) -> None:
+        """Clean up resources before closing."""
+        try:
+            self._remote_tab.close()
+        except Exception:
+            pass
+        super().destroy()

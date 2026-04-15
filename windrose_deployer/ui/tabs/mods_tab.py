@@ -181,6 +181,13 @@ class ModsTab(ctk.CTkFrame):
         self._uninstall_btn.pack(side="right", padx=(4, 4))
         self._uninstall_btn.pack_forget()
 
+        self._install_remote_btn = ctk.CTkButton(
+            action_frame, text="Install to Remote", width=130,
+            fg_color="#2980b9", hover_color="#2471a3",
+            command=self._on_install_remote,
+        )
+        self._install_remote_btn.pack(side="right", padx=(4, 4))
+
         self._install_btn = ctk.CTkButton(
             action_frame, text="Install", width=90,
             fg_color="#2d8a4e", hover_color="#236b3d",
@@ -337,6 +344,8 @@ class ModsTab(ctk.CTkFrame):
             menu.add_command(label="Uninstall",
                              command=lambda: self._on_uninstall_archive(str(archive_path)))
         menu.add_command(label="Install", command=lambda: self._quick_install(archive_path))
+        menu.add_command(label="Install to Remote Server",
+                         command=lambda: self._on_install_remote_archive(str(archive_path)))
         menu.add_command(label="Inspect", command=lambda: self._load_archive(archive_path))
         menu.add_separator()
         menu.add_command(label="Remove from Library",
@@ -674,6 +683,51 @@ class ModsTab(ctk.CTkFrame):
         # Update the details panel to reflect uninstalled state
         if self._selected_library_path == archive_path_str:
             self._load_archive(Path(archive_path_str))
+
+    def _on_install_remote(self) -> None:
+        """Upload the currently selected archive to the remote server."""
+        if self._current_info is None:
+            messagebox.showwarning("No Archive", "Select an archive from the library first.")
+            return
+        self._on_install_remote_archive(self._current_info.archive_path)
+
+    def _on_install_remote_archive(self, archive_path_str: str) -> None:
+        """Upload a given archive file to the remote server via SFTP."""
+        remote_tab = self.app.remote_tab
+        if not remote_tab.is_connected():
+            messagebox.showinfo(
+                "Not Connected",
+                "No remote server connection is active.\n\n"
+                "Please connect to a remote server via the "
+                "\"Remote Server\" tab first.",
+            )
+            return
+
+        archive_path = Path(archive_path_str)
+        if not archive_path.is_file():
+            messagebox.showerror("Not Found", f"Archive not found:\n{archive_path}")
+            return
+
+        self._status_label.configure(
+            text=f"Uploading {archive_path.name} to remote...",
+            text_color="#aaaaaa",
+        )
+        self.update_idletasks()
+
+        def _on_upload_done(success: bool, message: str) -> None:
+            if success:
+                self._status_label.configure(
+                    text=f"Remote: {message}", text_color="#2d8a4e",
+                )
+                messagebox.showinfo("Upload Complete",
+                                    f"'{archive_path.name}' uploaded to remote server.")
+            else:
+                self._status_label.configure(
+                    text=f"Remote upload failed", text_color="#c0392b",
+                )
+                messagebox.showerror("Upload Failed", message)
+
+        remote_tab.upload_file(str(archive_path), callback=_on_upload_done)
 
     def _do_install(self, info: ArchiveInfo, mod_name: str,
                     selected_variant: Optional[str] = None,
