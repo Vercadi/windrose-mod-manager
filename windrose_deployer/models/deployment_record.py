@@ -21,7 +21,9 @@ class DeploymentRecord:
     timestamp: str = field(default_factory=lambda: datetime.now().isoformat())
     files: list[DeployedFile] = field(default_factory=list)
     target: str = ""  # "client", "server", or "both"
-    action: str = "install"  # "install" | "uninstall" | "disable" | "enable"
+    action: str = "install"  # "install" | "uninstall" | "disable" | "enable" | ...
+    display_name: str = ""
+    source_archive: str = ""
     notes: str = ""
 
     def to_dict(self) -> dict:
@@ -30,6 +32,8 @@ class DeploymentRecord:
             "timestamp": self.timestamp,
             "target": self.target,
             "action": self.action,
+            "display_name": self.display_name,
+            "source_archive": self.source_archive,
             "notes": self.notes,
             "files": [
                 {
@@ -59,5 +63,7 @@ class DeploymentRecord:
             files=files,
             target=d.get("target", ""),
             action=d.get("action", "install"),
+            display_name=d.get("display_name", ""),
+            source_archive=d.get("source_archive", ""),
             notes=d.get("notes", ""),
         )

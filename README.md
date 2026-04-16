@@ -1,35 +1,78 @@
 # Windrose Mod Manager
 
-A Windows desktop application for managing mods for **Windrose**, supporting both the client game and the dedicated server.
+A Windows desktop app for modding **Windrose** safely across the client, the local dedicated server, and hosted servers with SFTP/SSH access.
 
 **[Nexus Mods Page](https://www.nexusmods.com/windrose/mods/29)** | **[GitHub](https://github.com/Vercadi/windrose-mod-manager)**
 
+## What It Does
+
+Windrose Mod Manager is built around three practical jobs:
+
+- manage archives and applied mods from one Mods workspace
+- edit local or hosted server settings safely
+- recover from mistakes with backups, restore, repair, and undo-friendly history
+
+This is not a generic mod organizer. It is a Windrose-specific client + server cockpit.
+
 ## Features
 
-- Auto-detects Windrose client, dedicated server, and local config/save paths
-- Analyzes mod archives (.zip, .7z, .rar) before install, classifying as pak-only, loose-file, mixed, or multi-variant
-- Persistent **Archive Library** that remembers your mod archives with install status indicators
-- Deploys mods to client, server, or both with proper file placement
-- **Variant detection** for archives with multiple pak options (e.g. stack size multipliers), forcing you to pick one
-- **Quick install** via double-click or right-click on library entries
-- **Install All** button to batch-install non-installed archives
-- **Uninstall**, **Reinstall**, and **Uninstall All** for easy mod management
-- Drag-and-drop archive import (single or multiple files)
-- Backs up every file before overwriting and maintains a full backup history
-- Tracks all installed files in a manifest for clean uninstall or disable/enable
-- Edits `ServerDescription.json` and `WorldDescription.json` safely with validation and automatic backups
-- Detects conflicts between installed mods writing to the same target files
-- **Start Game** and **Start Server** buttons on all tabs
-- **Search/filter** in the Installed tab
-- **Update notifications** via GitHub Releases (automatic on startup + manual check in About tab)
-- Installed mod count badge
-- Clean dark-mode UI built with CustomTkinter
+- Auto-detects Windrose client, local server, config, and save paths
+- Analyzes archives (`.zip`, `.7z`, `.rar`) before install
+- Supports pak-only, loose-file, mixed, and multi-variant archives
+- Unified **Mods** workspace with:
+  - tracked archives
+  - applied mods grouped by target
+  - right-click install, reinstall, uninstall, and repair actions
+  - hosted live inventory view
+- Installs mods to:
+  - client
+  - local server
+  - both
+  - hosted server over SFTP
+- Variant chooser for archives with multiple pak options
+- Drag-and-drop and multi-file archive import
+- Repair / verify support for managed installs
+- Safe uninstall that restores overwritten original files from backup
+- **Server** cockpit for:
+  - local server settings
+  - hosted server settings
+  - world settings
+  - client/server sync review
+  - optional hosted restart command
+- Hosted profile setup with:
+  - saved profiles
+  - connection test
+  - server-folder based path auto-detect
+  - password or SSH private-key auth
+- **Recovery Center** with:
+  - action-based recovery timeline
+  - restore previous version
+  - undo for supported actions
+  - raw backup browser
+  - backup retention cleanup
+- Launch buttons for Windrose and the local dedicated server
+- GitHub release update notifications with in-app download link
+- Technical log panel for troubleshooting when needed
 
 ## Download
 
 Grab the latest release from [Nexus Mods](https://www.nexusmods.com/windrose/mods/29) or [GitHub Releases](https://github.com/Vercadi/windrose-mod-manager/releases).
 
-## Running from Source
+## Hosted Server Notes
+
+Hosted support is built for providers that give you **SFTP/SSH access** to the server files.
+
+You will usually need:
+
+- host
+- port
+- username
+- password or private key
+- the server folder path on the remote machine
+
+If your host does not expose SFTP/SSH file access, the hosted workflow in the app will not work.
+
+## Running From Source
 
 ### Prerequisites
 
@@ -39,27 +82,24 @@ Grab the latest release from [Nexus Mods](https://www.nexusmods.com/windrose/mod
 ### Setup
 
 ```bash
-# Install dependencies
 pip install -r requirements.txt
-
-# Run the app
 python app.py
 ```
 
 ### Run Tests
 
 ```bash
-python -m pytest tests/ -v
+python -m pytest -q
 ```
 
 ## Supported Mod Types
 
 | Type | Description |
 |---|---|
-| **Pak-only** | Archives containing `.pak` files (optionally with `.utoc`/`.ucas`) |
-| **Loose-file** | Archives with folder structures to overlay onto the game directory |
+| **Pak-only** | Archives containing `.pak` files, optionally with `.utoc` / `.ucas` companions |
+| **Loose-file** | Archives with folder overlays for the Windrose install |
 | **Mixed** | Archives containing both pak files and loose files |
-| **Multi-variant** | Archives with multiple alternative pak files. User selects which to install |
+| **Multi-variant** | Archives with multiple alternative pak choices; the user selects one |
 
 ## Supported Archive Formats
 
@@ -67,60 +107,66 @@ python -m pytest tests/ -v
 |---|---|
 | `.zip` | Full support |
 | `.7z` | Requires `py7zr` (included in requirements) |
-| `.rar` | Requires `rarfile` + UnRAR executable on PATH |
+| `.rar` | Requires `rarfile` plus UnRAR on PATH |
 
-**RAR note:** The `rarfile` Python package requires the [UnRAR](https://www.rarlab.com/rar_add.htm) command-line tool to be installed and available on your system PATH. Without it, `.rar` archives will fail to open.
+**RAR note:** the `rarfile` Python package requires the [UnRAR](https://www.rarlab.com/rar_add.htm) command-line tool to be installed and available on your system PATH. Without it, `.rar` archives will fail to open.
 
 ## Project Structure
 
-```
+```text
 windrose-mod-manager/
-  app.py                          # Entry point
+  app.py
   requirements.txt
   windrose_deployer/
-    __init__.py                   # Version and app name
-    models/                       # Data classes
+    __init__.py
+    models/
       app_paths.py
       archive_info.py
       deployment_record.py
       mod_install.py
+      remote_profile.py
       server_config.py
       world_config.py
-    core/                         # Business logic
-      archive_handler.py          # Unified archive reader (.zip/.7z/.rar)
-      archive_inspector.py        # Archive content analysis and variant detection
+    core/
+      archive_handler.py
+      archive_inspector.py
       backup_manager.py
       conflict_detector.py
       deployment_planner.py
-      discovery.py                # Auto-detect game paths
+      discovery.py
       installer.py
+      integrity_service.py
       logging_service.py
       manifest_store.py
+      recovery_service.py
+      remote_config_service.py
+      remote_deployer.py
+      remote_profile_store.py
+      remote_provider.py
       server_config_service.py
+      server_sync_service.py
+      sftp_provider.py
       target_resolver.py
-      update_checker.py           # GitHub Releases update check
+      update_checker.py
       validators.py
       world_config_service.py
     ui/
-      app_window.py               # Main window, launch bar, update banner
+      app_window.py
       widgets/
         status_panel.py
       tabs/
-        mods_tab.py               # Archive library, inspect, install
-        installed_tab.py          # Manage installed mods
-        server_tab.py             # Server + world config editor
-        backups_tab.py            # Backup history and restore
-        settings_tab.py           # Path configuration
-        about_tab.py              # App info, links, update check
+        about_tab.py
+        backups_tab.py
+        mods_tab.py
+        server_tab.py
+        settings_tab.py
     utils/
       filesystem.py
       hashing.py
       json_io.py
       naming.py
-  tests/                          # Test suite (pytest)
-  assets/                         # App icon files
-  data/                           # Manifest and app state (auto-created)
-  backups/                        # Backup storage (auto-created)
+  tests/
+  assets/
 ```
 
 ## Where Data Lives
@@ -130,27 +176,28 @@ windrose-mod-manager/
 | App state / manifest | `./data/app_state.json` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
 | Settings | `./data/settings.json` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
 | Archive library | `./data/archive_library.json` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
+| Remote profiles | `./data/remote_profiles.json` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
 | Backups | `./backups/` | `%LOCALAPPDATA%/WindroseModDeployer/backups/` |
 | Logs | `./data/windrose_deployer.log` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
 
-## Building the Executable
+## Building The Executable
 
 ```bash
 python -m PyInstaller windrose_mod_deployer.spec --noconfirm
 ```
 
-The output lands in `dist/Windrose Mod Manager/`.
+The packaged app is written to `dist/Windrose Mod Manager/`.
 
-When packaged, the app writes data to `%LOCALAPPDATA%/WindroseModDeployer/` instead of the repo directory.
+When packaged, the app stores its working data under `%LOCALAPPDATA%/WindroseModDeployer/` instead of the repo directory.
 
 ## Known Limitations
 
-- No automatic mod updates or version tracking per mod
-- Conflict detection is warning-only, no load-order management
-- Discovery scans common Steam library drive letters (C-H); non-standard locations require manual browse
-- Windows-only (uses `os.startfile` and Windows path conventions)
-- No networked features beyond update checks (no Nexus API, no auto-downloads)
-- No save editing, UE asset unpacking, or pak creation
+- No automatic per-mod update tracking
+- Conflict detection is still warning-only; there is no load-order system
+- Hosted support requires working SFTP/SSH access to the server
+- Windows only
+- No Nexus API integration or automatic Nexus downloads
+- No save editing, pak creation, or UE asset unpacking
 
 ## License
 

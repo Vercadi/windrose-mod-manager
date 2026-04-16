@@ -3,7 +3,11 @@ import time
 import pytest
 from pathlib import Path
 
-from windrose_deployer.core.backup_manager import BackupManager, BackupRecord
+from windrose_deployer.core.backup_manager import (
+    BackupManager,
+    BackupRecord,
+    DEFAULT_MAX_BACKUPS_PER_SOURCE,
+)
 
 
 class TestBackupManager:
@@ -66,7 +70,60 @@ class TestBackupManager:
         assert len(mgr.list_backups("world_config")) == 1
         assert len(mgr.list_backups()) == 3
 
+    def test_delete_backup_removes_record_and_file(self, tmp_path):
+        src = tmp_path / "f.txt"
+        src.write_text("x")
+        mgr = BackupManager(tmp_path / "backups")
+        record = mgr.backup_file(src, category="installs")
+
+        assert record is not None
+        assert Path(record.backup_path).exists()
+        assert mgr.delete_backup(record)
+        assert not Path(record.backup_path).exists()
+        assert mgr.list_backups() == []
+
     def test_from_dict_resilient(self):
         record = BackupRecord.from_dict({"backup_id": "x", "timestamp": "t"})
         assert record.backup_id == "x"
         assert record.category == "installs"
+
+    def test_auto_retention_keeps_last_10_per_source(self, tmp_path):
+        src = tmp_path / "rotating.txt"
+        backup_root = tmp_path / "backups"
+        mgr = BackupManager(backup_root)
+
+        for idx in range(DEFAULT_MAX_BACKUPS_PER_SOURCE + 2):
+            src.write_text(f"v{idx}", encoding="utf-8")
+            mgr.backup_file(src, category="installs")
+
+        records = mgr.list_backups(source_path=src)
+        assert len(records) == DEFAULT_MAX_BACKUPS_PER_SOURCE
+
+        saved_versions = [Path(record.backup_path).read_text(encoding="utf-8") for record in records]
+        assert saved_versions == [f"v{idx}" for idx in range(2, 12)]
+
+    def test_manual_prune_retention_respects_source_profile_groups(self, tmp_path):
+        mgr = BackupManager(tmp_path / "backups", max_backups_per_source=None)
+        profile_a = "remote://profile-a/game/R5/ServerDescription.json"
+        profile_b = "remote://profile-b/game/R5/ServerDescription.json"
+
+        for idx in range(12):
+            mgr.backup_bytes(
+                source_path=profile_a,
+                filename="ServerDescription.json",
+                data=f"a{idx}".encode("utf-8"),
+                category="remote_server_config",
+            )
+        for idx in range(3):
+            mgr.backup_bytes(
+                source_path=profile_b,
+                filename="ServerDescription.json",
+                data=f"b{idx}".encode("utf-8"),
+                category="remote_server_config",
+            )
+
+        pruned = mgr.prune_retention(max_backups_per_source=10)
+
+        assert pruned == 2
+        assert len(mgr.list_backups(source_path=profile_a)) == 10
+        assert len(mgr.list_backups(source_path=profile_b)) == 3

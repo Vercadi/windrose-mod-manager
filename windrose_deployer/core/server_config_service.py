@@ -60,9 +60,9 @@ class ServerConfigService:
 
     def restore_latest(self, path: Path) -> bool:
         """Restore the most recent backup of ServerDescription.json."""
-        latest = self.backup.latest_backup(category="server_config")
+        latest = self.backup.latest_backup(category="server_config", source_path=path)
         if not latest:
-            log.warning("No server config backups available")
+            log.warning("No server config backups available for %s", path)
             return False
 
-        return self.backup.restore_backup(latest)
+        return self.backup.restore_backup(latest, dest_path=path)

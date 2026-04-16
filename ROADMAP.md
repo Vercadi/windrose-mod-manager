@@ -40,32 +40,70 @@ The first public build people will keep using. Safety invariants and identity mu
 
 ---
 
-## v0.2.1 - Polish & Confidence
+## v0.2.1 - Hotfix & State Consistency
 
-Small fixes and UX improvements based on early user feedback.
+Small release focused on fixing shipped correctness issues before remote/rented-server support lands.
 
-- [ ] Grouped conflict display (by mod, file count, target path)
-- [ ] Conservative variant detection (flag uncertain cases for user decision instead of guessing)
-- [ ] Migration cleanup (remove any leftover v1 artifacts if needed)
+### Release blockers
+- [x] Disabled mods that overwrote files still restore originals on uninstall
+- [x] Restore backup writes to the currently configured `ServerDescription.json`, not a stale path from backup metadata
+- [x] Mods tab supports multiple installs from the same archive path without ambiguous badges/uninstall actions
+- [x] Changing Backup Directory takes effect immediately, or the UI explicitly requires restart before claiming success
+
+### Regression coverage
+- [x] Disable -> uninstall -> original file restored after overwrite
+- [x] Server config restore targets the active configured path only
+- [x] Same archive installed to multiple targets remains representable in Mods tab
+- [x] Backup-directory change is honored by live services
+
+### UX follow-up
+- [x] Grouped conflict display (by mod, file count, target path)
+- [x] Conservative variant detection (flag uncertain cases for user decision instead of guessing)
 - [ ] Better error messages for common failure modes
 - [ ] UI polish based on first user reports
 
 ---
 
-## v0.3.0 - Real Manager
+## v0.3.0 - Remote Server & Recovery
 
-The pivot from "installer UI" to a tool that can explain and recover its own changes.
+The next major feature set: make the tool useful for rented servers while strengthening recovery and verification.
 
-### Core
-- [ ] Verify install (check manifest against actual files on disk, report drift)
-- [ ] Repair install (re-extract missing files from archive if archive is still available)
-- [ ] Undo last install: requires an authoritative operation journal that tracks overwrites, restores, and partial failures, not just "remove the last mod." The journal must be the source of truth for reversal, covering the full range of what install/uninstall/reinstall can do.
-- [ ] Health/status dashboard (missing archives, missing files, stale backups, broken paths)
+### Product direction
+- [x] Remote/rented-server support is a first-class feature
+- [x] Managed remote deployment uses **SFTP/SSH first**
+- [ ] FTPS can be added if hosts require it
+- [x] Plain FTP is deferred unless a host forces it, because it is the weakest protocol option
 
-### UX
-- [ ] Archive metadata (user notes, category tags, Nexus URL/version)
-- [ ] Better batch action summaries (succeeded/failed/skipped with reasons)
-- [ ] Drift detection on startup (warn if files changed outside the manager)
+### Remote server MVP
+- [x] Saved remote connection profiles
+- [x] Connection test and validation before any upload
+- [x] Configurable remote mods directory
+- [x] Remote install uses a real deployment plan, not raw archive dumping
+- [x] Variant-aware remote install (only the selected variant is uploaded)
+- [x] Remote upload preserves only planned files/paths
+- [x] Remote file listing / path verification
+- [x] Clear post-upload summary (succeeded/failed/skipped with reasons)
+- [x] Restart guidance or optional restart action after deploy
+
+### Remote architecture rules
+- [x] Introduce a small remote provider abstraction (`RemoteProvider`)
+- [x] Implement `SftpProvider` first
+- [x] Keep archive path safety rules for remote deployment too
+- [x] No arbitrary remote shell/command console in the MVP
+- [x] No fake "supports every rented host" claim until multiple hosts are validated
+
+### Recovery & verification
+- [x] Verify install (check manifest against actual files on disk, report drift)
+- [x] Repair install (re-extract missing files from archive if archive is still available)
+- [x] Better batch action summaries (succeeded/failed/skipped with reasons)
+- [x] Drift detection on startup (warn if files changed outside the manager)
+
+### Test matrix
+- [x] Remote install uses deployment plan output, not raw archive contents
+- [x] Remote install uploads only the selected variant
+- [x] Unsafe archive paths are rejected in remote workflow too
+- [x] Remote result summaries count succeeded/failed/skipped correctly
+- [ ] End-to-end SFTP smoke test against a rented-server-like target
 
 ---
 
@@ -85,7 +123,7 @@ This is where the product becomes more useful than generic mod managers for Wind
 
 ### WorldDescription.json workflows
 - [ ] Per-world discovery (enumerate worlds under SaveProfiles, show active world from ServerDescription.json)
-- [ ] Running-server save guard (warn and block if server process is detected)
+- [ ] Running-server save behavior is explicit (warn/block/allow depending on what Windrose actually supports)
 - [ ] Backup diff/restore (show what changed between backups, restore specific versions)
 - [ ] Apply guidance (which settings need world restart vs. server restart)
 

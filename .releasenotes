@@ -1,0 +1,46 @@
+## Windrose Mod Manager v0.3.0
+
+Windrose Mod Manager v0.3.0 turns the app into a much stronger client + server cockpit, with hosted server support, a safer recovery flow, and a cleaner day-to-day workflow.
+
+### Highlights
+
+- Hosted server support over SFTP / SSH with saved profiles
+- Install mods to hosted servers directly from the Mods workspace
+- Hosted server settings editing for `ServerDescription.json` and `WorldDescription.json`
+- Unified Mods workspace with archive library plus applied-mod visibility
+- Recovery Center with restore, undo-friendly history, raw backup access, and cleanup tools
+- Client / server sync review for local and hosted setups
+- Launch Windrose and Launch Local Server shortcuts
+- GitHub update notifications with direct download link
+
+### Safety And Reliability
+
+- Apply and Restart no longer continues after a failed save
+- Sync compare no longer drops installs that share the same display name
+- Recovery timeline no longer double-lists config saves
+- Uninstall restores overwritten originals from backup
+- Disabled mods that overwrote files still restore originals on uninstall
+- Restore now targets the currently configured server config path
+- Backup retention now keeps old backup growth under control
+
+### UX Improvements
+
+- Cleaner Mods workspace with archive actions moved into row menus
+- Applied Mods section grouped by target
+- Hosted live inventory view inside Mods
+- Cleaner Server screen with local and hosted workflows in one place
+- Scrollable variant chooser for long multi-option archives
+- Technical log demoted to a smaller secondary surface
+
+### Hosted Server Notes
+
+Hosted support expects a provider that gives you SFTP / SSH access to the server files. You will usually need the host, port, username, password or private key, and the server folder path.
+
+### Validation
+
+- `python -m pytest -q` -> 93 passed
+- Packaged build smoke-tested before release
+
+### Full Changelog
+
+https://github.com/Vercadi/windrose-mod-manager/commits/v0.3.0

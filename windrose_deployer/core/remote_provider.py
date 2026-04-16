@@ -1,0 +1,26 @@
+"""Protocol for remote deployment backends."""
+from __future__ import annotations
+
+from dataclasses import dataclass
+from typing import Callable, Protocol
+
+
+@dataclass(frozen=True)
+class RemoteEntry:
+    path: str
+    name: str
+    is_dir: bool = False
+
+
+class RemoteProvider(Protocol):
+    def close(self) -> None: ...
+    def path_exists(self, remote_path: str) -> bool: ...
+    def list_files(self, remote_dir: str) -> list[str]: ...
+    def list_entries(self, remote_dir: str) -> list[RemoteEntry]: ...
+    def ensure_dir(self, remote_dir: str) -> None: ...
+    def upload_bytes(self, data: bytes, remote_path: str) -> None: ...
+    def read_bytes(self, remote_path: str) -> bytes: ...
+    def execute(self, command: str) -> tuple[bool, str]: ...
+
+
+RemoteProviderFactory = Callable[..., RemoteProvider]

@@ -79,21 +79,40 @@ class InstalledTab(ctk.CTkFrame):
         btn_frame = ctk.CTkFrame(self._details, fg_color="transparent")
         btn_frame.pack(fill="x", padx=8, pady=(4, 8))
 
-        self._toggle_btn = ctk.CTkButton(btn_frame, text="Disable", width=80,
+        top_row = ctk.CTkFrame(btn_frame, fg_color="transparent")
+        top_row.pack(fill="x")
+        bottom_row = ctk.CTkFrame(btn_frame, fg_color="transparent")
+        bottom_row.pack(fill="x", pady=(6, 0))
+
+        self._toggle_btn = ctk.CTkButton(top_row, text="Disable", width=80,
                                          command=self._on_toggle)
         self._toggle_btn.pack(side="left", padx=(0, 4))
 
-        self._uninstall_btn = ctk.CTkButton(btn_frame, text="Uninstall", width=80,
+        self._uninstall_btn = ctk.CTkButton(top_row, text="Uninstall", width=80,
                                             fg_color="#c0392b", hover_color="#962d22",
                                             command=self._on_uninstall)
         self._uninstall_btn.pack(side="left", padx=4)
 
-        self._reinstall_btn = ctk.CTkButton(btn_frame, text="Reinstall", width=80,
+        self._reinstall_btn = ctk.CTkButton(top_row, text="Reinstall", width=80,
                                             fg_color="#2980b9", hover_color="#2471a3",
                                             command=self._on_reinstall)
         self._reinstall_btn.pack(side="left", padx=4)
 
-        self._open_folder_btn = ctk.CTkButton(btn_frame, text="Open Folder", width=80,
+        self._verify_btn = ctk.CTkButton(
+            bottom_row, text="Verify", width=80,
+            fg_color="#555555", hover_color="#666666",
+            command=self._on_verify,
+        )
+        self._verify_btn.pack(side="left", padx=(0, 4))
+
+        self._repair_btn = ctk.CTkButton(
+            bottom_row, text="Repair", width=80,
+            fg_color="#8e44ad", hover_color="#7d3c98",
+            command=self._on_repair,
+        )
+        self._repair_btn.pack(side="left", padx=4)
+
+        self._open_folder_btn = ctk.CTkButton(bottom_row, text="Open Folder", width=90,
                                               command=self._on_open_folder)
         self._open_folder_btn.pack(side="left", padx=4)
 
@@ -196,6 +215,7 @@ class InstalledTab(ctk.CTkFrame):
             self.app.installer.enable(mod)
         self.app.manifest.update_mod(mod)
         self.refresh()
+        self.app.refresh_mods_tab()
         log.info("Toggled mod %s: enabled=%s", mod.mod_id, mod.enabled)
 
     def _on_uninstall(self) -> None:
@@ -214,6 +234,8 @@ class InstalledTab(ctk.CTkFrame):
         self.app.manifest.add_record(record)
         self.app.manifest.remove_mod(mod.mod_id)
         self.refresh()
+        self.app.refresh_mods_tab()
+        self.app.refresh_backups_tab()
         log.info("Uninstalled mod: %s", mod.mod_id)
 
     def _on_reinstall(self) -> None:
@@ -278,6 +300,7 @@ class InstalledTab(ctk.CTkFrame):
 
         self.refresh()
         self.app.refresh_backups_tab()
+        self.app.refresh_mods_tab()
 
     def _on_uninstall_all(self) -> None:
         mods = self.app.manifest.list_mods()
@@ -294,6 +317,7 @@ class InstalledTab(ctk.CTkFrame):
             return
 
         count = 0
+        failed = 0
         for mod in list(mods):
             try:
                 record = self.app.installer.uninstall(mod)
@@ -302,10 +326,15 @@ class InstalledTab(ctk.CTkFrame):
                 count += 1
             except Exception as exc:
                 log.error("Failed to uninstall %s: %s", mod.mod_id, exc)
+                failed += 1
 
         self.refresh()
         self.app.refresh_backups_tab()
-        messagebox.showinfo("Done", f"Uninstalled {count} of {len(mods)} mod(s).")
+        self.app.refresh_mods_tab()
+        message = f"Uninstalled {count} of {len(mods)} mod(s)."
+        if failed:
+            message += f"\n{failed} uninstall(s) failed."
+        messagebox.showinfo("Done", message)
         log.info("Uninstall all: removed %d mods", count)
 
     def _on_open_folder(self) -> None:
@@ -315,3 +344,36 @@ class InstalledTab(ctk.CTkFrame):
         folder = first_file.parent
         if folder.is_dir():
             os.startfile(str(folder))
+
+    def _on_verify(self) -> None:
+        if not self._selected_mod:
+            return
+        result = self.app.integrity.verify_mod(self._selected_mod)
+        if result.ok:
+            messagebox.showinfo("Verify", f"{self._selected_mod.display_name} verified cleanly.\n\n{result.summary}")
+        else:
+            details = "\n".join(f"{issue.file_path} - {issue.reason}" for issue in result.issues)
+            if result.warnings:
+                details += "\n\nWarnings:\n" + "\n".join(result.warnings)
+            messagebox.showwarning(
+                "Verify",
+                f"{self._selected_mod.display_name} has integrity issues.\n\n{result.summary}\n\n{details}",
+            )
+        self._show_details(self._selected_mod)
+
+    def _on_repair(self) -> None:
+        if not self._selected_mod:
+            return
+        result = self.app.integrity.repair_mod(self._selected_mod)
+        if result.failed and not result.repaired:
+            messagebox.showerror("Repair", "\n".join(result.failed))
+            return
+
+        message = result.summary
+        if result.failed:
+            message += "\n\nFailed:\n" + "\n".join(result.failed)
+        if result.warnings:
+            message += "\n\nWarnings:\n" + "\n".join(result.warnings)
+        messagebox.showinfo("Repair", message)
+        self.refresh()
+        self.app.refresh_backups_tab()

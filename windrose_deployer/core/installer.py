@@ -31,6 +31,13 @@ def _is_safe_relative_path(entry_path: str) -> bool:
     return True
 
 
+def _canonical_installed_path(path_str: str) -> str:
+    """Return the original managed path even if the file is currently disabled."""
+    if path_str.endswith(DISABLED_SUFFIX):
+        return path_str[: -len(DISABLED_SUFFIX)]
+    return path_str
+
+
 class Installer:
     """Executes planned deployments and tracks results."""
 
@@ -132,6 +139,8 @@ class Installer:
             mod_id=mod_id,
             target=plan.target.value,
             action="install",
+            display_name=plan.mod_name,
+            source_archive=str(archive_path),
             files=deployed_files,
             notes=notes,
         )
@@ -145,6 +154,7 @@ class Installer:
         restored_count = 0
         for fp in mod.installed_files:
             p = Path(fp)
+            canonical_path = Path(_canonical_installed_path(fp))
             deleted = False
             if p.exists():
                 safe_delete(p)
@@ -155,15 +165,15 @@ class Installer:
                 deleted = True
 
             # Restore the original file from backup if one was saved
-            backup_path = mod.backup_map.get(fp)
+            backup_path = mod.backup_map.get(str(canonical_path)) or mod.backup_map.get(fp)
             if backup_path:
                 bp = Path(backup_path)
                 if bp.is_file():
-                    ensure_dir(p.parent)
+                    ensure_dir(canonical_path.parent)
                     import shutil
-                    shutil.copy2(str(bp), str(p))
+                    shutil.copy2(str(bp), str(canonical_path))
                     restored_count += 1
-                    log.info("Restored original: %s from %s", p, bp)
+                    log.info("Restored original: %s from %s", canonical_path, bp)
 
             if deleted:
                 removed.append(DeployedFile(source_archive_path="", dest_path=fp,
@@ -177,6 +187,8 @@ class Installer:
             mod_id=mod.mod_id,
             target=",".join(mod.targets),
             action="uninstall",
+            display_name=mod.display_name,
+            source_archive=mod.source_archive,
             files=removed,
             notes=notes,
         )

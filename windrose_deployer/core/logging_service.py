@@ -29,6 +29,10 @@ def setup_logging(log_dir: Optional[Path] = None, level: int = logging.DEBUG) ->
     console.setFormatter(fmt)
     root.addHandler(console)
 
+    # Paramiko is very chatty at INFO and floods the in-app status log with
+    # connection/session noise that doesn't help end users.
+    logging.getLogger("paramiko").setLevel(logging.WARNING)
+
     if log_dir:
         log_dir.mkdir(parents=True, exist_ok=True)
         fh = logging.FileHandler(log_dir / "deployer.log", encoding="utf-8")

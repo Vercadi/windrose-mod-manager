@@ -33,6 +33,7 @@ a = Analysis(
         'customtkinter',
         'py7zr',
         'rarfile',
+        'paramiko',
     ],
     hookspath=[],
     hooksconfig={},
