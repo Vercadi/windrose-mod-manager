@@ -33,6 +33,7 @@ class SettingsTab(ctk.CTkFrame):
         self._path_vars: dict[str, ctk.StringVar] = {}
         self._status_labels: dict[str, ctk.CTkLabel] = {}
         self._hosted_profile_rows: list[ctk.CTkFrame] = []
+        self._explicit_path_values: dict[str, str] = {}
 
         self._build_header()
         self._build_tabs()
@@ -113,27 +114,29 @@ class SettingsTab(ctk.CTkFrame):
         card = self._section_card(self._tab_client, 0, "Client")
         self._add_path_row(card, 1, "client_root", "Windrose Client Folder")
         self._add_path_row(card, 2, "local_config", "Local Config Folder")
-        self._add_path_row(card, 3, "local_save_root", "World Saves Folder")
         ctk.CTkLabel(
             card,
             text="Launch Windrose uses the client folder configured here.",
             justify="left",
             wraplength=760,
             text_color="#95a5a6",
-        ).grid(row=4, column=0, columnspan=4, sticky="ew", padx=14, pady=(2, 14))
+        ).grid(row=3, column=0, columnspan=4, sticky="ew", padx=14, pady=(2, 14))
 
     def _build_server_tab(self) -> None:
         card = self._section_card(self._tab_server, 0, "Local Server")
         self._add_path_row(card, 1, "server_root", "Local Server Folder")
+        self._add_path_row(card, 2, "local_save_root", "Server World Saves Folder")
         ctk.CTkLabel(
             card,
             text=(
-                "Launch Local Server uses this folder. Live server/world settings still belong in the Server screen."
+                "Point this at the standalone Windrose Dedicated Server folder or the legacy bundled server root. "
+                "ServerDescription.json is derived from <server>/R5/ServerDescription.json, and world saves default "
+                "to <server>/R5/Saved."
             ),
             justify="left",
             wraplength=760,
             text_color="#95a5a6",
-        ).grid(row=2, column=0, columnspan=4, sticky="ew", padx=14, pady=(2, 14))
+        ).grid(row=3, column=0, columnspan=4, sticky="ew", padx=14, pady=(2, 14))
 
     def _build_hosted_tab(self) -> None:
         card = self._section_card(self._tab_hosted, 0, "Hosted Profiles")
@@ -293,11 +296,22 @@ class SettingsTab(ctk.CTkFrame):
 
     def _populate(self) -> None:
         paths = self.app.paths
-        mapping = {
+        explicit_mapping = {
             "client_root": paths.client_root,
             "server_root": paths.server_root,
             "local_config": paths.local_config,
             "local_save_root": paths.local_save_root,
+            "backup_dir": paths.backup_dir,
+        }
+        self._explicit_path_values = {
+            key: str(value) if value else ""
+            for key, value in explicit_mapping.items()
+        }
+        mapping = {
+            "client_root": paths.client_root,
+            "server_root": paths.server_root,
+            "local_config": paths.local_config,
+            "local_save_root": paths.effective_local_save_root,
             "backup_dir": paths.backup_dir,
         }
         for key, value in mapping.items():
@@ -412,7 +426,8 @@ class SettingsTab(ctk.CTkFrame):
 
         for key, var in self._path_vars.items():
             value = var.get().strip()
-            setattr(paths, key, Path(value) if value else None)
+            path_value = self._path_value_for_save(key, value)
+            setattr(paths, key, path_value)
 
         self.app.save_settings()
         if paths.backup_dir != old_backup_dir:
@@ -452,6 +467,18 @@ class SettingsTab(ctk.CTkFrame):
             os.startfile(str(DEFAULT_DATA_DIR))
         else:
             messagebox.showinfo("Not Found", f"Data folder not found:\n{DEFAULT_DATA_DIR}")
+
+    def _path_value_for_save(self, key: str, value: str) -> Path | None:
+        if not value:
+            return None
+        if key != "local_save_root":
+            return Path(value)
+
+        explicit_value = self._explicit_path_values.get(key, "")
+        effective_value = str(self.app.paths.effective_local_save_root) if self.app.paths.effective_local_save_root else ""
+        if not explicit_value and value == effective_value:
+            return None
+        return Path(value)
 
     def _info_append(self, text: str) -> None:
         try:

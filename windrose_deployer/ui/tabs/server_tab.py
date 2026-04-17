@@ -478,7 +478,7 @@ class ServerTab(ctk.CTkFrame):
                 f"Mode: Local\n"
                 f"Local Server: {self.app.paths.server_root or '(not set)'}\n"
                 f"Server Settings: {self.app.paths.server_description_json or '(not detected)'}\n"
-                f"World Saves: {self.app.paths.local_save_root or '(not set)'}"
+                f"World Saves: {self.app.paths.effective_local_save_root or '(not set)'}"
             )
         self._source_summary_label.configure(text=text)
 
@@ -779,7 +779,8 @@ class ServerTab(ctk.CTkFrame):
             if not desc_path or not desc_path.is_file():
                 messagebox.showwarning(
                     "Not Found",
-                    "ServerDescription.json not found.\nConfigure the client path in Settings.",
+                    "ServerDescription.json not found.\n"
+                    "Check the local server path in Settings, then launch the dedicated server once so it can create R5/ServerDescription.json.",
                 )
                 return
 
@@ -874,7 +875,7 @@ class ServerTab(ctk.CTkFrame):
         else:
             desc_path = self.app.paths.server_description_json
             if not desc_path:
-                messagebox.showerror("Error", "Client path not configured.")
+                messagebox.showerror("Error", "Local server path not configured.")
                 return False
             success, save_errors = self.app.server_config_svc.save(desc_path, config)
         if success:
@@ -918,7 +919,7 @@ class ServerTab(ctk.CTkFrame):
         else:
             desc_path = self.app.paths.server_description_json
             if not desc_path:
-                messagebox.showerror("Error", "Client path not configured.")
+                messagebox.showerror("Error", "Local server path not configured.")
                 return
             restored = self.app.server_config_svc.restore_latest(desc_path)
 
@@ -954,10 +955,12 @@ class ServerTab(ctk.CTkFrame):
                 return
         else:
             world_path = self.app.world_config_svc.find_world_by_island_id(
-                island_id, self.app.paths.local_save_root,
+                island_id, self.app.paths.effective_local_save_root,
             )
             if world_path is None:
-                self._world_info_label.configure(text=f"(world {island_id[:8]}... not found)")
+                self._world_info_label.configure(
+                    text=f"(world {island_id[:8]}... not found - start the local server once or review Server World Saves Folder)"
+                )
                 log.warning("Could not find WorldDescription.json for island %s", island_id)
                 return
 
@@ -1234,7 +1237,8 @@ class ServerTab(ctk.CTkFrame):
             body,
             text=(
                 "Start with the hosted server folder. The manager can derive the Windrose mods folder, "
-                "server settings file, and world saves folder from it."
+                "server settings file, and world saves folder from it. If your SFTP login already opens inside "
+                "the Windrose server folder, you can enter '.' here or leave it blank and fill the overrides manually."
             ),
             justify="left",
             wraplength=520,
@@ -1299,7 +1303,7 @@ class ServerTab(ctk.CTkFrame):
         ctk.CTkEntry(root_card, textvariable=vars_map["root"]).grid(row=1, column=1, sticky="ew", padx=8, pady=4)
         ctk.CTkLabel(
             root_card,
-            text="Example: /home/container or C:/Games/WindroseServer",
+            text="Example: /home/container, C:/Games/WindroseServer, or '.' when the login already lands inside the server folder",
             justify="left",
             text_color="#95a5a6",
         ).grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))

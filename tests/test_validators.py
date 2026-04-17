@@ -37,12 +37,19 @@ class TestValidateClientRoot:
 class TestValidateServerRoot:
     def test_valid(self, tmp_path):
         (tmp_path / "WindroseServer.exe").touch()
+        (tmp_path / "R5").mkdir()
         ok, msg = validate_server_root(tmp_path)
         assert ok
 
     def test_missing_exe(self, tmp_path):
         ok, msg = validate_server_root(tmp_path)
         assert not ok
+
+    def test_missing_r5(self, tmp_path):
+        (tmp_path / "WindroseServer.exe").touch()
+        ok, msg = validate_server_root(tmp_path)
+        assert not ok
+        assert "R5" in msg
 
 
 class TestValidateLocalConfig:

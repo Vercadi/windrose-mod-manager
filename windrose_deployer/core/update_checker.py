@@ -176,7 +176,7 @@ def _dedupe_path(path: Path) -> Path:
 
 
 def _is_newer(remote: str, local: str) -> bool:
-    """Simple semver comparison: '0.3.0' > '0.2.0'."""
+    """Simple semver comparison: '0.3.1' > '0.3.0'."""
     try:
         r_parts = [int(x) for x in remote.split(".")]
         l_parts = [int(x) for x in local.split(".")]

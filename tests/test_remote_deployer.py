@@ -66,7 +66,7 @@ def test_remote_plan_requires_root_for_loose_files(tmp_path: Path) -> None:
     plan = plan_remote_deployment(info, profile, mod_name="MixedMod")
 
     assert not plan.valid
-    assert any("remote game/server root" in warning.lower() for warning in plan.warnings)
+    assert any("configure server folder" in warning.lower() for warning in plan.warnings)
 
 
 def test_remote_plan_uses_root_defaults_when_overrides_blank(tmp_path: Path) -> None:
@@ -150,3 +150,21 @@ def test_test_connection_validates_resolved_paths_from_root() -> None:
     assert "mods dir OK" in message
     assert "server config OK" in message
     assert "save root OK" in message
+
+
+def test_test_connection_guides_blank_root_and_manual_overrides() -> None:
+    uploads: list[str] = []
+    profile = _make_profile()
+    profile.remote_root_dir = ""
+    profile.remote_mods_dir = ""
+    profile.remote_server_description_path = ""
+    profile.remote_save_root = ""
+    service = RemoteDeploymentService(
+        provider_factory=lambda _profile: FakeRemoteProvider(uploads, set())
+    )
+
+    ok, message = service.test_connection(profile)
+
+    assert ok
+    assert "server folder" in message.lower()
+    assert "overrides manually" in message.lower()

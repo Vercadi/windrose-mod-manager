@@ -17,6 +17,7 @@ from windrose_deployer.models.app_paths import AppPaths
 from windrose_deployer.ui.app_window import AppWindow
 from windrose_deployer.ui.tabs.mods_tab import ModsTab
 from windrose_deployer.ui.tabs.server_tab import ServerTab
+from windrose_deployer.ui.tabs.settings_tab import SettingsTab
 from windrose_deployer.utils.naming import generate_mod_id
 
 
@@ -334,6 +335,39 @@ class TestBackupServiceRebinding:
         assert app.installer.backup is app.backup
         assert app.server_config_svc.backup is app.backup
         assert app.world_config_svc.backup is app.backup
+
+
+class TestSettingsSaveRootPersistence:
+    def test_derived_server_save_root_stays_implicit_on_save(self, tmp_path):
+        server_root = tmp_path / "Windrose Dedicated Server"
+        paths = AppPaths(server_root=server_root, local_save_root=None)
+        tab = object.__new__(SettingsTab)
+        tab.app = SimpleNamespace(paths=paths)
+        tab._explicit_path_values = {"local_save_root": ""}
+
+        resolved = SettingsTab._path_value_for_save(
+            tab,
+            "local_save_root",
+            str(paths.effective_local_save_root),
+        )
+
+        assert resolved is None
+
+    def test_custom_server_save_root_persists_as_override(self, tmp_path):
+        server_root = tmp_path / "Windrose Dedicated Server"
+        custom_save_root = tmp_path / "CustomSaves"
+        paths = AppPaths(server_root=server_root, local_save_root=None)
+        tab = object.__new__(SettingsTab)
+        tab.app = SimpleNamespace(paths=paths)
+        tab._explicit_path_values = {"local_save_root": ""}
+
+        resolved = SettingsTab._path_value_for_save(
+            tab,
+            "local_save_root",
+            str(custom_save_root),
+        )
+
+        assert resolved == custom_save_root
 
 
 class _DummyVar:

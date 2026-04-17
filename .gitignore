@@ -42,6 +42,10 @@ Desktop.ini
 
 # Test cache
 .pytest_cache/
+.pytest_tmp/
+pytest-cache-files-*/
+test_run_tmp_*/
+test_run_cache_*/
 
 # Logs
 *.log

@@ -8,7 +8,7 @@ A Windows desktop app for modding **Windrose** safely across the client, the loc
 
 Windrose Mod Manager is built around three practical jobs:
 
-- manage archives and applied mods from one Mods workspace
+- manage archives and applied mods from one Library workspace
 - edit local or hosted server settings safely
 - recover from mistakes with backups, restore, repair, and undo-friendly history
 
@@ -16,10 +16,10 @@ This is not a generic mod organizer. It is a Windrose-specific client + server c
 
 ## Features
 
-- Auto-detects Windrose client, local server, config, and save paths
+- Auto-detects Windrose client, standalone dedicated server installs, config, and server save paths
 - Analyzes archives (`.zip`, `.7z`, `.rar`) before install
 - Supports pak-only, loose-file, mixed, and multi-variant archives
-- Unified **Mods** workspace with:
+- Unified **Library** workspace with:
   - tracked archives
   - applied mods grouped by target
   - right-click install, reinstall, uninstall, and repair actions
@@ -43,6 +43,7 @@ This is not a generic mod organizer. It is a Windrose-specific client + server c
   - saved profiles
   - connection test
   - server-folder based path auto-detect
+  - support for `.` when SFTP opens directly inside the server folder
   - password or SSH private-key auth
 - **Recovery Center** with:
   - action-based recovery timeline
@@ -71,6 +72,8 @@ You will usually need:
 - the server folder path on the remote machine
 
 If your host does not expose SFTP/SSH file access, the hosted workflow in the app will not work.
+
+For local server management, the app supports the standalone Steam **Windrose Dedicated Server** install and uses its `R5` folder for settings and world saves.
 
 ## Running From Source
 

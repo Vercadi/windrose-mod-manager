@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Optional
 
@@ -44,22 +44,31 @@ class AppPaths:
 
     @property
     def server_description_json(self) -> Optional[Path]:
-        """ServerDescription.json lives at <client_root>/R5/, not inside the
-        dedicated server folder."""
-        if self.client_root:
-            return self.client_root / "R5" / "ServerDescription.json"
+        """ServerDescription.json lives under the dedicated server root."""
+        if self.server_root:
+            return self.server_root / "R5" / "ServerDescription.json"
+        return None
+
+    @property
+    def effective_local_save_root(self) -> Optional[Path]:
+        if self.local_save_root:
+            return self.local_save_root
+        if self.server_root:
+            return self.server_root / "R5" / "Saved"
         return None
 
     @property
     def local_save_profiles(self) -> Optional[Path]:
-        if self.local_save_root:
-            return self.local_save_root / "SaveProfiles"
+        root = self.effective_local_save_root
+        if root:
+            return root / "SaveProfiles"
         return None
 
     @property
     def local_save_games(self) -> Optional[Path]:
-        if self.local_save_root:
-            return self.local_save_root / "SaveGames"
+        root = self.effective_local_save_root
+        if root:
+            return root / "SaveGames"
         return None
 
     # --- serialisation ---------------------------------------------------- #

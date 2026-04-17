@@ -20,7 +20,7 @@ except ImportError:
 
 from .. import __app_name__, __version__
 from ..core.backup_manager import BackupManager
-from ..core.discovery import discover_all
+from ..core.discovery import discover_all, reconcile_paths
 from ..core.integrity_service import IntegrityService
 from ..core.installer import Installer
 from ..core.logging_service import setup_logging
@@ -142,6 +142,21 @@ class AppWindow(ctk.CTk):
             self.paths.data_dir = DEFAULT_DATA_DIR
         if self.paths.backup_dir is None:
             self.paths.backup_dir = DEFAULT_BACKUP_DIR
+        reconciled_paths, changed = reconcile_paths(self.paths)
+        if changed:
+            old_server_root = self.paths.server_root
+            old_save_root = self.paths.local_save_root
+            self.paths = reconciled_paths
+            self.save_settings()
+            log.info(
+                "Reconciled saved paths. Server root: %s -> %s | Save root: %s -> %s",
+                old_server_root,
+                self.paths.server_root,
+                old_save_root,
+                self.paths.local_save_root,
+            )
+        else:
+            self.paths = reconciled_paths
 
         self._rebind_backup_services()
         self.manifest = ManifestStore(self.paths.data_dir)
@@ -457,8 +472,8 @@ class AppWindow(ctk.CTk):
     # ---------------------------------------------------------- lifecycle
 
     def _initial_load(self) -> None:
-        """Run first-time discovery if paths aren't configured."""
-        if not self.paths.client_root:
+        """Run first-time discovery if no game or server path is configured."""
+        if not self.paths.client_root and not self.paths.server_root:
             log.info("No client root configured — running auto-detection...")
             detected = discover_all()
             if detected.client_root:

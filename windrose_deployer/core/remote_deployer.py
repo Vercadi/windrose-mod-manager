@@ -75,7 +75,7 @@ def plan_remote_deployment(
     if not remote_mods_dir:
         plan.valid = False
         plan.warnings.append(
-            "Remote mods directory is required. Set Remote Game/Server Root or Remote Mods Dir."
+            "Hosted mods directory is required. Set Server Folder, use '.', or fill the Mods Folder Override."
         )
         return plan
 
@@ -98,7 +98,7 @@ def plan_remote_deployment(
         if not remote_root_dir:
             plan.valid = False
             plan.warnings.append(
-                "This archive contains loose files. Configure Remote Game/Server Root first."
+                "This archive contains loose files. Configure Server Folder first, or use explicit hosted path overrides."
             )
         else:
             for entry in info.loose_entries:
@@ -188,7 +188,11 @@ class RemoteDeploymentService:
 
             if notes:
                 return True, "Connection successful. " + " | ".join(notes)
-            return True, "Connection successful. Set Remote Game/Server Root next to derive paths."
+            return True, (
+                "Connection successful. Set Server Folder to derive Windrose paths, "
+                "enter '.' if the login already opens in the server root, "
+                "or leave it blank and fill the overrides manually."
+            )
         except Exception as exc:
             message = str(exc)
             if "paramiko is required" in message.lower():
@@ -201,7 +205,7 @@ class RemoteDeploymentService:
     def list_remote_files(self, profile: RemoteProfile, remote_dir: str | None = None) -> list[str]:
         target_dir = remote_dir or profile.resolved_mods_dir()
         if not target_dir:
-            raise ValueError("Set Remote Game/Server Root or Remote Mods Dir first.")
+            raise ValueError("Set Server Folder, enter '.', or fill the Mods Folder Override first.")
         provider = self.provider_factory(profile)
         try:
             return provider.list_files(target_dir)
