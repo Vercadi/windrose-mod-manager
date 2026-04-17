@@ -102,6 +102,7 @@ class SettingsTab(ctk.CTkFrame):
             self._tab_advanced,
         ):
             tab.grid_columnconfigure(0, weight=1)
+            tab.grid_rowconfigure(0, weight=1)
 
         self._build_client_tab()
         self._build_server_tab()
@@ -140,6 +141,8 @@ class SettingsTab(ctk.CTkFrame):
 
     def _build_hosted_tab(self) -> None:
         card = self._section_card(self._tab_hosted, 0, "Hosted Profiles")
+        card.grid(sticky="nsew")
+        card.grid_rowconfigure(4, weight=1)
         ctk.CTkLabel(
             card,
             text=(
@@ -173,8 +176,8 @@ class SettingsTab(ctk.CTkFrame):
         self._hosted_summary = ctk.CTkLabel(card, text="", justify="left", text_color="#c1c7cd")
         self._hosted_summary.grid(row=3, column=0, sticky="ew", padx=14, pady=(0, 8))
 
-        self._hosted_list = ctk.CTkScrollableFrame(card, height=220)
-        self._hosted_list.grid(row=4, column=0, sticky="ew", padx=14, pady=(0, 14))
+        self._hosted_list = ctk.CTkScrollableFrame(card)
+        self._hosted_list.grid(row=4, column=0, sticky="nsew", padx=14, pady=(0, 14))
         self._hosted_list.grid_columnconfigure(0, weight=1)
 
     def _build_backups_tab(self) -> None:

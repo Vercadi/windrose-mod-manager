@@ -23,6 +23,8 @@ class FakeRemoteProvider:
         return remote_path in self.existing_paths
 
     def list_files(self, remote_dir: str) -> list[str]:
+        if remote_dir not in self.existing_paths:
+            raise FileNotFoundError(remote_dir)
         return sorted([path for path in self.uploads if path.startswith(remote_dir)])
 
     def list_entries(self, remote_dir: str):
@@ -150,6 +152,83 @@ def test_test_connection_validates_resolved_paths_from_root() -> None:
     assert "mods dir OK" in message
     assert "server config OK" in message
     assert "save root OK" in message
+
+
+def test_test_connection_allows_missing_mods_dir_until_first_upload() -> None:
+    uploads: list[str] = []
+    existing_paths = {
+        "/srv/windrose",
+        "/srv/windrose/R5/ServerDescription.json",
+        "/srv/windrose/R5/Saved",
+    }
+    profile = _make_profile()
+    profile.remote_mods_dir = ""
+    service = RemoteDeploymentService(
+        provider_factory=lambda _profile: FakeRemoteProvider(uploads, existing_paths)
+    )
+
+    ok, message = service.test_connection(profile)
+
+    assert ok
+    assert "mods dir missing" in message
+    assert "will be created on first install" in message
+
+
+def test_test_connection_rejects_missing_explicit_mods_override() -> None:
+    uploads: list[str] = []
+    existing_paths = {
+        "/srv/windrose",
+        "/srv/windrose/R5/ServerDescription.json",
+        "/srv/windrose/R5/Saved",
+    }
+    profile = _make_profile()
+    service = RemoteDeploymentService(
+        provider_factory=lambda _profile: FakeRemoteProvider(uploads, existing_paths)
+    )
+
+    ok, message = service.test_connection(profile)
+
+    assert not ok
+    assert "mods dir was not found" in message
+    assert "/srv/windrose/R5/Content/Paks/~mods" in message
+
+
+def test_list_remote_files_returns_empty_when_mods_dir_is_missing() -> None:
+    uploads: list[str] = []
+    existing_paths = {
+        "/srv/windrose",
+        "/srv/windrose/R5/ServerDescription.json",
+        "/srv/windrose/R5/Saved",
+    }
+    profile = _make_profile()
+    profile.remote_mods_dir = ""
+    service = RemoteDeploymentService(
+        provider_factory=lambda _profile: FakeRemoteProvider(uploads, existing_paths)
+    )
+
+    files = service.list_remote_files(profile)
+
+    assert files == []
+
+
+def test_list_remote_files_raises_when_explicit_mods_override_is_missing() -> None:
+    uploads: list[str] = []
+    existing_paths = {
+        "/srv/windrose",
+        "/srv/windrose/R5/ServerDescription.json",
+        "/srv/windrose/R5/Saved",
+    }
+    profile = _make_profile()
+    service = RemoteDeploymentService(
+        provider_factory=lambda _profile: FakeRemoteProvider(uploads, existing_paths)
+    )
+
+    try:
+        service.list_remote_files(profile)
+    except FileNotFoundError as exc:
+        assert "/srv/windrose/R5/Content/Paks/~mods" in str(exc)
+    else:
+        raise AssertionError("Expected FileNotFoundError for missing explicit mods dir override")
 
 
 def test_test_connection_guides_blank_root_and_manual_overrides() -> None:

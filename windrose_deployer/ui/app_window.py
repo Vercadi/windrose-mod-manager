@@ -431,7 +431,7 @@ class AppWindow(ctk.CTk):
         self._launch_game_btn.pack(side="left", padx=4)
 
         self._launch_server_btn = ctk.CTkButton(
-            inner, text="Launch Local Server", width=152,
+            inner, text="Launch Dedicated Server", width=172,
             fg_color="#555555", hover_color="#666666",
             command=self._on_start_server,
         )
@@ -464,10 +464,10 @@ class AppWindow(ctk.CTk):
 
         if target and target.is_file():
             subprocess.Popen([str(target)], cwd=str(target.parent))
-            log.info("Launched server: %s", target)
+            log.info("Launched dedicated server: %s", target)
         else:
             messagebox.showerror("Not Found",
-                                 "Server executable not found. Check server path in Settings.")
+                                 "Dedicated server executable not found. Check server path in Settings.")
 
     # ---------------------------------------------------------- lifecycle
 

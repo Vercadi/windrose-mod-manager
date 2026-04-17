@@ -47,6 +47,9 @@ class RemoteProfile:
             return ""
         return str(PurePosixPath(root).joinpath("R5", "Content", "Paks", "~mods"))
 
+    def has_explicit_mods_dir(self) -> bool:
+        return bool(self._normalize_remote_path(self.remote_mods_dir))
+
     def resolved_server_description_path(self) -> str:
         explicit = self._normalize_remote_path(self.remote_server_description_path)
         if explicit:

@@ -1,31 +1,24 @@
-## Windrose Mod Manager v0.3.1
+## Windrose Mod Manager v0.3.2
 
-Windrose Mod Manager v0.3.1 is a focused hotfix release for dedicated-server compatibility, hosted path setup, and post-release safety fixes.
+Windrose Mod Manager v0.3.2 is a follow-up hotfix for the new dedicated-server and hosted workflow, with fixes for hosted smoke testing, clearer server launch wording, and a small Settings UI cleanup.
 
 ### Highlights
 
-- Detects the standalone Steam **Windrose Dedicated Server** install, not just the older bundled server layout
-- Uses the dedicated server root for local `R5/ServerDescription.json` and `R5/Saved`
-- Automatically reconciles older saved settings when the app can detect a better dedicated-server path
-- Improves hosted setup guidance for servers where SFTP opens directly inside the server folder
+- The launch bar now labels the server button as **Launch Dedicated Server**
+- Hosted Profiles in Settings expand and scroll properly instead of clipping into the lower launch bar
 
-### Safety And Reliability
+### Hosted Server Fixes
 
-- Apply and Restart no longer continues after a failed server or world save
-- Client/server sync compare no longer drops distinct installs that share the same display name
-- Recovery timeline no longer double-lists config save actions
-- Settings save no longer freezes the derived local server save path as an explicit override
-- The default `python -m pytest -q` command now stays scoped to the test suite
-
-### Hosted Server Notes
-
-Hosted support still expects a provider with SFTP / SSH access. If your login already lands inside the server folder, you can use `.` as the Server Folder or leave it blank and rely on the hosted override fields.
+- Hosted world settings can now be saved even when the server-generated `WorldDescription.json` starts with a blank `WorldName`
+- World Name is now editable in the Server screen instead of being read-only
+- Hosted connection tests no longer fail just because the derived default `R5/Content/Paks/~mods` folder has not been created yet
+- Hosted mod inventory now shows an empty state for the missing derived first-run `~mods` folder instead of an error
+- Explicit **Mods Folder Override** paths are still validated strictly, so typos in a custom override are reported instead of being silently treated as empty
 
 ### Validation
 
-- `python -m pytest -q` -> 101 passed
-- Focused dedicated-server, hosted deploy, validator, and safety regressions passed before release
+- `python -m pytest -q` -> 107 passed
 
 ### Full Changelog
 
-https://github.com/Vercadi/windrose-mod-manager/commits/v0.3.1
+https://github.com/Vercadi/windrose-mod-manager/commits/v0.3.2

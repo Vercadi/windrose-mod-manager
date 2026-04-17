@@ -201,7 +201,7 @@ class ServerTab(ctk.CTkFrame):
         ctk.CTkLabel(editor, text="World Name:", anchor="w").grid(
             row=row, column=0, sticky="w", padx=(8, 4), pady=5)
         var = ctk.StringVar()
-        w = ctk.CTkEntry(editor, textvariable=var, state="readonly")
+        w = ctk.CTkEntry(editor, textvariable=var)
         w.grid(row=row, column=1, sticky="ew", padx=(4, 8), pady=5)
         w._variable = var
         self._world_fields["WorldName"] = w
@@ -980,11 +980,9 @@ class ServerTab(ctk.CTkFrame):
         log.info("World config loaded: %s", config.world_name)
 
     def _populate_world_fields(self, cfg: WorldConfig) -> None:
-        # World name (read-only display)
+        # World name
         w = self._world_fields["WorldName"]
-        w.configure(state="normal")
         w._variable.set(cfg.world_name)
-        w.configure(state="readonly")
 
         # Preset
         self._preset_var.set(cfg.world_preset_type)
@@ -1011,9 +1009,7 @@ class ServerTab(ctk.CTkFrame):
 
     def _clear_world_fields(self) -> None:
         w = self._world_fields["WorldName"]
-        w.configure(state="normal")
         w._variable.set("")
-        w.configure(state="readonly")
 
         self._preset_var.set("Medium")
         self._combat_diff_var.set("Normal")
@@ -1034,6 +1030,7 @@ class ServerTab(ctk.CTkFrame):
 
     def _read_world_fields(self) -> WorldConfig:
         cfg = self._world_config or WorldConfig()
+        cfg.world_name = self._world_fields["WorldName"]._variable.get()
 
         cfg.world_preset_type = self._preset_var.get()
         cfg.combat_difficulty = _CD_FROM_DISPLAY.get(
@@ -1190,7 +1187,10 @@ class ServerTab(ctk.CTkFrame):
                 )
         else:
             self.app._on_start_server()
-            self._status_label.configure(text="Launched local server after applying changes.", text_color="#2d8a4e")
+            self._status_label.configure(
+                text="Launched dedicated server after applying changes.",
+                text_color="#2d8a4e",
+            )
 
     def _record_action(self, *, action: str, target: str, notes: str) -> None:
         self.app.manifest.add_record(

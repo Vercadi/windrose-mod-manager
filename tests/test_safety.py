@@ -14,6 +14,7 @@ from windrose_deployer.core.server_config_service import ServerConfigService
 from windrose_deployer.models.deployment_record import DeploymentRecord
 from windrose_deployer.models.mod_install import ModInstall, InstallTarget
 from windrose_deployer.models.app_paths import AppPaths
+from windrose_deployer.models.world_config import WorldConfig
 from windrose_deployer.ui.app_window import AppWindow
 from windrose_deployer.ui.tabs.mods_tab import ModsTab
 from windrose_deployer.ui.tabs.server_tab import ServerTab
@@ -368,6 +369,30 @@ class TestSettingsSaveRootPersistence:
         )
 
         assert resolved == custom_save_root
+
+
+class TestWorldConfigEditing:
+    def test_blank_world_name_from_server_is_still_valid(self):
+        cfg = WorldConfig(
+            island_id="WORLD-1",
+            world_name="",
+            world_preset_type="Medium",
+        )
+
+        assert cfg.validate() == []
+
+    def test_read_world_fields_includes_world_name(self):
+        world_name_var = _DummyVar("Hosted Smoke World")
+        tab = SimpleNamespace(
+            _world_config=WorldConfig(island_id="WORLD-1", world_name=""),
+            _world_fields={"WorldName": SimpleNamespace(_variable=world_name_var)},
+            _preset_var=_DummyVar("Medium"),
+            _combat_diff_var=_DummyVar("Normal"),
+        )
+
+        cfg = ServerTab._read_world_fields(tab)
+
+        assert cfg.world_name == "Hosted Smoke World"
 
 
 class _DummyVar:

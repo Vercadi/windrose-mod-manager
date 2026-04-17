@@ -173,8 +173,11 @@ class RemoteDeploymentService:
 
             if mods_dir:
                 if not provider.path_exists(mods_dir):
-                    return False, f"Connected, but mods dir was not found: {mods_dir}"
-                notes.append(f"mods dir OK: {mods_dir}")
+                    if profile.has_explicit_mods_dir():
+                        return False, f"Connected, but mods dir was not found: {mods_dir}"
+                    notes.append(f"mods dir missing (will be created on first install): {mods_dir}")
+                else:
+                    notes.append(f"mods dir OK: {mods_dir}")
 
             if server_desc:
                 if not provider.path_exists(server_desc):
@@ -208,6 +211,10 @@ class RemoteDeploymentService:
             raise ValueError("Set Server Folder, enter '.', or fill the Mods Folder Override first.")
         provider = self.provider_factory(profile)
         try:
+            if not provider.path_exists(target_dir):
+                if remote_dir is not None or profile.has_explicit_mods_dir():
+                    raise FileNotFoundError(target_dir)
+                return []
             return provider.list_files(target_dir)
         finally:
             provider.close()

@@ -118,8 +118,6 @@ class WorldConfig:
 
     def validate(self) -> list[str]:
         errors: list[str] = []
-        if not self.world_name.strip():
-            errors.append("World name must not be empty.")
         if self.world_preset_type not in PRESET_OPTIONS:
             errors.append(f"Invalid preset: {self.world_preset_type}")
         if self.combat_difficulty not in COMBAT_DIFFICULTY_OPTIONS:
