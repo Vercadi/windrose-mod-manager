@@ -1,24 +1,28 @@
-## Windrose Mod Manager v0.3.2
+## Windrose Mod Manager v0.3.3
 
-Windrose Mod Manager v0.3.2 is a follow-up hotfix for the new dedicated-server and hosted workflow, with fixes for hosted smoke testing, clearer server launch wording, and a small Settings UI cleanup.
+Windrose Mod Manager v0.3.3 is a UX and readability hotfix focused on making the client/server cockpit easier to scan, less popup-heavy, and more comfortable on different screen densities.
 
 ### Highlights
 
-- The launch bar now labels the server button as **Launch Dedicated Server**
-- Hosted Profiles in Settings expand and scroll properly instead of clipping into the lower launch bar
+- Added a new **UI Size** setting with `Compact`, `Default`, and `Large`
+- Added a new **Confirmation Behavior** setting so routine actions can stay quieter while destructive or high-risk actions still prompt
+- Replaced a number of routine success popups with inline status messages
+- Tightened button sizing and row density across the main workspace for a cleaner layout
+- Improved readability in Library, Server, Recovery, Settings, Help, and the Technical Log
 
-### Hosted Server Fixes
+### Settings and Behavior Fixes
 
-- Hosted world settings can now be saved even when the server-generated `WorldDescription.json` starts with a blank `WorldName`
-- World Name is now editable in the Server screen instead of being read-only
-- Hosted connection tests no longer fail just because the derived default `R5/Content/Paks/~mods` folder has not been created yet
-- Hosted mod inventory now shows an empty state for the missing derived first-run `~mods` folder instead of an error
-- Explicit **Mods Folder Override** paths are still validated strictly, so typos in a custom override are reported instead of being silently treated as empty
+- UI Size now changes readability and density without resizing the outer app window
+- Behavior settings now use user-facing labels instead of raw internal values
+- Behavior changes preview immediately in Settings and persist after Save
+- The Behavior tab now scrolls properly instead of clipping helper text at smaller heights
+- Settings header and helper text wrap more cleanly in the updated layout
 
 ### Validation
 
-- `python -m pytest -q` -> 107 passed
+- `python -m py_compile windrose_deployer\\ui\\app_window.py windrose_deployer\\ui\\tabs\\settings_tab.py`
+- `python -m pytest tests/test_ui_preferences.py --basetemp ... -o cache_dir=...` -> 8 passed
 
 ### Full Changelog
 
-https://github.com/Vercadi/windrose-mod-manager/commits/v0.3.2
+https://github.com/Vercadi/windrose-mod-manager/commits/v0.3.3

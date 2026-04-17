@@ -53,6 +53,7 @@ class ModsTab(ctk.CTkFrame):
         self._scope_var = ctk.StringVar(value="all")
         self._variant_var = ctk.StringVar(value="(none)")
         self._mod_name_var = ctk.StringVar()
+        self._action_buttons: list[ctk.CTkButton] = []
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -67,7 +68,7 @@ class ModsTab(ctk.CTkFrame):
         bar.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         bar.grid_columnconfigure(2, weight=1)
 
-        ctk.CTkLabel(bar, text="Mods", font=ctk.CTkFont(size=18, weight="bold")).grid(
+        ctk.CTkLabel(bar, text="Mods", font=self.app.ui_font("title")).grid(
             row=0, column=0, sticky="w", padx=(0, 12)
         )
 
@@ -79,8 +80,18 @@ class ModsTab(ctk.CTkFrame):
         self._scope_switch.grid(row=0, column=1, sticky="w", padx=(0, 12))
         self._scope_switch.set("All")
 
-        self._summary_label = ctk.CTkLabel(bar, text="", anchor="w", text_color="#95a5a6")
+        self._summary_label = ctk.CTkLabel(bar, text="", anchor="w", text_color="#95a5a6", font=self.app.ui_font("small"))
         self._summary_label.grid(row=0, column=2, sticky="ew", padx=(0, 12))
+
+        self._result_label = ctk.CTkLabel(
+            self,
+            text="",
+            anchor="w",
+            justify="left",
+            text_color="#95a5a6",
+            font=self.app.ui_font("small"),
+        )
+        self._result_label.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 6))
 
     def _build_workspace(self) -> None:
         self._panes = tk.PanedWindow(
@@ -132,10 +143,10 @@ class ModsTab(ctk.CTkFrame):
         header = ctk.CTkFrame(panel, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         header.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(header, text="Applied Mods", font=ctk.CTkFont(size=14, weight="bold")).grid(
+        ctk.CTkLabel(header, text="Applied Mods", font=self.app.ui_font("section_title")).grid(
             row=0, column=0, sticky="w"
         )
-        self._applied_summary_label = ctk.CTkLabel(header, text="", anchor="e", text_color="#95a5a6")
+        self._applied_summary_label = ctk.CTkLabel(header, text="", anchor="e", text_color="#95a5a6", font=self.app.ui_font("small"))
         self._applied_summary_label.grid(row=0, column=1, sticky="e")
 
         self._applied_list = ctk.CTkScrollableFrame(panel)
@@ -152,35 +163,42 @@ class ModsTab(ctk.CTkFrame):
         header = ctk.CTkFrame(panel, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         header.grid_columnconfigure(2, weight=1)
-        ctk.CTkLabel(header, text="Archives", font=ctk.CTkFont(size=14, weight="bold")).grid(
+        ctk.CTkLabel(header, text="Archives", font=self.app.ui_font("section_title")).grid(
             row=0, column=0, sticky="w"
         )
-        ctk.CTkButton(
-            header, text="Add", width=64, fg_color="#2980b9", hover_color="#2471a3", command=self.import_archives
-        ).grid(row=0, column=1, sticky="w", padx=(8, 6))
+        add_btn = ctk.CTkButton(
+            header, text="Add", width=64, fg_color="#2980b9", hover_color="#2471a3", command=self.import_archives,
+            height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body")
+        )
+        add_btn.grid(row=0, column=1, sticky="w", padx=(8, 6))
+        self._action_buttons.append(add_btn)
         self._filter_menu = ctk.CTkOptionMenu(
             header,
             variable=self._filter_var,
             values=["all", "installed", "not installed", "client", "server", "dedicated", "both", "missing archive"],
             width=118,
             command=lambda _value: self._refresh_library_ui(),
+            font=self.app.ui_font("body"),
         )
         self._filter_menu.grid(row=0, column=2, sticky="e", padx=(0, 6))
         self._search_entry = ctk.CTkEntry(
-            header, textvariable=self._search_var, placeholder_text="Search...", width=170
+            header, textvariable=self._search_var, placeholder_text="Search...", width=170, font=self.app.ui_font("body")
         )
         self._search_entry.grid(row=0, column=3, sticky="e", padx=(0, 6))
-        ctk.CTkButton(
-            header, text="Refresh", width=72, fg_color="#555555", hover_color="#666666", command=self.refresh_view
-        ).grid(row=0, column=4, sticky="e")
+        refresh_btn = ctk.CTkButton(
+            header, text="Refresh", width=72, fg_color="#555555", hover_color="#666666", command=self.refresh_view,
+            height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body")
+        )
+        refresh_btn.grid(row=0, column=4, sticky="e")
+        self._action_buttons.append(refresh_btn)
 
         self._archive_hint_label = ctk.CTkLabel(
             panel,
             text="Double-click an archive to choose a target. Right-click rows for more actions. Drop archives anywhere in this pane.",
             justify="left",
-            wraplength=500,
+            wraplength=self.app.ui_tokens.panel_wrap,
             text_color="#95a5a6",
-            font=ctk.CTkFont(size=11),
+            font=self.app.ui_font("small"),
         )
         self._archive_hint_label.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
 
@@ -194,18 +212,18 @@ class ModsTab(ctk.CTkFrame):
         panel.grid_columnconfigure(0, weight=1)
 
         self._detail_header = ctk.CTkLabel(
-            panel, text="Select a mod or archive", font=ctk.CTkFont(size=16, weight="bold"), anchor="w"
+            panel, text="Select a mod or archive", font=self.app.ui_font("detail_title"), anchor="w"
         )
         self._detail_header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 2))
-        self._detail_meta = ctk.CTkLabel(panel, text="", anchor="w", justify="left", text_color="#95a5a6")
+        self._detail_meta = ctk.CTkLabel(panel, text="", anchor="w", justify="left", text_color="#95a5a6", font=self.app.ui_font("body"))
         self._detail_meta.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
         self._detail_hint = ctk.CTkLabel(
             panel,
             text="Archive install actions and applied mod management now live in row menus. Double-click an archive to install quickly.",
             justify="left",
-            wraplength=900,
+            wraplength=self.app.ui_tokens.detail_wrap,
             text_color="#95a5a6",
-            font=ctk.CTkFont(size=11),
+            font=self.app.ui_font("small"),
         )
         self._detail_hint.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
 
@@ -217,10 +235,10 @@ class ModsTab(ctk.CTkFrame):
         card = ctk.CTkFrame(parent)
         card.grid(row=row, column=0, sticky="ew", padx=12, pady=(0, 8))
         card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(card, text=title, font=ctk.CTkFont(size=13, weight="bold")).grid(
+        ctk.CTkLabel(card, text=title, font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=12, pady=(12, 6)
         )
-        box = ctk.CTkTextbox(card, height=height, font=ctk.CTkFont(family="Consolas", size=10))
+        box = ctk.CTkTextbox(card, height=height, font=self.app.ui_font("mono_small"))
         box.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 12))
         box.configure(state="disabled")
         return box
@@ -354,6 +372,36 @@ class ModsTab(ctk.CTkFrame):
         widget.insert("1.0", text)
         widget.configure(state="disabled")
 
+    def _set_result(self, text: str, *, level: str = "info") -> None:
+        colors = {
+            "success": "#2d8a4e",
+            "warning": "#e67e22",
+            "error": "#c0392b",
+            "info": "#95a5a6",
+        }
+        self._result_label.configure(text=text, text_color=colors.get(level, "#95a5a6"))
+
+    def apply_ui_preferences(self) -> None:
+        tokens = self.app.ui_tokens
+        self._summary_label.configure(font=self.app.ui_font("small"))
+        self._result_label.configure(font=self.app.ui_font("small"), wraplength=tokens.detail_wrap)
+        self._applied_summary_label.configure(font=self.app.ui_font("small"))
+        self._archive_hint_label.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
+        self._detail_meta.configure(font=self.app.ui_font("body"))
+        self._detail_hint.configure(font=self.app.ui_font("small"), wraplength=tokens.detail_wrap)
+        self._search_entry.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)
+        self._filter_menu.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)
+        self._scope_switch.configure(font=self.app.ui_font("body"), height=tokens.toolbar_button_height)
+        for button in self._action_buttons:
+            try:
+                button.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)
+            except Exception:
+                pass
+        for box in (self._installed_box, self._review_box, self._preview_box):
+            box.configure(font=self.app.ui_font("mono_small"))
+        if self._library:
+            self._refresh_library_ui()
+
     def _on_scope_changed(self, value: str) -> None:
         scope = {
             "All": "all",
@@ -384,12 +432,21 @@ class ModsTab(ctk.CTkFrame):
         text = re.sub(r"\s+", " ", text).strip(" ._-")
         return text or raw
 
-    def _display_name(self, raw: str, *, max_len: int = 34) -> str:
+    def _display_name_legacy(self, raw: str, *, max_len: int = 34) -> str:
         text = self._compact_name(raw)
         if len(text) <= max_len:
             return text
         clipped = text[: max_len - 1].rstrip(" ._-")
         return clipped + "…"
+
+    def _display_name(self, raw: str, *, max_len: int | None = None) -> str:
+        text = self._compact_name(raw)
+        if max_len is None:
+            max_len = self.app.ui_tokens.compact_name_len
+        if len(text) <= max_len:
+            return text
+        clipped = text[: max(3, max_len - 3)].rstrip(" ._-")
+        return clipped + "..."
 
     def _scope_matches_targets(self, targets: set[str]) -> bool:
         scope = self._scope_var.get()
@@ -523,20 +580,20 @@ class ModsTab(ctk.CTkFrame):
                 row_frame.grid_columnconfigure(0, weight=1)
                 title = ctk.CTkLabel(
                     row_frame,
-                    text=self._display_name(name, max_len=30),
+                    text=self._display_name(name, max_len=max(24, self.app.ui_tokens.compact_name_len - 4)),
                     anchor="w",
-                    font=ctk.CTkFont(size=11, weight="bold"),
+                    font=self.app.ui_font("row_title"),
                     text_color="#ffffff",
                 )
-                title.grid(row=0, column=0, sticky="ew", padx=9, pady=(6, 1))
+                title.grid(row=0, column=0, sticky="ew", padx=9, pady=(5 + self.app.ui_tokens.row_pad_y, 1))
                 subtitle = ctk.CTkLabel(
                     row_frame,
                     text=f"{name} | hosted live inventory",
                     anchor="w",
-                    font=ctk.CTkFont(size=10),
+                    font=self.app.ui_font("small"),
                     text_color="#95a5a6",
                 )
-                subtitle.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 6))
+                subtitle.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 5 + self.app.ui_tokens.row_pad_y))
                 self._applied_widgets.append(row_frame)
                 row += 1
 
@@ -582,8 +639,9 @@ class ModsTab(ctk.CTkFrame):
                 self._applied_list,
                 text="No applied mods yet. Install an archive to the client, server, or dedicated server to track it here.",
                 justify="left",
-                wraplength=330,
+                wraplength=self.app.ui_tokens.panel_wrap,
                 text_color="#95a5a6",
+                font=self.app.ui_font("small"),
             )
             empty.grid(row=0, column=0, sticky="ew", pady=(4, 8))
             self._applied_widgets.append(empty)
@@ -602,7 +660,7 @@ class ModsTab(ctk.CTkFrame):
             heading = ctk.CTkLabel(
                 self._applied_list,
                 text=group_name,
-                font=ctk.CTkFont(size=12, weight="bold"),
+                font=self.app.ui_font("card_title"),
                 text_color="#c1c7cd",
                 anchor="w",
             )
@@ -629,10 +687,10 @@ class ModsTab(ctk.CTkFrame):
                     row_frame,
                     text=" ".join(title_parts),
                     anchor="w",
-                    font=ctk.CTkFont(size=11, weight="bold"),
+                    font=self.app.ui_font("row_title"),
                     text_color="#ffffff",
                 )
-                title.grid(row=0, column=0, sticky="ew", padx=9, pady=(6, 1))
+                title.grid(row=0, column=0, sticky="ew", padx=9, pady=(5 + self.app.ui_tokens.row_pad_y, 1))
 
                 subtitle_parts = [archive_name, f"{mod.file_count} files"]
                 if mod.source_archive and not Path(mod.source_archive).is_file():
@@ -641,10 +699,10 @@ class ModsTab(ctk.CTkFrame):
                     row_frame,
                     text=" | ".join(subtitle_parts),
                     anchor="w",
-                    font=ctk.CTkFont(size=10),
+                    font=self.app.ui_font("small"),
                     text_color="#95a5a6",
                 )
-                subtitle.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 6))
+                subtitle.grid(row=1, column=0, sticky="ew", padx=9, pady=(0, 5 + self.app.ui_tokens.row_pad_y))
 
                 if mod.source_archive:
                     for widget in (row_frame, title, subtitle):
@@ -757,9 +815,9 @@ class ModsTab(ctk.CTkFrame):
                 self._library_list,
                 text=empty_text,
                 justify="left",
-                wraplength=420,
+                wraplength=self.app.ui_tokens.panel_wrap,
                 text_color="#95a5a6",
-                font=ctk.CTkFont(size=11),
+                font=self.app.ui_font("small"),
             )
             empty.grid(row=0, column=0, sticky="ew", pady=(6, 6), padx=10)
             self._library_widgets.append(empty)
@@ -797,16 +855,16 @@ class ModsTab(ctk.CTkFrame):
             "Applied*": "#f39c12",
             "Missing": "#c0392b",
         }.get(status, "#95a5a6")
-        badge = ctk.CTkLabel(row, text=status, text_color=color, width=58, anchor="w", font=ctk.CTkFont(size=10, weight="bold"))
-        badge.grid(row=0, column=0, sticky="w", padx=(9, 4), pady=(6, 1))
+        badge = ctk.CTkLabel(row, text=status, text_color=color, width=58, anchor="w", font=self.app.ui_font("small"))
+        badge.grid(row=0, column=0, sticky="w", padx=(9, 4), pady=(5 + self.app.ui_tokens.row_pad_y, 1))
         name = ctk.CTkLabel(
             row,
-            text=self._display_name(entry.get("name", path.stem), max_len=28),
+            text=self._display_name(entry.get("name", path.stem), max_len=max(24, self.app.ui_tokens.compact_name_len - 6)),
             anchor="w",
-            font=ctk.CTkFont(size=11, weight="bold"),
+            font=self.app.ui_font("row_title"),
             text_color="#ffffff" if exists else "#777777",
         )
-        name.grid(row=0, column=1, sticky="w", padx=4, pady=(6, 1))
+        name.grid(row=0, column=1, sticky="w", padx=4, pady=(5 + self.app.ui_tokens.row_pad_y, 1))
 
         type_label = str(entry.get("archive_type", "Unknown")).title()
         total_files = int(entry.get("total_files", 0) or 0)
@@ -818,17 +876,20 @@ class ModsTab(ctk.CTkFrame):
                 "Not tracked" if is_synthetic else "",
             ] if part
         )
-        detail_label = ctk.CTkLabel(row, text=details, anchor="w", text_color="#95a5a6", wraplength=360, font=ctk.CTkFont(size=10))
+        detail_label = ctk.CTkLabel(
+            row, text=details, anchor="w", text_color="#95a5a6", wraplength=self.app.ui_tokens.panel_wrap, font=self.app.ui_font("small")
+        )
         detail_label.grid(row=1, column=0, columnspan=2, sticky="ew", padx=9, pady=(0, 1))
-        action_label = ctk.CTkLabel(row, text=self._last_action_text(str(path)), anchor="w", text_color="#6f7a81", font=ctk.CTkFont(size=9))
-        action_label.grid(row=2, column=0, columnspan=2, sticky="ew", padx=9, pady=(0, 6))
+        action_label = ctk.CTkLabel(row, text=self._last_action_text(str(path)), anchor="w", text_color="#6f7a81", font=self.app.ui_font("tiny"))
+        action_label.grid(row=2, column=0, columnspan=2, sticky="ew", padx=9, pady=(0, 5 + self.app.ui_tokens.row_pad_y))
 
         if is_synthetic and exists:
             action_btn = ctk.CTkButton(
                 row,
                 text="Track",
                 width=64,
-                height=24,
+                height=self.app.ui_tokens.compact_button_height,
+                font=self.app.ui_font("body"),
                 fg_color="#444444",
                 hover_color="#666666",
                 command=lambda value=str(path): self._track_in_library(value),
@@ -839,7 +900,8 @@ class ModsTab(ctk.CTkFrame):
                 row,
                 text="Untrack",
                 width=76,
-                height=24,
+                height=self.app.ui_tokens.compact_button_height,
+                font=self.app.ui_font("body"),
                 fg_color="#444444",
                 hover_color="#666666",
                 command=lambda value=str(path): self._remove_from_library(value),
@@ -854,7 +916,8 @@ class ModsTab(ctk.CTkFrame):
 
     def _remove_from_library(self, path_str: str) -> None:
         mods = self._mods_for_archive(path_str)
-        if mods and not messagebox.askyesno(
+        if mods and not self.app.confirm_action(
+            "bulk",
             "Untrack Archive",
             "Remove this archive from the tracked archive list?\n\n"
             "This does not uninstall the applied mod. The install stays active and will remain visible in Applied Mods.",
@@ -866,6 +929,7 @@ class ModsTab(ctk.CTkFrame):
             self._clear_details()
         self._save_library()
         self._refresh_library_ui()
+        self._set_result(f"Removed {Path(path_str).name} from the tracked archive list.", level="info")
 
     def _track_in_library(self, path_str: str) -> None:
         archive_path = Path(path_str)
@@ -874,6 +938,7 @@ class ModsTab(ctk.CTkFrame):
             return
         self._add_to_library(archive_path)
         self._refresh_library_ui()
+        self._set_result(f"Added {archive_path.name} to the archive library.", level="success")
 
     def _show_library_menu(self, event, archive_path: Path) -> None:
         menu = tk.Menu(self, tearoff=0)
@@ -929,10 +994,10 @@ class ModsTab(ctk.CTkFrame):
         dialog.geometry("360x240")
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
-        ctk.CTkLabel(dialog, text=archive_path.name, font=ctk.CTkFont(size=16, weight="bold"), wraplength=320).pack(
+        ctk.CTkLabel(dialog, text=archive_path.name, font=self.app.ui_font("detail_title"), wraplength=320).pack(
             anchor="w", padx=16, pady=(16, 6)
         )
-        ctk.CTkLabel(dialog, text="Choose where to apply this archive.", text_color="#95a5a6").pack(
+        ctk.CTkLabel(dialog, text="Choose where to apply this archive.", text_color="#95a5a6", font=self.app.ui_font("body")).pack(
             anchor="w", padx=16, pady=(0, 12)
         )
         actions = [
@@ -943,10 +1008,26 @@ class ModsTab(ctk.CTkFrame):
             ("Install to Hosted Server", lambda: self.app.open_remote_deploy(archive_path)),
         ]
         for label, callback in actions:
-            ctk.CTkButton(dialog, text=label, width=220, command=lambda cb=callback: (dialog.destroy(), cb())).pack(
+            ctk.CTkButton(
+                dialog,
+                text=label,
+                width=220,
+                height=self.app.ui_tokens.button_height,
+                font=self.app.ui_font("body"),
+                command=lambda cb=callback: (dialog.destroy(), cb()),
+            ).pack(
                 padx=16, pady=4
             )
-        ctk.CTkButton(dialog, text="Cancel", width=120, fg_color="#444444", hover_color="#555555", command=dialog.destroy).pack(
+        ctk.CTkButton(
+            dialog,
+            text="Cancel",
+            width=120,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#444444",
+            hover_color="#555555",
+            command=dialog.destroy,
+        ).pack(
             padx=16, pady=(12, 16)
         )
 
@@ -976,7 +1057,7 @@ class ModsTab(ctk.CTkFrame):
         self._archive_hint_label.configure(text_color="#95a5a6")
         valid = [path for path in self._parse_drop_data(event.data) if path.suffix.lower() in SUPPORTED_EXTENSIONS]
         if not valid:
-            messagebox.showinfo("No Supported Archives", "The drop did not contain a supported archive.")
+            self._set_result("The drop did not contain a supported archive.", level="warning")
             return
         for path in valid:
             self._add_to_library(path)
@@ -984,6 +1065,7 @@ class ModsTab(ctk.CTkFrame):
         self._refresh_library_ui()
         if len(valid) == 1:
             self._load_archive(valid[0])
+        self._set_result(f"Added {len(valid)} archive(s) to the library.", level="success")
 
     def _parse_drop_data(self, data: str) -> list[Path]:
         paths: list[Path] = []
@@ -1017,6 +1099,8 @@ class ModsTab(ctk.CTkFrame):
         self._refresh_library_ui()
         if len(valid) == 1:
             self._load_archive(valid[0])
+        if valid:
+            self._set_result(f"Added {len(valid)} archive(s) to the library.", level="success")
 
     def _load_archive(self, archive_path: Path, *, refresh_only: bool = False) -> None:
         self._selected_library_path = str(archive_path)
@@ -1102,7 +1186,7 @@ class ModsTab(ctk.CTkFrame):
         ctk.CTkLabel(
             dialog,
             text="Choose a variant",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            font=self.app.ui_font("detail_title"),
         ).grid(row=0, column=0, sticky="w", padx=16, pady=(16, 6))
         ctk.CTkLabel(
             dialog,
@@ -1110,6 +1194,7 @@ class ModsTab(ctk.CTkFrame):
             text_color="#95a5a6",
             wraplength=400,
             justify="left",
+            font=self.app.ui_font("body"),
         ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 10))
 
         choice_var = tk.StringVar(value=variant_names[0])
@@ -1122,6 +1207,7 @@ class ModsTab(ctk.CTkFrame):
                 text=name,
                 variable=choice_var,
                 value=name,
+                font=self.app.ui_font("body"),
             ).grid(sticky="w", padx=6, pady=4)
 
         result = {"value": None}
@@ -1132,11 +1218,15 @@ class ModsTab(ctk.CTkFrame):
 
         buttons = ctk.CTkFrame(dialog, fg_color="transparent")
         buttons.grid(row=3, column=0, sticky="ew", padx=16, pady=(0, 16))
-        ctk.CTkButton(buttons, text="Use Variant", width=120, command=_accept).pack(side="left")
+        ctk.CTkButton(
+            buttons, text="Use Variant", width=120, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=_accept
+        ).pack(side="left")
         ctk.CTkButton(
             buttons,
             text="Cancel",
             width=100,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#444444",
             hover_color="#555555",
             command=dialog.destroy,
@@ -1224,7 +1314,7 @@ class ModsTab(ctk.CTkFrame):
 
     def _install_current(self, target: InstallTarget) -> None:
         if self._current_info is None:
-            messagebox.showwarning("No Archive", "Select an archive first.")
+            self._set_result("Select an archive first.", level="info")
             return
         selected_variant = self._prompt_variant_choice(self._current_info)
         if self._current_info.has_variants and not selected_variant:
@@ -1238,16 +1328,17 @@ class ModsTab(ctk.CTkFrame):
 
     def _on_install_to_hosted(self) -> None:
         if self._current_info is None:
-            messagebox.showwarning("No Archive", "Select an archive first.")
+            self._set_result("Select an archive first.", level="info")
             return
         self.app.open_remote_deploy(self._current_info.archive_path)
 
     def _on_install_all(self) -> None:
         to_install = [entry for entry in self._library if Path(entry["path"]).is_file() and not self._mods_for_archive(str(entry["path"]))]
         if not to_install:
-            messagebox.showinfo("Nothing to Install", "All tracked archives are already applied or missing.")
+            self._set_result("All tracked archives are already applied or missing.", level="info")
             return
-        if not messagebox.askyesno(
+        if not self.app.confirm_action(
+            "bulk",
             "Install All",
             f"Install {len(to_install)} archive(s) to the client target?\n\nArchives with variants will be skipped for manual review.",
         ):
@@ -1273,7 +1364,7 @@ class ModsTab(ctk.CTkFrame):
             lines.append(f"{failed} failed.")
         if skipped_variants:
             lines.append(f"{skipped_variants} skipped because they need a manual variant choice.")
-        messagebox.showinfo("Install All", "\n".join(lines))
+        self._set_result(" | ".join(lines), level="success" if success else "warning")
         self.refresh_view()
 
     def _choose_mod(self, mods: list[ModInstall], *, purpose: str, allow_all: bool = False):
@@ -1287,7 +1378,7 @@ class ModsTab(ctk.CTkFrame):
         dialog.geometry("460x320")
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
-        ctk.CTkLabel(dialog, text=f"Choose which install to {purpose}.", font=ctk.CTkFont(size=15, weight="bold")).pack(
+        ctk.CTkLabel(dialog, text=f"Choose which install to {purpose}.", font=self.app.ui_font("card_title")).pack(
             anchor="w", padx=16, pady=(16, 6)
         )
         choice_var = tk.StringVar(value=mods[0].mod_id)
@@ -1296,7 +1387,7 @@ class ModsTab(ctk.CTkFrame):
             label = f"{self._compact_name(mod.display_name)} [{targets}]"
             if mod.selected_variant:
                 label += f" - {mod.selected_variant}"
-            ctk.CTkRadioButton(dialog, text=label, variable=choice_var, value=mod.mod_id).pack(anchor="w", padx=18, pady=4)
+            ctk.CTkRadioButton(dialog, text=label, variable=choice_var, value=mod.mod_id, font=self.app.ui_font("body")).pack(anchor="w", padx=18, pady=4)
         result = {"value": None}
 
         def _selected() -> None:
@@ -1309,9 +1400,20 @@ class ModsTab(ctk.CTkFrame):
 
         buttons = ctk.CTkFrame(dialog, fg_color="transparent")
         buttons.pack(fill="x", padx=16, pady=(16, 16))
-        ctk.CTkButton(buttons, text="Use Selected", width=130, command=_selected).pack(side="left")
+        ctk.CTkButton(
+            buttons, text="Use Selected", width=130, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=_selected
+        ).pack(side="left")
         if allow_all:
-            ctk.CTkButton(buttons, text="Use All", width=100, fg_color="#e67e22", hover_color="#ca6b18", command=_all).pack(
+            ctk.CTkButton(
+                buttons,
+                text="Use All",
+                width=100,
+                height=self.app.ui_tokens.compact_button_height,
+                font=self.app.ui_font("body"),
+                fg_color="#e67e22",
+                hover_color="#ca6b18",
+                command=_all,
+            ).pack(
                 side="left", padx=8
             )
         ctk.CTkButton(buttons, text="Cancel", width=100, fg_color="#444444", hover_color="#555555", command=dialog.destroy).pack(
@@ -1322,17 +1424,17 @@ class ModsTab(ctk.CTkFrame):
 
     def _on_uninstall(self) -> None:
         if not self._selected_library_path:
-            messagebox.showinfo("No Selection", "Select an archive first.")
+            self._set_result("Select an archive first.", level="info")
             return
         mods = self._mods_for_archive(self._selected_library_path)
         if not mods:
-            messagebox.showinfo("Not Installed", "This archive is not currently installed.")
+            self._set_result("This archive is not currently installed.", level="info")
             return
         selected = self._choose_mod(mods, purpose="uninstall", allow_all=True)
         if selected is None:
             return
         targets = mods if selected == "all" else [selected]
-        if not messagebox.askyesno("Confirm Uninstall", f"Uninstall {len(targets)} install(s) from this archive?"):
+        if not self.app.confirm_action("destructive", "Confirm Uninstall", f"Uninstall {len(targets)} install(s) from this archive?"):
             return
         for mod in targets:
             record = self.app.installer.uninstall(mod)
@@ -1341,14 +1443,15 @@ class ModsTab(ctk.CTkFrame):
         self.app.refresh_installed_tab()
         self.app.refresh_backups_tab()
         self.refresh_view()
+        self._set_result(f"Uninstalled {len(targets)} install(s) from the selected archive.", level="success")
 
     def _on_reinstall(self) -> None:
         if not self._selected_library_path:
-            messagebox.showinfo("No Selection", "Select an archive first.")
+            self._set_result("Select an archive first.", level="info")
             return
         mods = self._mods_for_archive(self._selected_library_path)
         if not mods:
-            messagebox.showinfo("Not Installed", "This archive is not currently installed.")
+            self._set_result("This archive is not currently installed.", level="info")
             return
         selected = self._choose_mod(mods, purpose="reinstall")
         if selected is None:
@@ -1372,7 +1475,7 @@ class ModsTab(ctk.CTkFrame):
         if not plan.valid:
             messagebox.showerror("Reinstall Failed", "\n".join(plan.warnings))
             return
-        if not messagebox.askyesno("Confirm Reinstall", f"Reinstall '{selected.display_name}' from:\n{archive_path.name}"):
+        if not self.app.confirm_action("routine", "Confirm Reinstall", f"Reinstall '{selected.display_name}' from:\n{archive_path.name}"):
             return
         uninstall_record = self.app.installer.uninstall(selected)
         self.app.manifest.add_record(uninstall_record)
@@ -1386,14 +1489,15 @@ class ModsTab(ctk.CTkFrame):
         self.app.refresh_installed_tab()
         self.app.refresh_backups_tab()
         self.refresh_view()
+        self._set_result(f"Reinstalled {selected.display_name}.", level="success")
 
     def _on_repair(self) -> None:
         if not self._selected_library_path:
-            messagebox.showinfo("No Selection", "Select an archive first.")
+            self._set_result("Select an archive first.", level="info")
             return
         mods = self._mods_for_archive(self._selected_library_path)
         if not mods:
-            messagebox.showinfo("Not Installed", "This archive is not currently installed.")
+            self._set_result("This archive is not currently installed.", level="info")
             return
         selected = self._choose_mod(mods, purpose="repair")
         if selected is None:
@@ -1404,7 +1508,7 @@ class ModsTab(ctk.CTkFrame):
             message += "\n\nFailed:\n" + "\n".join(result.failed)
         if result.warnings:
             message += "\n\nWarnings:\n" + "\n".join(result.warnings)
-        messagebox.showinfo("Repair", message)
+        self._set_result(message.replace("\n\n", " | "), level="success" if not result.failed else "warning")
         self.app.refresh_backups_tab()
         self.refresh_view()
 
@@ -1441,7 +1545,8 @@ class ModsTab(ctk.CTkFrame):
         conflict_report = check_plan_conflicts(plan, self.app.manifest)
         if conflict_report.has_conflicts and not quiet:
             conflict_lines = [f"{conflict.existing_mod_id}: {Path(conflict.file_path).name}" for conflict in conflict_report.conflicts[:10]]
-            if not messagebox.askyesno(
+            if not self.app.confirm_action(
+                "conflict",
                 "Managed File Conflicts",
                 "Existing managed files will be backed up before they are overwritten.\n\n" + "\n".join(conflict_lines),
             ):
@@ -1454,7 +1559,7 @@ class ModsTab(ctk.CTkFrame):
             self.app.refresh_backups_tab()
             self.refresh_view()
             if not quiet:
-                messagebox.showinfo("Installed", f"Installed '{mod.display_name}' to {self._target_label(target)}.")
+                self._set_result(f"Installed '{mod.display_name}' to {self._target_label(target)}.", level="success")
             log.info("Installed from Mods tab: %s", mod.display_name)
             return True
         except Exception as exc:

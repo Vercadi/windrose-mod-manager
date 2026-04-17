@@ -23,6 +23,7 @@ class AboutTab(ctk.CTkFrame):
     def __init__(self, master, app: "AppWindow", **kwargs):
         super().__init__(master, **kwargs)
         self.app = app
+        self._action_buttons: list[ctk.CTkButton] = []
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(0, weight=1)
@@ -44,14 +45,14 @@ class AboutTab(ctk.CTkFrame):
         ctk.CTkLabel(
             card,
             text="Help / About",
-            font=ctk.CTkFont(size=20, weight="bold"),
+            font=self.app.ui_font("title"),
         ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 4))
 
         self._version_label = ctk.CTkLabel(
             card,
             text=f"{__app_name__} v{__version__}",
             text_color="#95a5a6",
-            font=ctk.CTkFont(size=13),
+            font=self.app.ui_font("small"),
         )
         self._version_label.grid(row=1, column=0, sticky="w", padx=16, pady=(0, 10))
 
@@ -62,8 +63,9 @@ class AboutTab(ctk.CTkFrame):
                 "import archives, verify what is applied, manage hosted servers, and recover cleanly."
             ),
             justify="left",
-            wraplength=760,
+            wraplength=self.app.ui_tokens.detail_wrap,
             text_color="#c1c7cd",
+            font=self.app.ui_font("body"),
         ).grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 14))
 
     def _build_support_section(self) -> None:
@@ -74,73 +76,97 @@ class AboutTab(ctk.CTkFrame):
         ctk.CTkLabel(
             card,
             text="Support and Links",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            font=self.app.ui_font("section_title"),
         ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 10))
 
         actions = ctk.CTkFrame(card, fg_color="transparent")
         actions.grid(row=1, column=0, sticky="w", padx=16, pady=(0, 8))
 
-        ctk.CTkButton(
+        nexus_btn = ctk.CTkButton(
             actions,
             text="Open Nexus Page",
             width=150,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#d98f40",
             hover_color="#b87530",
             command=lambda: webbrowser.open(NEXUS_URL),
-        ).pack(side="left", padx=(0, 8))
+        )
+        nexus_btn.pack(side="left", padx=(0, 8))
+        self._action_buttons.append(nexus_btn)
 
-        ctk.CTkButton(
+        github_btn = ctk.CTkButton(
             actions,
             text="Open GitHub",
             width=140,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#555555",
             hover_color="#666666",
             command=lambda: webbrowser.open(GITHUB_URL),
-        ).pack(side="left", padx=8)
+        )
+        github_btn.pack(side="left", padx=8)
+        self._action_buttons.append(github_btn)
 
-        ctk.CTkButton(
+        backup_btn = ctk.CTkButton(
             actions,
             text="Open Backup Storage",
             width=160,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             command=self._open_backup_storage,
-        ).pack(side="left", padx=8)
+        )
+        backup_btn.pack(side="left", padx=8)
+        self._action_buttons.append(backup_btn)
 
-        ctk.CTkButton(
+        log_btn = ctk.CTkButton(
             actions,
             text="Open Technical Log Folder",
             width=180,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#555555",
             hover_color="#666666",
             command=self._open_data_folder,
-        ).pack(side="left", padx=8)
+        )
+        log_btn.pack(side="left", padx=8)
+        self._action_buttons.append(log_btn)
 
         ctk.CTkLabel(
             card,
             text="Support development",
             text_color="#c1c7cd",
-            font=ctk.CTkFont(size=13, weight="bold"),
+            font=self.app.ui_font("body"),
         ).grid(row=2, column=0, sticky="w", padx=16, pady=(0, 6))
 
         donate_actions = ctk.CTkFrame(card, fg_color="transparent")
         donate_actions.grid(row=3, column=0, sticky="w", padx=16, pady=(0, 8))
 
-        ctk.CTkButton(
+        kofi_btn = ctk.CTkButton(
             donate_actions,
             text="Support on Ko-fi",
             width=140,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#1f8bff",
             hover_color="#166fcc",
             command=lambda: webbrowser.open(KOFI_URL),
-        ).pack(side="left", padx=(0, 8))
+        )
+        kofi_btn.pack(side="left", padx=(0, 8))
+        self._action_buttons.append(kofi_btn)
 
-        ctk.CTkButton(
+        patreon_btn = ctk.CTkButton(
             donate_actions,
             text="Support on Patreon",
             width=150,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#f96854",
             hover_color="#d85745",
             command=lambda: webbrowser.open(PATREON_URL),
-        ).pack(side="left", padx=8)
+        )
+        patreon_btn.pack(side="left", padx=8)
+        self._action_buttons.append(patreon_btn)
 
         self._support_hint = ctk.CTkLabel(
             card,
@@ -150,8 +176,9 @@ class AboutTab(ctk.CTkFrame):
                 "manager, Ko-fi and Patreon are available here as well."
             ),
             justify="left",
-            wraplength=760,
+            wraplength=self.app.ui_tokens.detail_wrap,
             text_color="#95a5a6",
+            font=self.app.ui_font("small"),
         )
         self._support_hint.grid(row=4, column=0, sticky="ew", padx=16, pady=(0, 14))
 
@@ -163,25 +190,29 @@ class AboutTab(ctk.CTkFrame):
         ctk.CTkLabel(
             card,
             text="Updates",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            font=self.app.ui_font("section_title"),
         ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 10))
 
         self._update_btn = ctk.CTkButton(
             card,
             text="Check for Updates",
             width=160,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#2980b9",
             hover_color="#2471a3",
             command=self._on_check_update,
         )
         self._update_btn.grid(row=1, column=0, sticky="w", padx=16, pady=(0, 8))
+        self._action_buttons.append(self._update_btn)
 
         self._update_status = ctk.CTkLabel(
             card,
             text="The app will also show a banner when a new GitHub release is found.",
             justify="left",
-            wraplength=560,
+            wraplength=self.app.ui_tokens.panel_wrap,
             text_color="#95a5a6",
+            font=self.app.ui_font("small"),
         )
         self._update_status.grid(row=1, column=1, sticky="w", padx=(0, 16), pady=(0, 8))
 
@@ -192,8 +223,9 @@ class AboutTab(ctk.CTkFrame):
                 "and replace the executable."
             ),
             justify="left",
-            wraplength=760,
+            wraplength=self.app.ui_tokens.detail_wrap,
             text_color="#95a5a6",
+            font=self.app.ui_font("small"),
         )
         self._release_hint.grid(row=2, column=0, columnspan=2, sticky="ew", padx=16, pady=(0, 14))
 
@@ -205,13 +237,13 @@ class AboutTab(ctk.CTkFrame):
         ctk.CTkLabel(
             card,
             text="Troubleshooting",
-            font=ctk.CTkFont(size=16, weight="bold"),
+            font=self.app.ui_font("section_title"),
         ).grid(row=0, column=0, sticky="w", padx=16, pady=(14, 10))
 
         text = ctk.CTkTextbox(
             card,
             height=180,
-            font=ctk.CTkFont(family="Consolas", size=11),
+            font=self.app.ui_font("mono"),
         )
         text.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 14))
         text.insert(
@@ -230,6 +262,18 @@ class AboutTab(ctk.CTkFrame):
 
     def refresh_view(self) -> None:
         self._version_label.configure(text=f"{__app_name__} v{__version__}")
+
+    def apply_ui_preferences(self) -> None:
+        tokens = self.app.ui_tokens
+        self._version_label.configure(font=self.app.ui_font("small"))
+        self._support_hint.configure(font=self.app.ui_font("small"), wraplength=tokens.detail_wrap)
+        self._update_status.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
+        self._release_hint.configure(font=self.app.ui_font("small"), wraplength=tokens.detail_wrap)
+        for button in self._action_buttons:
+            try:
+                button.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)
+            except Exception:
+                pass
 
     def _on_check_update(self) -> None:
         from ...core.update_checker import check_for_update

@@ -51,6 +51,18 @@ class StatusPanel(ctk.CTkFrame):
         logging.getLogger().addHandler(self._capture)
         self.set_collapsed(collapsed)
 
+    def apply_ui_preferences(self, app) -> None:
+        self._label.configure(font=app.ui_font("card_title"))
+        self._clear_btn.configure(
+            font=app.ui_font("body"),
+            height=app.ui_tokens.compact_button_height,
+        )
+        self._toggle_btn.configure(
+            font=app.ui_font("body"),
+            height=app.ui_tokens.compact_button_height,
+        )
+        self._textbox.configure(font=app.ui_font("mono"))
+
     def _on_log(self, record: logging.LogRecord) -> None:
         fmt = logging.Formatter("%(asctime)s [%(levelname)-5s] %(message)s", datefmt="%H:%M:%S")
         line = fmt.format(record) + "\n"

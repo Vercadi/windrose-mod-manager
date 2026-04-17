@@ -26,6 +26,7 @@ class BackupsTab(ctk.CTkFrame):
         self._selected_backup: Optional[BackupRecord] = None
         self._timeline_rows: list[ctk.CTkFrame] = []
         self._backup_rows: list[ctk.CTkFrame] = []
+        self._action_buttons: list[ctk.CTkButton] = []
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -42,7 +43,7 @@ class BackupsTab(ctk.CTkFrame):
         frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         frame.grid_columnconfigure(2, weight=1)
 
-        ctk.CTkLabel(frame, text="Recovery", font=ctk.CTkFont(size=20, weight="bold")).grid(
+        ctk.CTkLabel(frame, text="Recovery", font=self.app.ui_font("title")).grid(
             row=0, column=0, sticky="w", padx=(0, 12)
         )
         self._filter_menu = ctk.CTkOptionMenu(
@@ -50,28 +51,45 @@ class BackupsTab(ctk.CTkFrame):
             variable=self._filter_var,
             values=["all", "mods", "server", "hosted"],
             width=130,
+            font=self.app.ui_font("body"),
             command=lambda _value: self.refresh(),
         )
         self._filter_menu.grid(row=0, column=1, sticky="w")
-        self._summary_label = ctk.CTkLabel(frame, text="", anchor="w", text_color="#95a5a6")
+        self._summary_label = ctk.CTkLabel(frame, text="", anchor="w", text_color="#95a5a6", font=self.app.ui_font("small"))
         self._summary_label.grid(row=0, column=2, sticky="ew", padx=(12, 12))
-        ctk.CTkButton(
+        cleanup_btn = ctk.CTkButton(
             frame,
             text="Clean Up Old",
             width=120,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#555555",
             hover_color="#666666",
             command=self._on_cleanup_old,
-        ).grid(row=0, column=3, sticky="e", padx=(0, 8))
+        )
+        cleanup_btn.grid(row=0, column=3, sticky="e", padx=(0, 8))
+        self._action_buttons.append(cleanup_btn)
         self._advanced_btn = ctk.CTkButton(
             frame,
             text="Show Raw Backup Copies",
             width=180,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#555555",
             hover_color="#666666",
             command=self._toggle_advanced,
         )
         self._advanced_btn.grid(row=0, column=4, sticky="e")
+        self._action_buttons.append(self._advanced_btn)
+        self._result_label = ctk.CTkLabel(
+            frame,
+            text="",
+            justify="left",
+            anchor="w",
+            text_color="#95a5a6",
+            font=self.app.ui_font("small"),
+        )
+        self._result_label.grid(row=1, column=0, columnspan=5, sticky="ew", pady=(4, 0))
 
     def _build_main(self) -> None:
         self._panes = tk.PanedWindow(
@@ -100,24 +118,28 @@ class BackupsTab(ctk.CTkFrame):
         right.pack(fill="both", expand=True)
         right.grid_columnconfigure(0, weight=1)
 
-        self._detail_title = ctk.CTkLabel(right, text="Select a recovery item", font=ctk.CTkFont(size=18, weight="bold"))
+        self._detail_title = ctk.CTkLabel(right, text="Select a recovery item", font=self.app.ui_font("detail_title"))
         self._detail_title.grid(row=0, column=0, sticky="w", padx=12, pady=(12, 4))
-        self._detail_meta = ctk.CTkLabel(right, text="", justify="left", text_color="#95a5a6")
+        self._detail_meta = ctk.CTkLabel(right, text="", justify="left", text_color="#95a5a6", font=self.app.ui_font("small"))
         self._detail_meta.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
         actions = ctk.CTkFrame(right)
         actions.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
-        ctk.CTkButton(actions, text="Restore Previous Version", width=180, fg_color="#2d8a4e", hover_color="#236b3d", command=self._on_restore).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(actions, text="Undo Last Change", width=140, fg_color="#2980b9", hover_color="#2471a3", command=self._on_undo).pack(side="left", padx=6)
-        ctk.CTkButton(actions, text="Open Affected Files", width=150, command=self._on_open_files).pack(side="left", padx=6)
+        self._restore_btn = ctk.CTkButton(actions, text="Restore Previous Version", width=180, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#2d8a4e", hover_color="#236b3d", command=self._on_restore)
+        self._restore_btn.pack(side="left", padx=(0, 6))
+        self._undo_btn = ctk.CTkButton(actions, text="Undo Last Change", width=140, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#2980b9", hover_color="#2471a3", command=self._on_undo)
+        self._undo_btn.pack(side="left", padx=6)
+        self._open_files_btn = ctk.CTkButton(actions, text="Open Affected Files", width=150, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=self._on_open_files)
+        self._open_files_btn.pack(side="left", padx=6)
+        self._action_buttons.extend([self._restore_btn, self._undo_btn, self._open_files_btn])
 
-        self._detail_box = ctk.CTkTextbox(right, height=240, font=ctk.CTkFont(family="Consolas", size=11))
+        self._detail_box = ctk.CTkTextbox(right, height=240, font=self.app.ui_font("mono"))
         self._detail_box.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 8))
         self._detail_box.configure(state="disabled")
 
         self._advanced_frame = ctk.CTkFrame(right)
         self._advanced_frame.grid(row=4, column=0, sticky="ew", padx=12, pady=(0, 8))
         self._advanced_frame.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(self._advanced_frame, text="Raw Backup Copies", font=ctk.CTkFont(size=15, weight="bold")).grid(
+        ctk.CTkLabel(self._advanced_frame, text="Raw Backup Copies", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=12, pady=(12, 6)
         )
         self._backup_list = ctk.CTkScrollableFrame(self._advanced_frame, height=180)
@@ -125,9 +147,13 @@ class BackupsTab(ctk.CTkFrame):
         self._backup_list.grid_columnconfigure(0, weight=1)
         raw_actions = ctk.CTkFrame(self._advanced_frame, fg_color="transparent")
         raw_actions.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 12))
-        ctk.CTkButton(raw_actions, text="Restore Previous Version", width=170, command=self._on_restore_raw).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(raw_actions, text="Remove Backup Copy", width=150, fg_color="#c0392b", hover_color="#962d22", command=self._on_delete_raw).pack(side="left", padx=6)
-        ctk.CTkButton(raw_actions, text="Open Backup Folder", width=140, command=self._on_open_folder).pack(side="left", padx=6)
+        self._restore_raw_btn = ctk.CTkButton(raw_actions, text="Restore Previous Version", width=170, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=self._on_restore_raw)
+        self._restore_raw_btn.pack(side="left", padx=(0, 6))
+        self._delete_raw_btn = ctk.CTkButton(raw_actions, text="Remove Backup Copy", width=150, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#c0392b", hover_color="#962d22", command=self._on_delete_raw)
+        self._delete_raw_btn.pack(side="left", padx=6)
+        self._open_folder_btn = ctk.CTkButton(raw_actions, text="Open Backup Folder", width=140, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=self._on_open_folder)
+        self._open_folder_btn.pack(side="left", padx=6)
+        self._action_buttons.extend([self._restore_raw_btn, self._delete_raw_btn, self._open_folder_btn])
         self._advanced_frame.grid_remove()
 
     def refresh(self) -> None:
@@ -170,16 +196,16 @@ class BackupsTab(ctk.CTkFrame):
         row = ctk.CTkFrame(self._timeline, cursor="hand2")
         row.grid(row=index, column=0, sticky="ew", pady=2)
         row.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(row, text=item.title, anchor="w", font=ctk.CTkFont(size=13, weight="bold")).grid(
+        ctk.CTkLabel(row, text=item.title, anchor="w", font=self.app.ui_font("row_title")).grid(
             row=0, column=0, sticky="ew", padx=10, pady=(8, 2)
         )
-        ctk.CTkLabel(row, text=item.subtitle, anchor="w", text_color="#95a5a6").grid(
+        ctk.CTkLabel(row, text=item.subtitle, anchor="w", text_color="#95a5a6", font=self.app.ui_font("small")).grid(
             row=1, column=0, sticky="ew", padx=10, pady=(0, 2)
         )
-        ctk.CTkLabel(row, text=item.summary, anchor="w", text_color="#c1c7cd", wraplength=300).grid(
+        ctk.CTkLabel(row, text=item.summary, anchor="w", text_color="#c1c7cd", wraplength=self.app.ui_tokens.panel_wrap, font=self.app.ui_font("body")).grid(
             row=2, column=0, sticky="ew", padx=10, pady=(0, 2)
         )
-        ctk.CTkLabel(row, text=item.timestamp[:19].replace("T", " "), anchor="w", text_color="#6f7a81").grid(
+        ctk.CTkLabel(row, text=item.timestamp[:19].replace("T", " "), anchor="w", text_color="#6f7a81", font=self.app.ui_font("tiny")).grid(
             row=3, column=0, sticky="ew", padx=10, pady=(0, 8)
         )
         for widget in row.winfo_children() + [row]:
@@ -190,13 +216,13 @@ class BackupsTab(ctk.CTkFrame):
         row = ctk.CTkFrame(self._backup_list, cursor="hand2")
         row.grid(row=index, column=0, sticky="ew", pady=2)
         row.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(row, text=record.category.replace("_", " ").title(), anchor="w", font=ctk.CTkFont(size=11, weight="bold")).grid(
+        ctk.CTkLabel(row, text=record.category.replace("_", " ").title(), anchor="w", font=self.app.ui_font("small")).grid(
             row=0, column=0, sticky="ew", padx=10, pady=(8, 2)
         )
-        ctk.CTkLabel(row, text=record.description or Path(record.backup_path).name, anchor="w", text_color="#c1c7cd", wraplength=320).grid(
+        ctk.CTkLabel(row, text=record.description or Path(record.backup_path).name, anchor="w", text_color="#c1c7cd", wraplength=self.app.ui_tokens.panel_wrap, font=self.app.ui_font("body")).grid(
             row=1, column=0, sticky="ew", padx=10, pady=(0, 2)
         )
-        ctk.CTkLabel(row, text=record.timestamp[:19].replace("T", " "), anchor="w", text_color="#6f7a81").grid(
+        ctk.CTkLabel(row, text=record.timestamp[:19].replace("T", " "), anchor="w", text_color="#6f7a81", font=self.app.ui_font("tiny")).grid(
             row=2, column=0, sticky="ew", padx=10, pady=(0, 8)
         )
         for widget in row.winfo_children() + [row]:
@@ -212,6 +238,31 @@ class BackupsTab(ctk.CTkFrame):
     def _select_backup(self, record: BackupRecord) -> None:
         self._selected_backup = record
 
+    def _set_result(self, text: str, *, level: str = "info") -> None:
+        colors = {
+            "success": "#2d8a4e",
+            "warning": "#e67e22",
+            "error": "#c0392b",
+            "info": "#95a5a6",
+        }
+        self._result_label.configure(text=text, text_color=colors.get(level, "#95a5a6"))
+
+    def apply_ui_preferences(self) -> None:
+        tokens = self.app.ui_tokens
+        self._filter_menu.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)
+        self._summary_label.configure(font=self.app.ui_font("small"))
+        self._result_label.configure(font=self.app.ui_font("small"), wraplength=tokens.detail_wrap)
+        self._detail_title.configure(font=self.app.ui_font("detail_title"))
+        self._detail_meta.configure(font=self.app.ui_font("small"))
+        self._detail_box.configure(font=self.app.ui_font("mono"))
+        for button in self._action_buttons:
+            try:
+                button.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)
+            except Exception:
+                pass
+        if self._timeline_rows or self._backup_rows:
+            self.refresh()
+
     def _toggle_advanced(self) -> None:
         self._advanced_visible = not self._advanced_visible
         if self._advanced_visible:
@@ -224,7 +275,7 @@ class BackupsTab(ctk.CTkFrame):
     def _on_restore(self) -> None:
         item = self._selected_item
         if item is None:
-            messagebox.showinfo("No Selection", "Select a recovery item first.")
+            self._set_result("Select a recovery item first.", level="info")
             return
         if item.backup_record is not None:
             self._restore_backup_record(item.backup_record)
@@ -232,20 +283,21 @@ class BackupsTab(ctk.CTkFrame):
         if item.deployment_record and item.deployment_record.action == "install":
             mod = self.app.manifest.get_mod(item.deployment_record.mod_id)
             if mod is None:
-                messagebox.showinfo("Undo Not Available", "That install is no longer active.")
+                self._set_result("That install is no longer active.", level="info")
                 return
             record = self.app.installer.uninstall(mod)
             self.app.manifest.add_record(record)
             self.app.manifest.remove_mod(mod.mod_id)
             self.app.refresh_mods_tab()
             self.refresh()
+            self._set_result(f"Restored by uninstalling {item.title.lower()}.", level="success")
             return
-        messagebox.showinfo("Restore Not Available", "Use a raw backup copy for this type of recovery.")
+        self._set_result("Use a raw backup copy for this type of recovery.", level="info")
 
     def _on_undo(self) -> None:
         item = self._selected_item
         if item is None or item.deployment_record is None:
-            messagebox.showinfo("Undo Not Available", "Select an install-related recovery item first.")
+            self._set_result("Select an install-related recovery item first.", level="info")
             return
         record = item.deployment_record
         mod = self.app.manifest.get_mod(record.mod_id)
@@ -260,10 +312,11 @@ class BackupsTab(ctk.CTkFrame):
             self.app.installer.disable(mod)
             self.app.manifest.update_mod(mod)
         else:
-            messagebox.showinfo("Undo Not Available", "That recovery item cannot be undone automatically.")
+            self._set_result("That recovery item cannot be undone automatically.", level="info")
             return
         self.app.refresh_mods_tab()
         self.refresh()
+        self._set_result("Undid the selected recovery action.", level="success")
 
     def _on_open_files(self) -> None:
         item = self._selected_item
@@ -280,7 +333,7 @@ class BackupsTab(ctk.CTkFrame):
 
     def _on_restore_raw(self) -> None:
         if not self._selected_backup:
-            messagebox.showinfo("No Selection", "Select a raw backup copy first.")
+            self._set_result("Select a raw backup copy first.", level="info")
             return
         self._restore_backup_record(self._selected_backup)
 
@@ -295,17 +348,19 @@ class BackupsTab(ctk.CTkFrame):
         if restored:
             self.refresh()
             self.app.refresh_mods_tab()
+            self._set_result("Restored the selected backup copy.", level="success")
         else:
             messagebox.showerror("Restore Failed", "Could not restore that backup.")
 
     def _on_delete_raw(self) -> None:
         if not self._selected_backup:
-            messagebox.showinfo("No Selection", "Select a raw backup copy first.")
+            self._set_result("Select a raw backup copy first.", level="info")
             return
         if not messagebox.askyesno("Remove Backup Copy", f"Delete this backup copy?\n\n{self._selected_backup.backup_path}"):
             return
         if self.app.backup.delete_backup(self._selected_backup, delete_file=True):
             self.refresh()
+            self._set_result("Removed the selected backup copy.", level="success")
         else:
             messagebox.showerror("Delete Failed", "Could not delete that backup copy.")
 
@@ -324,7 +379,9 @@ class BackupsTab(ctk.CTkFrame):
         removed = self.app.backup.prune_retention(max_backups_per_source=limit)
         self.refresh()
         if removed:
-            self._summary_label.configure(text=f"Removed {removed} old backup(s).")
+            self._set_result(f"Removed {removed} old backup(s).", level="success")
+        else:
+            self._set_result("No old backups needed cleanup.", level="info")
 
     @staticmethod
     def _set_box(box: ctk.CTkTextbox, text: str) -> None:

@@ -33,9 +33,11 @@ from ..core.server_config_service import ServerConfigService
 from ..core.server_sync_service import ServerSyncService
 from ..core.update_checker import ReleaseInfo, check_for_update, download_release_asset
 from ..core.world_config_service import WorldConfigService
+from ..models.app_preferences import AppPreferences
 from ..models.app_paths import AppPaths
 from ..utils.json_io import read_json, write_json
 from ..utils.filesystem import ensure_dir
+from .ui_tokens import UiTokens, ui_tokens_for_size
 from .widgets.status_panel import StatusPanel
 
 log = logging.getLogger(__name__)
@@ -91,6 +93,7 @@ class AppWindow(ctk.CTk):
         self._set_icon()
 
         self._init_services()
+        self._init_ui_preferences()
         self._build_ui()
         self._initial_load()
 
@@ -189,15 +192,96 @@ class AppWindow(ctk.CTk):
     def _load_settings(self) -> AppPaths:
         if SETTINGS_FILE.is_file():
             data = read_json(SETTINGS_FILE)
+            self.preferences = AppPreferences.from_dict(data.get("preferences", {}))
             paths = AppPaths.from_dict(data.get("paths", {}))
             log.info("Loaded settings from %s", SETTINGS_FILE)
             return paths
+        self.preferences = AppPreferences()
         return AppPaths()
 
     def save_settings(self) -> None:
         ensure_dir(DEFAULT_DATA_DIR)
-        write_json(SETTINGS_FILE, {"paths": self.paths.to_dict()})
+        write_json(
+            SETTINGS_FILE,
+            {
+                "paths": self.paths.to_dict(),
+                "preferences": self.preferences.to_dict(),
+            },
+        )
         log.info("Settings saved to %s", SETTINGS_FILE)
+
+    def _init_ui_preferences(self) -> None:
+        self._ui_tokens = ui_tokens_for_size(self.preferences.ui_size)
+        self._fonts = {
+            "page_title": ctk.CTkFont(size=self._ui_tokens.page_title, weight="bold"),
+            "title": ctk.CTkFont(size=self._ui_tokens.title, weight="bold"),
+            "detail_title": ctk.CTkFont(size=self._ui_tokens.detail_title, weight="bold"),
+            "section_title": ctk.CTkFont(size=self._ui_tokens.section_title, weight="bold"),
+            "card_title": ctk.CTkFont(size=self._ui_tokens.card_title, weight="bold"),
+            "row_title": ctk.CTkFont(size=self._ui_tokens.row_title, weight="bold"),
+            "body": ctk.CTkFont(size=self._ui_tokens.body),
+            "small": ctk.CTkFont(size=self._ui_tokens.small),
+            "tiny": ctk.CTkFont(size=self._ui_tokens.tiny),
+            "mono": ctk.CTkFont(family="Consolas", size=self._ui_tokens.mono),
+            "mono_small": ctk.CTkFont(family="Consolas", size=self._ui_tokens.mono_small),
+        }
+        self._apply_ui_preferences()
+
+    def _apply_ui_preferences(self) -> None:
+        self._ui_tokens = ui_tokens_for_size(self.preferences.ui_size)
+        # UI Size is intended to change readability and density inside the app,
+        # not to resize the outer window itself.
+        ctk.set_widget_scaling(self._ui_tokens.scale)
+        if hasattr(self, "_fonts"):
+            self._fonts["page_title"].configure(size=self._ui_tokens.page_title)
+            self._fonts["title"].configure(size=self._ui_tokens.title)
+            self._fonts["detail_title"].configure(size=self._ui_tokens.detail_title)
+            self._fonts["section_title"].configure(size=self._ui_tokens.section_title)
+            self._fonts["card_title"].configure(size=self._ui_tokens.card_title)
+            self._fonts["row_title"].configure(size=self._ui_tokens.row_title)
+            self._fonts["body"].configure(size=self._ui_tokens.body)
+            self._fonts["small"].configure(size=self._ui_tokens.small)
+            self._fonts["tiny"].configure(size=self._ui_tokens.tiny)
+            self._fonts["mono"].configure(size=self._ui_tokens.mono)
+            self._fonts["mono_small"].configure(size=self._ui_tokens.mono_small)
+
+    def refresh_ui_preferences(self) -> None:
+        self._apply_ui_preferences()
+        if "_mods_tab" in self.__dict__:
+            self._mods_tab.apply_ui_preferences()
+        if "_server_tab" in self.__dict__:
+            self._server_tab.apply_ui_preferences()
+        if "_settings_tab" in self.__dict__:
+            self._settings_tab.apply_ui_preferences()
+        if "_about_tab" in self.__dict__:
+            self._about_tab.apply_ui_preferences()
+        if "_status" in self.__dict__:
+            self._status.apply_ui_preferences(self)
+        if "_recovery_tab" in self.__dict__ and self._recovery_tab is not None:
+            self._recovery_tab.apply_ui_preferences()
+        self.update_idletasks()
+
+    @property
+    def ui_tokens(self) -> UiTokens:
+        return self._ui_tokens
+
+    def ui_font(self, role: str):
+        return self._fonts[role]
+
+    def should_confirm(self, category: str) -> bool:
+        if category in {"destructive", "hosted", "conflict", "variant"}:
+            return True
+        mode = self.preferences.confirmation_mode
+        if mode == "always":
+            return True
+        if mode == "destructive_only":
+            return category == "bulk"
+        return False
+
+    def confirm_action(self, category: str, title: str, message: str) -> bool:
+        if not self.should_confirm(category):
+            return True
+        return messagebox.askyesno(title, message)
 
     # ---------------------------------------------------------- UI
 
@@ -276,6 +360,7 @@ class AppWindow(ctk.CTk):
         self.after(150, self._set_initial_split_positions)
         self._tabview.set("Mods")
         self._bind_shortcuts()
+        self.refresh_ui_preferences()
 
     def _set_initial_split_positions(self) -> None:
         """Default to a compact status log while keeping it user-resizable."""
@@ -313,18 +398,22 @@ class AppWindow(ctk.CTk):
                                           corner_radius=0)
         self._update_frame.grid_columnconfigure(0, weight=1)
         self._update_label = ctk.CTkLabel(
-            self._update_frame, text="", font=ctk.CTkFont(size=12),
+            self._update_frame, text="", font=self.ui_font("body"),
             text_color="#d4efff",
         )
         self._update_label.pack(side="left", padx=12, pady=6)
         self._update_btn = ctk.CTkButton(
             self._update_frame, text="Download", width=90,
+            height=self.ui_tokens.compact_button_height,
+            font=self.ui_font("body"),
             fg_color="#2980b9", hover_color="#2471a3",
             command=self._on_update_primary_action,
         )
         self._update_btn.pack(side="right", padx=12, pady=6)
         self._update_later_btn = ctk.CTkButton(
             self._update_frame, text="Later", width=90,
+            height=self.ui_tokens.compact_button_height,
+            font=self.ui_font("body"),
             fg_color="#34495e", hover_color="#2c3e50",
             command=self._dismiss_update_banner,
         )
@@ -428,6 +517,8 @@ class AppWindow(ctk.CTk):
 
         self._launch_game_btn = ctk.CTkButton(
             inner, text="Launch Windrose", width=136,
+            height=self.ui_tokens.button_height,
+            font=self.ui_font("body"),
             fg_color="#2d8a4e", hover_color="#236b3d",
             command=self._on_start_game,
         )
@@ -435,6 +526,8 @@ class AppWindow(ctk.CTk):
 
         self._launch_server_btn = ctk.CTkButton(
             inner, text="Launch Dedicated Server", width=172,
+            height=self.ui_tokens.button_height,
+            font=self.ui_font("body"),
             fg_color="#555555", hover_color="#666666",
             command=self._on_start_server,
         )
@@ -444,7 +537,7 @@ class AppWindow(ctk.CTk):
         badge_frame.place(relx=1.0, rely=0.5, anchor="e")
         self._mod_count_label = ctk.CTkLabel(
             badge_frame, text="",
-            font=ctk.CTkFont(size=11), text_color="#95a5a6",
+            font=self.ui_font("small"), text_color="#95a5a6",
         )
         self._mod_count_label.pack(padx=8)
 

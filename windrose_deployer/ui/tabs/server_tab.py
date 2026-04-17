@@ -46,6 +46,10 @@ class ServerTab(ctk.CTkFrame):
         self._source_value = "dedicated"
         self._hosted_setup_dialog: ctk.CTkToplevel | None = None
         self._hosted_install_dialog: ctk.CTkToplevel | None = None
+        self._action_buttons: list[ctk.CTkButton] = []
+        self._field_labels: list[ctk.CTkLabel] = []
+        self._field_inputs: list[object] = []
+        self._status_boxes: list[ctk.CTkTextbox] = []
 
         self.grid_columnconfigure(0, weight=3)
         self.grid_columnconfigure(1, weight=2)
@@ -63,7 +67,7 @@ class ServerTab(ctk.CTkFrame):
         frame = ctk.CTkFrame(self, fg_color="transparent")
         frame.grid(row=0, column=0, columnspan=2, sticky="ew", padx=8, pady=(8, 4))
 
-        ctk.CTkLabel(frame, text="Server", font=ctk.CTkFont(size=20, weight="bold")).pack(
+        ctk.CTkLabel(frame, text="Server", font=self.app.ui_font("page_title")).pack(
             side="left", padx=8
         )
 
@@ -75,6 +79,7 @@ class ServerTab(ctk.CTkFrame):
             self._source_row,
             values=["Server", "Dedicated", "Hosted"],
             command=self._on_source_segment_changed,
+            font=self.app.ui_font("body"),
         )
         self._source_switch.pack(side="left", padx=(0, 8))
         self._source_switch.set("Dedicated")
@@ -88,26 +93,50 @@ class ServerTab(ctk.CTkFrame):
             width=220,
         )
 
-        ctk.CTkButton(
+        hosted_setup_btn = ctk.CTkButton(
             frame,
             text="Hosted Setup",
             width=112,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#555555",
             hover_color="#666666",
             command=self.open_hosted_setup,
-        ).pack(side="right", padx=4)
-        self._test_btn = ctk.CTkButton(frame, text="Test Connection", width=116, command=self._on_test_connection)
+        )
+        hosted_setup_btn.pack(side="right", padx=4)
+        self._action_buttons.append(hosted_setup_btn)
+        self._test_btn = ctk.CTkButton(
+            frame,
+            text="Test Connection",
+            width=116,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=self._on_test_connection,
+        )
         self._test_btn.pack(side="right", padx=4)
-        self._load_btn = ctk.CTkButton(frame, text="Load Current Settings", width=152, command=self._on_load_all)
+        self._action_buttons.append(self._test_btn)
+        self._load_btn = ctk.CTkButton(
+            frame,
+            text="Load Current Settings",
+            width=152,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=self._on_load_all,
+        )
         self._load_btn.pack(side="right", padx=4)
-        ctk.CTkButton(
+        self._action_buttons.append(self._load_btn)
+        refresh_btn = ctk.CTkButton(
             frame,
             text="Refresh",
             width=84,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#555555",
             hover_color="#666666",
             command=self.refresh_view,
-        ).pack(side="right", padx=4)
+        )
+        refresh_btn.pack(side="right", padx=4)
+        self._action_buttons.append(refresh_btn)
 
     def _build_scrollable_body(self) -> None:
         self._body = ctk.CTkScrollableFrame(self)
@@ -127,7 +156,7 @@ class ServerTab(ctk.CTkFrame):
         header = ctk.CTkFrame(parent, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", pady=(0, 2))
         ctk.CTkLabel(header, text="Server Description",
-                     font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
+                     font=self.app.ui_font("section_title")).pack(side="left")
 
         editor = ctk.CTkFrame(parent)
         editor.grid(row=1, column=0, sticky="ew", pady=(0, 8))
@@ -148,35 +177,40 @@ class ServerTab(ctk.CTkFrame):
         ]
 
         for i, (key, label, ftype) in enumerate(fields_spec):
-            ctk.CTkLabel(editor, text=label + ":", anchor="w").grid(
-                row=i, column=0, sticky="w", padx=(8, 4), pady=5)
+            field_label = ctk.CTkLabel(editor, text=label + ":", anchor="w", font=self.app.ui_font("body"))
+            field_label.grid(row=i, column=0, sticky="w", padx=(8, 4), pady=5)
+            self._field_labels.append(field_label)
 
             if ftype == "checkbox":
                 var = tk.BooleanVar()
-                widget = ctk.CTkCheckBox(editor, text="", variable=var)
+                widget = ctk.CTkCheckBox(editor, text="", variable=var, font=self.app.ui_font("body"))
                 widget.grid(row=i, column=1, sticky="w", padx=4, pady=5)
                 widget._variable = var
             else:
                 var = ctk.StringVar()
                 state = "readonly" if ftype == "entry_readonly" else "normal"
-                widget = ctk.CTkEntry(editor, textvariable=var, state=state)
+                widget = ctk.CTkEntry(editor, textvariable=var, state=state, font=self.app.ui_font("body"))
                 widget.grid(row=i, column=1, sticky="ew", padx=(4, 8), pady=5)
                 widget._variable = var
 
             self._fields[key] = widget
+            self._field_inputs.append(widget)
 
         save_row = len(fields_spec)
         self._server_save_btn = ctk.CTkButton(
             editor, text="Apply Server Settings", width=170,
+            height=self.app.ui_tokens.button_height,
+            font=self.app.ui_font("body"),
             fg_color="#2d8a4e", hover_color="#236b3d",
             command=self._on_save_server,
         )
         self._server_save_btn.grid(row=save_row, column=1, sticky="w", padx=4, pady=(8, 4))
+        self._action_buttons.append(self._server_save_btn)
         self._server_hint_label = ctk.CTkLabel(
             editor,
             text="World settings continue below this section.",
             text_color="#95a5a6",
-            font=ctk.CTkFont(size=11),
+            font=self.app.ui_font("small"),
         )
         self._server_hint_label.grid(row=save_row + 1, column=1, sticky="w", padx=4, pady=(0, 6))
 
@@ -186,8 +220,8 @@ class ServerTab(ctk.CTkFrame):
         header = ctk.CTkFrame(parent, fg_color="transparent")
         header.grid(row=2, column=0, sticky="ew", pady=(8, 2))
         ctk.CTkLabel(header, text="World Settings",
-                     font=ctk.CTkFont(size=14, weight="bold")).pack(side="left")
-        self._world_info_label = ctk.CTkLabel(header, text="(not loaded)", text_color="#95a5a6")
+                     font=self.app.ui_font("section_title")).pack(side="left")
+        self._world_info_label = ctk.CTkLabel(header, text="(not loaded)", text_color="#95a5a6", font=self.app.ui_font("small"))
         self._world_info_label.pack(side="left", padx=8)
 
         editor = ctk.CTkFrame(parent)
@@ -198,32 +232,46 @@ class ServerTab(ctk.CTkFrame):
         row = 0
 
         # World Name
-        ctk.CTkLabel(editor, text="World Name:", anchor="w").grid(
-            row=row, column=0, sticky="w", padx=(8, 4), pady=5)
+        world_name_label = ctk.CTkLabel(editor, text="World Name:", anchor="w", font=self.app.ui_font("body"))
+        world_name_label.grid(row=row, column=0, sticky="w", padx=(8, 4), pady=5)
+        self._field_labels.append(world_name_label)
         var = ctk.StringVar()
-        w = ctk.CTkEntry(editor, textvariable=var)
+        w = ctk.CTkEntry(editor, textvariable=var, font=self.app.ui_font("body"))
         w.grid(row=row, column=1, sticky="ew", padx=(4, 8), pady=5)
         w._variable = var
         self._world_fields["WorldName"] = w
+        self._field_inputs.append(w)
         row += 1
 
         # Preset
-        ctk.CTkLabel(editor, text="Preset:", anchor="w").grid(
-            row=row, column=0, sticky="w", padx=(8, 4), pady=5)
+        preset_label = ctk.CTkLabel(editor, text="Preset:", anchor="w", font=self.app.ui_font("body"))
+        preset_label.grid(row=row, column=0, sticky="w", padx=(8, 4), pady=5)
+        self._field_labels.append(preset_label)
         self._preset_var = ctk.StringVar(value="Medium")
-        preset_menu = ctk.CTkOptionMenu(editor, variable=self._preset_var,
-                                        values=PRESET_OPTIONS, width=140,
-                                        command=self._on_preset_change)
-        preset_menu.grid(row=row, column=1, sticky="w", padx=4, pady=5)
+        self._preset_menu = ctk.CTkOptionMenu(
+            editor,
+            variable=self._preset_var,
+            values=PRESET_OPTIONS,
+            width=140,
+            font=self.app.ui_font("body"),
+            command=self._on_preset_change,
+        )
+        self._preset_menu.grid(row=row, column=1, sticky="w", padx=4, pady=5)
         row += 1
 
         # Combat Difficulty
-        ctk.CTkLabel(editor, text="Combat Difficulty:", anchor="w").grid(
-            row=row, column=0, sticky="w", padx=(8, 4), pady=5)
+        combat_label = ctk.CTkLabel(editor, text="Combat Difficulty:", anchor="w", font=self.app.ui_font("body"))
+        combat_label.grid(row=row, column=0, sticky="w", padx=(8, 4), pady=5)
+        self._field_labels.append(combat_label)
         self._combat_diff_var = ctk.StringVar(value="Normal")
-        cd_menu = ctk.CTkOptionMenu(editor, variable=self._combat_diff_var,
-                                    values=list(_CD_DISPLAY.values()), width=140)
-        cd_menu.grid(row=row, column=1, sticky="w", padx=4, pady=5)
+        self._combat_menu = ctk.CTkOptionMenu(
+            editor,
+            variable=self._combat_diff_var,
+            values=list(_CD_DISPLAY.values()),
+            width=140,
+            font=self.app.ui_font("body"),
+        )
+        self._combat_menu.grid(row=row, column=1, sticky="w", padx=4, pady=5)
         row += 1
 
         # Separator
@@ -233,13 +281,15 @@ class ServerTab(ctk.CTkFrame):
 
         # Bool params
         for tag_key, (display_name, default) in BOOL_PARAM_SPEC.items():
-            ctk.CTkLabel(editor, text=display_name + ":", anchor="w").grid(
-                row=row, column=0, sticky="w", padx=(8, 4), pady=5)
+            bool_label = ctk.CTkLabel(editor, text=display_name + ":", anchor="w", font=self.app.ui_font("body"))
+            bool_label.grid(row=row, column=0, sticky="w", padx=(8, 4), pady=5)
+            self._field_labels.append(bool_label)
             var = tk.BooleanVar(value=default)
-            cb = ctk.CTkCheckBox(editor, text="", variable=var)
+            cb = ctk.CTkCheckBox(editor, text="", variable=var, font=self.app.ui_font("body"))
             cb.grid(row=row, column=1, sticky="w", padx=4, pady=5)
             cb._variable = var
             self._world_fields[f"bool_{tag_key}"] = cb
+            self._field_inputs.append(cb)
             row += 1
 
         # Another separator
@@ -249,15 +299,16 @@ class ServerTab(ctk.CTkFrame):
 
         # Float params with sliders
         for tag_key, (display_name, default, lo, hi) in FLOAT_PARAM_SPEC.items():
-            ctk.CTkLabel(editor, text=display_name + ":", anchor="w").grid(
-                row=row, column=0, sticky="w", padx=(8, 4), pady=5)
+            float_label = ctk.CTkLabel(editor, text=display_name + ":", anchor="w", font=self.app.ui_font("body"))
+            float_label.grid(row=row, column=0, sticky="w", padx=(8, 4), pady=5)
+            self._field_labels.append(float_label)
 
             slider_frame = ctk.CTkFrame(editor, fg_color="transparent")
             slider_frame.grid(row=row, column=1, sticky="ew", padx=(4, 8), pady=5)
             slider_frame.grid_columnconfigure(0, weight=1)
 
             value_var = ctk.StringVar(value=f"{default:.2f}")
-            value_label = ctk.CTkLabel(slider_frame, textvariable=value_var, width=50)
+            value_label = ctk.CTkLabel(slider_frame, textvariable=value_var, width=50, font=self.app.ui_font("small"))
             value_label.grid(row=0, column=1, padx=(4, 0))
 
             slider = ctk.CTkSlider(
@@ -274,15 +325,19 @@ class ServerTab(ctk.CTkFrame):
             range_label.grid(row=0, column=2, padx=(4, 0))
 
             self._world_fields[f"float_{tag_key}"] = (slider, value_var)
+            self._field_inputs.append(slider)
             row += 1
 
         # Save world button
         self._world_save_btn = ctk.CTkButton(
             editor, text="Apply World Settings", width=170,
+            height=self.app.ui_tokens.button_height,
+            font=self.app.ui_font("body"),
             fg_color="#2d8a4e", hover_color="#236b3d",
             command=self._on_save_world,
         )
         self._world_save_btn.grid(row=row, column=1, sticky="w", padx=4, pady=(8, 4))
+        self._action_buttons.append(self._world_save_btn)
 
     # ---- Actions bar ----
 
@@ -294,61 +349,87 @@ class ServerTab(ctk.CTkFrame):
         source_card = ctk.CTkFrame(frame)
         source_card.grid(row=0, column=0, sticky="ew", pady=(0, 6))
         source_card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(source_card, text="Server Source", font=ctk.CTkFont(size=14, weight="bold")).grid(
+        ctk.CTkLabel(source_card, text="Server Source", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 4)
         )
-        self._source_summary_label = ctk.CTkLabel(source_card, text="", justify="left", wraplength=320, text_color="#c1c7cd")
+        self._source_summary_label = ctk.CTkLabel(
+            source_card,
+            text="",
+            justify="left",
+            wraplength=self.app.ui_tokens.panel_wrap,
+            text_color="#c1c7cd",
+            font=self.app.ui_font("body"),
+        )
         self._source_summary_label.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
-        self._status_label = ctk.CTkLabel(source_card, text="", justify="left", wraplength=320)
+        self._status_label = ctk.CTkLabel(
+            source_card,
+            text="",
+            justify="left",
+            wraplength=self.app.ui_tokens.panel_wrap,
+            font=self.app.ui_font("small"),
+        )
         self._status_label.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 8))
         inventory_card = ctk.CTkFrame(frame)
         inventory_card.grid(row=1, column=0, sticky="ew", pady=(0, 6))
         inventory_card.grid_columnconfigure(0, weight=1)
         self._inventory_title_label = ctk.CTkLabel(
-            inventory_card, text="Server Mods", font=ctk.CTkFont(size=14, weight="bold")
+            inventory_card, text="Server Mods", font=self.app.ui_font("card_title")
         )
         self._inventory_title_label.grid(row=0, column=0, sticky="w", padx=10, pady=(10, 4))
-        self._inventory_box = ctk.CTkTextbox(inventory_card, height=112, font=ctk.CTkFont(family="Consolas", size=11))
+        self._inventory_box = ctk.CTkTextbox(inventory_card, height=112, font=self.app.ui_font("mono"))
         self._inventory_box.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
         self._inventory_box.configure(state="disabled")
         self._inventory_btn = ctk.CTkButton(
             inventory_card,
             text="Refresh Server Mods",
             width=148,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#555555",
             hover_color="#666666",
             command=self._refresh_server_inventory,
         )
         self._inventory_btn.grid(row=2, column=0, sticky="w", padx=10, pady=(0, 10))
+        self._action_buttons.append(self._inventory_btn)
+        self._status_boxes.append(self._inventory_box)
 
         sync_card = ctk.CTkFrame(frame)
         sync_card.grid(row=2, column=0, sticky="ew", pady=(0, 6))
         sync_card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(sync_card, text="Sync Review", font=ctk.CTkFont(size=14, weight="bold")).grid(
+        ctk.CTkLabel(sync_card, text="Sync Review", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 4)
         )
         self._sync_hint_label = ctk.CTkLabel(
             sync_card,
             text="Run compare to review parity. Use the Server Mods card for the current installed list.",
             justify="left",
-            wraplength=320,
+            wraplength=self.app.ui_tokens.panel_wrap,
             text_color="#95a5a6",
-            font=ctk.CTkFont(size=11),
+            font=self.app.ui_font("small"),
         )
         self._sync_hint_label.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
-        self._sync_box = ctk.CTkTextbox(sync_card, height=126, font=ctk.CTkFont(family="Consolas", size=11))
+        self._sync_box = ctk.CTkTextbox(sync_card, height=126, font=self.app.ui_font("mono"))
         self._sync_box.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
         self._sync_box.configure(state="disabled")
-        self._compare_btn = ctk.CTkButton(sync_card, text="Run Compare", width=204, command=self.compare_now)
+        self._compare_btn = ctk.CTkButton(
+            sync_card,
+            text="Run Compare",
+            width=204,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=self.compare_now,
+        )
         self._compare_btn.grid(row=3, column=0, sticky="w", padx=10, pady=(0, 10))
+        self._action_buttons.append(self._compare_btn)
+        self._status_boxes.append(self._sync_box)
 
         apply_card = ctk.CTkFrame(frame)
         apply_card.grid(row=3, column=0, sticky="ew", pady=(0, 6))
         apply_card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(apply_card, text="Apply Summary", font=ctk.CTkFont(size=14, weight="bold")).grid(
+        ctk.CTkLabel(apply_card, text="Apply Summary", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 4)
         )
-        self._apply_box = ctk.CTkTextbox(apply_card, height=108, font=ctk.CTkFont(family="Consolas", size=11))
+        self._apply_box = ctk.CTkTextbox(apply_card, height=108, font=self.app.ui_font("mono"))
         self._apply_box.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
         self._apply_box.configure(state="disabled")
         self._confirm_var = tk.BooleanVar(value=False)
@@ -356,46 +437,81 @@ class ServerTab(ctk.CTkFrame):
             apply_card,
             text="Skip extra confirmation popup for this apply",
             variable=self._confirm_var,
+            font=self.app.ui_font("body"),
         )
         self._confirm_check.grid(row=2, column=0, sticky="w", padx=10, pady=(0, 6))
         self._confirm_hint = ctk.CTkLabel(
             apply_card,
             text="Leave this unchecked if you want a final confirmation popup before writing changes.",
             justify="left",
-            wraplength=320,
+            wraplength=self.app.ui_tokens.panel_wrap,
             text_color="#95a5a6",
-            font=ctk.CTkFont(size=11),
+            font=self.app.ui_font("small"),
         )
         self._confirm_hint.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
         action_row = ctk.CTkFrame(apply_card, fg_color="transparent")
         action_row.grid(row=4, column=0, sticky="ew", padx=10, pady=(0, 8))
-        ctk.CTkButton(action_row, text="Apply Changes", width=122, fg_color="#2d8a4e", hover_color="#236b3d", command=self._on_apply_changes).pack(
-            side="left", padx=(0, 6)
+        self._apply_btn = ctk.CTkButton(
+            action_row,
+            text="Apply Changes",
+            width=122,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#2d8a4e",
+            hover_color="#236b3d",
+            command=self._on_apply_changes,
         )
-        ctk.CTkButton(action_row, text="Apply and Restart", width=132, fg_color="#e67e22", hover_color="#ca6b18", command=self._on_apply_and_restart).pack(
-            side="left", padx=6
+        self._apply_btn.pack(side="left", padx=(0, 6))
+        self._apply_restart_btn = ctk.CTkButton(
+            action_row,
+            text="Apply and Restart",
+            width=132,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#e67e22",
+            hover_color="#ca6b18",
+            command=self._on_apply_and_restart,
         )
+        self._apply_restart_btn.pack(side="left", padx=6)
+        self._action_buttons.extend([self._apply_btn, self._apply_restart_btn])
+        self._status_boxes.append(self._apply_box)
 
         recovery_card = ctk.CTkFrame(frame)
         recovery_card.grid(row=4, column=0, sticky="ew", pady=(0, 6))
         recovery_card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(recovery_card, text="Recovery Shortcut", font=ctk.CTkFont(size=14, weight="bold")).grid(
+        ctk.CTkLabel(recovery_card, text="Recovery Shortcut", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 4)
         )
-        ctk.CTkButton(recovery_card, text="Restore Previous Server Settings", width=220, command=self._on_restore_server).grid(
-            row=1, column=0, sticky="w", padx=10, pady=(0, 5)
+        self._restore_server_btn = ctk.CTkButton(
+            recovery_card,
+            text="Restore Previous Server Settings",
+            width=220,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=self._on_restore_server,
         )
-        ctk.CTkButton(recovery_card, text="Restore Previous World Settings", width=220, command=self._on_restore_world).grid(
-            row=2, column=0, sticky="w", padx=10, pady=(0, 5)
+        self._restore_server_btn.grid(row=1, column=0, sticky="w", padx=10, pady=(0, 5))
+        self._restore_world_btn = ctk.CTkButton(
+            recovery_card,
+            text="Restore Previous World Settings",
+            width=220,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=self._on_restore_world,
         )
-        ctk.CTkButton(
+        self._restore_world_btn.grid(row=2, column=0, sticky="w", padx=10, pady=(0, 5))
+        self._open_recovery_btn = ctk.CTkButton(
             recovery_card,
             text="Open Recovery Center",
             width=180,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
             fg_color="#555555",
             hover_color="#666666",
             command=self.app.open_recovery_center,
-        ).grid(row=3, column=0, sticky="w", padx=10, pady=(0, 10))
+        )
+        self._open_recovery_btn.grid(row=3, column=0, sticky="w", padx=10, pady=(0, 10))
+        self._action_buttons.extend([self._restore_server_btn, self._restore_world_btn, self._open_recovery_btn])
 
     def refresh_remote_profiles(self) -> None:
         profiles = self.app.remote_profiles.list_profiles()
@@ -425,6 +541,11 @@ class ServerTab(ctk.CTkFrame):
             if not self._remote_profile_menu.winfo_manager():
                 self._remote_profile_menu.pack(side="left")
             self._test_btn.configure(state="normal")
+            self._confirm_var.set(False)
+            self._confirm_check.configure(state="disabled")
+            self._confirm_hint.configure(
+                text="Hosted apply always asks for confirmation before writing changes.",
+            )
             self._status_label.configure(
                 text="Hosted source selected. Load current settings after choosing a hosted profile.",
                 text_color="#95a5a6",
@@ -435,6 +556,10 @@ class ServerTab(ctk.CTkFrame):
             if self._remote_profile_menu.winfo_manager():
                 self._remote_profile_menu.pack_forget()
             self._test_btn.configure(state="disabled")
+            self._confirm_check.configure(state="normal")
+            self._confirm_hint.configure(
+                text="Leave this unchecked if you want a final confirmation popup before writing changes.",
+            )
             self._status_label.configure(
                 text=f"{self._active_local_label()} source selected. Load current settings to review server and world config.",
                 text_color="#95a5a6",
@@ -631,10 +756,54 @@ class ServerTab(ctk.CTkFrame):
         box.insert("1.0", text)
         box.configure(state="disabled")
 
+    def _set_result(self, text: str, *, level: str = "info") -> None:
+        colors = {
+            "success": "#2d8a4e",
+            "warning": "#e67e22",
+            "error": "#c0392b",
+            "info": "#95a5a6",
+        }
+        self._status_label.configure(text=text, text_color=colors.get(level, "#95a5a6"))
+
+    def apply_ui_preferences(self) -> None:
+        tokens = self.app.ui_tokens
+        self._source_switch.configure(font=self.app.ui_font("body"), height=tokens.toolbar_button_height)
+        self._remote_profile_label.configure(font=self.app.ui_font("body"))
+        self._remote_profile_menu.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)
+        self._source_summary_label.configure(font=self.app.ui_font("body"), wraplength=tokens.panel_wrap)
+        self._status_label.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
+        self._server_hint_label.configure(font=self.app.ui_font("small"))
+        self._world_info_label.configure(font=self.app.ui_font("small"))
+        self._sync_hint_label.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
+        self._confirm_check.configure(font=self.app.ui_font("body"))
+        self._confirm_hint.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
+        for label in self._field_labels:
+            try:
+                label.configure(font=self.app.ui_font("body"))
+            except Exception:
+                pass
+        for field in self._field_inputs:
+            try:
+                field.configure(font=self.app.ui_font("body"))
+            except Exception:
+                pass
+        for button in self._action_buttons:
+            try:
+                button.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)
+            except Exception:
+                pass
+        for box in self._status_boxes:
+            try:
+                box.configure(font=self.app.ui_font("mono"))
+            except Exception:
+                pass
+
     def _ensure_apply_confirmation(self, prompt: str) -> bool:
-        if self._confirm_var.get():
+        category = "hosted" if self._source_var.get() == "hosted" else "routine"
+        if category != "hosted" and self._confirm_var.get():
             return True
-        return messagebox.askyesno(
+        return self.app.confirm_action(
+            category,
             "Confirm Apply",
             prompt + "\n\nA recovery backup will be created before writing changes.",
         )
@@ -933,7 +1102,7 @@ class ServerTab(ctk.CTkFrame):
             self._confirm_var.set(False)
             self._update_apply_summary()
             if notify_success:
-                messagebox.showinfo("Success", "Server configuration saved.\nA backup was created.")
+                self._set_result("Server configuration saved. A backup was created.", level="success")
             return True
         else:
             messagebox.showerror("Save Failed", "\n".join(save_errors))
@@ -1158,9 +1327,10 @@ class ServerTab(ctk.CTkFrame):
             self._confirm_var.set(False)
             self._update_apply_summary()
             if notify_success:
-                messagebox.showinfo("Success",
-                                    f"World settings for \"{config.world_name}\" saved.\n"
-                                    "A backup was created.")
+                self._set_result(
+                    f'World settings for "{config.world_name}" saved. A backup was created.',
+                    level="success",
+                )
             return True
         else:
             messagebox.showerror("Save Failed", "\n".join(save_errors))
@@ -1168,7 +1338,7 @@ class ServerTab(ctk.CTkFrame):
 
     def _on_restore_world(self) -> None:
         if not self._world_path:
-            messagebox.showinfo("No World Loaded", "Load world settings first.")
+            self._set_result("Load world settings first.", level="info")
             return
         if not messagebox.askyesno("Restore Previous Version", "Restore the most recent world settings backup?"):
             return
@@ -1197,7 +1367,7 @@ class ServerTab(ctk.CTkFrame):
         if not self._config and not self._world_path:
             if temporary_confirm:
                 self._confirm_var.set(False)
-            messagebox.showinfo("Nothing Loaded", "Load current settings first.")
+            self._set_result("Load current settings first.", level="info")
             return False
         original_confirm = self._confirm_var.get()
         save_ok = True
@@ -1210,7 +1380,7 @@ class ServerTab(ctk.CTkFrame):
             self._confirm_var.set(False)
         self._update_apply_summary()
         if save_ok:
-            messagebox.showinfo("Applied Changes", "Loaded changes were applied successfully.\nBackup copies were created.")
+            self._set_result("Loaded changes were applied successfully. Backup copies were created.", level="success")
         return save_ok
 
     def _on_apply_and_restart(self) -> None:
@@ -1479,11 +1649,11 @@ class ServerTab(ctk.CTkFrame):
             active = self.app._mods_tab.selected_archive_path()
             selected_path = Path(active) if active else None
         if selected_path is None or not selected_path.is_file():
-            messagebox.showinfo("No Archive Selected", "Choose an archive in Mods first.")
+            self._set_result("Choose an archive in Library first.", level="info")
             return
         profile = self._selected_remote_profile()
         if profile is None:
-            messagebox.showinfo("Hosted Setup Required", "Set up a hosted profile first.")
+            self._set_result("Set up a hosted profile first.", level="info")
             self.open_hosted_setup()
             return
 
@@ -1571,8 +1741,6 @@ class ServerTab(ctk.CTkFrame):
                                 "Hosted Install Completed with Issues",
                                 f"{message}\n\n" + "\n".join(result.failed[:5]),
                             )
-                        else:
-                            messagebox.showinfo("Hosted Install Complete", message)
                     self.after(0, _show)
                 except Exception as exc:
                     log.exception("Hosted install failed for %s on %s", selected_path.name, chosen_profile.name)
