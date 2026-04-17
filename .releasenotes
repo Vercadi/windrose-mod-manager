@@ -4,6 +4,8 @@ Windrose Mod Manager v0.3.3 is a UX and readability hotfix focused on making the
 
 ### Highlights
 
+- Restored bundled/local server support and correctly split bundled server, dedicated server, and hosted server workflows
+- The app now treats the main game's `R5\Builds\WindowsServer` files separately from the standalone **Windrose Dedicated Server** install
 - Added a new **UI Size** setting with `Compact`, `Default`, and `Large`
 - Added a new **Confirmation Behavior** setting so routine actions can stay quieter while destructive or high-risk actions still prompt
 - Replaced a number of routine success popups with inline status messages

@@ -10,6 +10,8 @@ This is a UX and readability hotfix focused on making the manager easier to scan
 
 What is fixed in v0.3.3
 
+- Restored bundled/local server support and correctly split bundled server, dedicated server, and hosted server workflows
+- The app now treats the main game's `R5\Builds\WindowsServer` files separately from the standalone **Windrose Dedicated Server** install
 - Added a new **UI Size** setting with Compact, Default, and Large
 - Added a new **Confirmation Behavior** setting with Always Confirm, Destructive Actions Only, and Reduced Confirmations
 - Replaced a number of routine success popups with inline result messages
@@ -22,7 +24,7 @@ What is fixed in v0.3.3
 
 Why this matters
 
-This hotfix makes the app feel calmer and easier to read without changing the underlying install, recovery, or hosted-server workflows. It is mainly about usability and day-to-day comfort.
+This hotfix restores the intended bundled/local server workflow while also making the app feel calmer and easier to read. It improves day-to-day usability without changing the core managed install, recovery, or hosted-server model.
 
 Validation
 
