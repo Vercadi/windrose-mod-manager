@@ -53,7 +53,7 @@ class SettingsTab(ctk.CTkFrame):
         ctk.CTkLabel(
             header,
             text=(
-                "App-level setup only: client paths, local server paths, hosted profiles, "
+                "App-level setup only: client paths, bundled and dedicated server paths, hosted profiles, "
                 "backup storage, and update behavior."
             ),
             justify="left",
@@ -87,7 +87,7 @@ class SettingsTab(ctk.CTkFrame):
         self._tabs.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
 
         self._tab_client = self._tabs.add("Client")
-        self._tab_server = self._tabs.add("Local Server")
+        self._tab_server = self._tabs.add("Server")
         self._tab_hosted = self._tabs.add("Hosted")
         self._tab_backups = self._tabs.add("Backups")
         self._tab_updates = self._tabs.add("Updates")
@@ -124,20 +124,23 @@ class SettingsTab(ctk.CTkFrame):
         ).grid(row=3, column=0, columnspan=4, sticky="ew", padx=14, pady=(2, 14))
 
     def _build_server_tab(self) -> None:
-        card = self._section_card(self._tab_server, 0, "Local Server")
-        self._add_path_row(card, 1, "server_root", "Local Server Folder")
-        self._add_path_row(card, 2, "local_save_root", "Server World Saves Folder")
+        card = self._section_card(self._tab_server, 0, "Server Targets")
+        self._add_path_row(card, 1, "server_root", "Bundled Server Folder")
+        self._add_path_row(card, 2, "dedicated_server_root", "Dedicated Server Folder")
+        self._add_path_row(card, 3, "local_save_root", "Dedicated Server World Saves Folder")
         ctk.CTkLabel(
             card,
             text=(
-                "Point this at the standalone Windrose Dedicated Server folder or the legacy bundled server root. "
-                "ServerDescription.json is derived from <server>/R5/ServerDescription.json, and world saves default "
-                "to <server>/R5/Saved."
+                "Bundled Server Folder should point at <Windrose>/R5/Builds/WindowsServer. "
+                "Dedicated Server Folder should point at the standalone Windrose Dedicated Server install. "
+                "Bundled server world files are derived from <bundled>/R5/Saved. Dedicated server launch and "
+                "dedicated server/world settings use the dedicated server folder, and world saves default to "
+                "<dedicated>/R5/Saved."
             ),
             justify="left",
             wraplength=760,
             text_color="#95a5a6",
-        ).grid(row=3, column=0, columnspan=4, sticky="ew", padx=14, pady=(2, 14))
+        ).grid(row=4, column=0, columnspan=4, sticky="ew", padx=14, pady=(2, 14))
 
     def _build_hosted_tab(self) -> None:
         card = self._section_card(self._tab_hosted, 0, "Hosted Profiles")
@@ -302,6 +305,7 @@ class SettingsTab(ctk.CTkFrame):
         explicit_mapping = {
             "client_root": paths.client_root,
             "server_root": paths.server_root,
+            "dedicated_server_root": paths.dedicated_server_root,
             "local_config": paths.local_config,
             "local_save_root": paths.local_save_root,
             "backup_dir": paths.backup_dir,
@@ -313,8 +317,9 @@ class SettingsTab(ctk.CTkFrame):
         mapping = {
             "client_root": paths.client_root,
             "server_root": paths.server_root,
+            "dedicated_server_root": paths.dedicated_server_root,
             "local_config": paths.local_config,
-            "local_save_root": paths.effective_local_save_root,
+            "local_save_root": paths.dedicated_server_save_root,
             "backup_dir": paths.backup_dir,
         }
         for key, value in mapping.items():
@@ -387,9 +392,11 @@ class SettingsTab(ctk.CTkFrame):
             self._path_vars["client_root"].set(str(detected.client_root))
         if detected.server_root:
             self._path_vars["server_root"].set(str(detected.server_root))
+        if detected.dedicated_server_root:
+            self._path_vars["dedicated_server_root"].set(str(detected.dedicated_server_root))
         if detected.local_config:
             self._path_vars["local_config"].set(str(detected.local_config))
-        if detected.local_save_root:
+        if detected.local_save_root and detected.dedicated_server_root:
             self._path_vars["local_save_root"].set(str(detected.local_save_root))
         self._on_validate()
         self._info_append("Auto-detection complete.")
@@ -399,6 +406,7 @@ class SettingsTab(ctk.CTkFrame):
         validators = {
             "client_root": validate_client_root,
             "server_root": validate_server_root,
+            "dedicated_server_root": validate_server_root,
             "local_config": validate_local_config,
         }
 
@@ -478,7 +486,8 @@ class SettingsTab(ctk.CTkFrame):
             return Path(value)
 
         explicit_value = self._explicit_path_values.get(key, "")
-        effective_value = str(self.app.paths.effective_local_save_root) if self.app.paths.effective_local_save_root else ""
+        effective_root = self.app.paths.dedicated_server_save_root
+        effective_value = str(effective_root) if effective_root else ""
         if not explicit_value and value == effective_value:
             return None
         return Path(value)

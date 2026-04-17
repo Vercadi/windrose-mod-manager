@@ -135,8 +135,8 @@ class RecoveryService:
             "disable": "Disabled",
             "enable": "Enabled",
             "repair": "Repaired",
-            "save_server_config": "Saved Local Server Settings",
-            "save_world_config": "Saved Local World Settings",
+            "save_server_config": "Saved Dedicated Server Settings",
+            "save_world_config": "Saved Dedicated World Settings",
             "save_remote_server_config": "Saved Hosted Server Settings",
             "save_remote_world_config": "Saved Hosted World Settings",
             "hosted_upload": "Uploaded to Hosted Server",
@@ -153,20 +153,27 @@ class RecoveryService:
         if target == "client":
             return "Client"
         if target == "server":
-            return "Local Server"
+            return "Bundled Server"
+        if target == "dedicated_server":
+            return "Dedicated Server"
         if target == "both":
-            return "Client + Local Server"
+            return "Client + Bundled Server"
         if target == "hosted":
             return "Hosted Server"
         if "," in target:
-            return target.replace("client", "Client").replace("server", "Server")
+            return (
+                target
+                .replace("dedicated_server", "Dedicated Server")
+                .replace("client", "Client")
+                .replace("server", "Bundled Server")
+            )
         return target or "Unknown"
 
     @staticmethod
     def _backup_category_label(category: str) -> str:
         labels = {
-            "server_config": "Local Server",
-            "world_config": "Local World",
+            "server_config": "Dedicated Server",
+            "world_config": "Dedicated World",
             "remote_server_config": "Hosted Server",
             "remote_world_config": "Hosted World",
         }
@@ -175,8 +182,8 @@ class RecoveryService:
     @staticmethod
     def _backup_title(record: BackupRecord) -> str:
         title_map = {
-            "server_config": "Saved Local Server Settings",
-            "world_config": "Saved Local World Settings",
+            "server_config": "Saved Dedicated Server Settings",
+            "world_config": "Saved Dedicated World Settings",
             "remote_server_config": "Saved Hosted Server Settings",
             "remote_world_config": "Saved Hosted World Settings",
         }

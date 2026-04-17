@@ -178,6 +178,8 @@ class IntegrityService:
         target_values = set(mod.targets)
         if "both" in target_values or {"client", "server"}.issubset(target_values):
             return InstallTarget.BOTH
+        if "dedicated_server" in target_values:
+            return InstallTarget.DEDICATED_SERVER
         if "server" in target_values:
             return InstallTarget.SERVER
         return InstallTarget.CLIENT

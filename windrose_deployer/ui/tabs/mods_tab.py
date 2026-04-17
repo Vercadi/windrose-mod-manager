@@ -73,7 +73,7 @@ class ModsTab(ctk.CTkFrame):
 
         self._scope_switch = ctk.CTkSegmentedButton(
             bar,
-            values=["All", "Client", "Local Server", "Hosted"],
+            values=["All", "Client", "Server", "Dedicated", "Hosted"],
             command=lambda value: self._on_scope_changed(value),
         )
         self._scope_switch.grid(row=0, column=1, sticky="w", padx=(0, 12))
@@ -161,7 +161,7 @@ class ModsTab(ctk.CTkFrame):
         self._filter_menu = ctk.CTkOptionMenu(
             header,
             variable=self._filter_var,
-            values=["all", "installed", "not installed", "client", "server", "both", "missing archive"],
+            values=["all", "installed", "not installed", "client", "server", "dedicated", "both", "missing archive"],
             width=118,
             command=lambda _value: self._refresh_library_ui(),
         )
@@ -252,9 +252,12 @@ class ModsTab(ctk.CTkFrame):
 
     @staticmethod
     def _effective_targets(mod: ModInstall) -> set[str]:
-        if "both" in mod.targets:
-            return {"client", "server"}
-        return {target for target in mod.targets if target in {"client", "server"}}
+        targets = set(mod.targets)
+        expanded: set[str] = set()
+        if "both" in targets:
+            expanded.update({"client", "server"})
+        expanded.update(target for target in targets if target in {"client", "server", "dedicated_server"})
+        return expanded
 
     def _archive_covers_target(self, archive_path_str: str, target: InstallTarget) -> bool:
         covered: set[str] = set()
@@ -264,6 +267,8 @@ class ModsTab(ctk.CTkFrame):
             return "client" in covered
         if target == InstallTarget.SERVER:
             return "server" in covered
+        if target == InstallTarget.DEDICATED_SERVER:
+            return "dedicated_server" in covered
         return {"client", "server"}.issubset(covered)
 
     def _archive_badge_text(self, archive_path_str: str) -> str:
@@ -273,13 +278,10 @@ class ModsTab(ctk.CTkFrame):
         covered: set[str] = set()
         for mod in mods:
             covered.update(self._effective_targets(mod))
-        if covered == {"client", "server"}:
-            return "CS "
-        if covered == {"client"}:
-            return " C "
-        if covered == {"server"}:
-            return " S "
-        return f"{len(mods):>2} "
+        letters = "".join(
+            letter for letter, key in (("C", "client"), ("S", "server"), ("D", "dedicated_server")) if key in covered
+        )
+        return f"{letters:<3}" if letters else f"{len(mods):>2} "
 
     def _installed_to_text(self, mods: list[ModInstall]) -> str:
         if not mods:
@@ -287,7 +289,13 @@ class ModsTab(ctk.CTkFrame):
         labels = []
         for mod in mods:
             targets = self._effective_targets(mod)
-            label = " + ".join(x for x, k in (("Client", "client"), ("Server", "server")) if k in targets) or "Hosted"
+            label = " + ".join(
+                x for x, k in (
+                    ("Client", "client"),
+                    ("Server", "server"),
+                    ("Dedicated", "dedicated_server"),
+                ) if k in targets
+            ) or "Hosted"
             if mod.selected_variant:
                 label += f" ({mod.selected_variant})"
             if not mod.enabled:
@@ -306,7 +314,8 @@ class ModsTab(ctk.CTkFrame):
     def _target_label(target: InstallTarget) -> str:
         return {
             InstallTarget.CLIENT: "Client",
-            InstallTarget.SERVER: "Local Server",
+            InstallTarget.SERVER: "Server",
+            InstallTarget.DEDICATED_SERVER: "Dedicated Server",
             InstallTarget.BOTH: "Client + Server",
         }.get(target, target.value.title())
 
@@ -349,7 +358,8 @@ class ModsTab(ctk.CTkFrame):
         scope = {
             "All": "all",
             "Client": "client",
-            "Local Server": "server",
+            "Server": "server",
+            "Dedicated": "dedicated_server",
             "Hosted": "hosted",
         }.get(value, "all")
         self._scope_var.set(scope)
@@ -397,6 +407,10 @@ class ModsTab(ctk.CTkFrame):
             return "Client"
         if targets == {"server"}:
             return "Server"
+        if targets == {"dedicated_server"}:
+            return "Dedicated Server"
+        if targets == {"client", "dedicated_server"}:
+            return "Client + Dedicated"
         return "Other"
 
     def _selected_hosted_profile(self):
@@ -566,7 +580,7 @@ class ModsTab(ctk.CTkFrame):
         if not mods:
             empty = ctk.CTkLabel(
                 self._applied_list,
-                text="No applied mods yet. Install an archive to the client or server to track it here.",
+                text="No applied mods yet. Install an archive to the client, server, or dedicated server to track it here.",
                 justify="left",
                 wraplength=330,
                 text_color="#95a5a6",
@@ -579,7 +593,7 @@ class ModsTab(ctk.CTkFrame):
         for mod in mods:
             grouped[self._applied_group_label(mod)].append(mod)
 
-        order = ["Client + Server", "Client", "Server", "Other"]
+        order = ["Client + Server", "Client + Dedicated", "Client", "Server", "Dedicated Server", "Other"]
         row = 0
         for group_name in order:
             items = grouped.get(group_name, [])
@@ -690,6 +704,8 @@ class ModsTab(ctk.CTkFrame):
                 continue
             if selected_filter == "server" and "server" not in targets:
                 continue
+            if selected_filter == "dedicated" and "dedicated_server" not in targets:
+                continue
             if selected_filter == "both" and targets != {"client", "server"}:
                 continue
             if selected_filter == "missing archive" and exists:
@@ -721,7 +737,8 @@ class ModsTab(ctk.CTkFrame):
         scope_label = {
             "all": "all targets",
             "client": "client",
-            "server": "local server",
+            "server": "server",
+            "dedicated_server": "dedicated server",
             "hosted": "hosted",
         }.get(self._scope_var.get(), "all targets")
         filtered_entries = self._filtered_entries()
@@ -863,6 +880,7 @@ class ModsTab(ctk.CTkFrame):
         if archive_path.is_file():
             menu.add_command(label="Install to Client", command=lambda: self._install_path_to(archive_path, InstallTarget.CLIENT))
             menu.add_command(label="Install to Server", command=lambda: self._install_path_to(archive_path, InstallTarget.SERVER))
+            menu.add_command(label="Install to Dedicated Server", command=lambda: self._install_path_to(archive_path, InstallTarget.DEDICATED_SERVER))
             menu.add_command(label="Install to Both", command=lambda: self._install_path_to(archive_path, InstallTarget.BOTH))
             menu.add_command(label="Install to Hosted Server", command=lambda: self.app.open_remote_deploy(archive_path))
         if self._mods_for_archive(str(archive_path)):
@@ -920,6 +938,7 @@ class ModsTab(ctk.CTkFrame):
         actions = [
             ("Install to Client", lambda: self._install_path_to(archive_path, InstallTarget.CLIENT)),
             ("Install to Server", lambda: self._install_path_to(archive_path, InstallTarget.SERVER)),
+            ("Install to Dedicated Server", lambda: self._install_path_to(archive_path, InstallTarget.DEDICATED_SERVER)),
             ("Install to Both", lambda: self._install_path_to(archive_path, InstallTarget.BOTH)),
             ("Install to Hosted Server", lambda: self.app.open_remote_deploy(archive_path)),
         ]
@@ -1130,8 +1149,14 @@ class ModsTab(ctk.CTkFrame):
             return "This archive is not currently applied anywhere."
         lines: list[str] = []
         for mod in mods:
-            targets = ", ".join(sorted(self._effective_targets(mod))) or "hosted"
-            lines.append(f"{self._compact_name(mod.display_name)} [{targets}] - {'enabled' if mod.enabled else 'disabled'}")
+            target_text = " + ".join(
+                label for label, key in (
+                    ("Client", "client"),
+                    ("Server", "server"),
+                    ("Dedicated", "dedicated_server"),
+                ) if key in self._effective_targets(mod)
+            ) or "Hosted"
+            lines.append(f"{self._compact_name(mod.display_name)} [{target_text}] - {'enabled' if mod.enabled else 'disabled'}")
             if mod.selected_variant:
                 lines.append(f"  variant: {mod.selected_variant}")
             lines.append(f"  files: {mod.file_count}")
@@ -1141,7 +1166,7 @@ class ModsTab(ctk.CTkFrame):
 
     def _build_install_review(self, info: ArchiveInfo) -> str:
         lines: list[str] = []
-        for target in (InstallTarget.CLIENT, InstallTarget.SERVER, InstallTarget.BOTH):
+        for target in (InstallTarget.CLIENT, InstallTarget.SERVER, InstallTarget.DEDICATED_SERVER, InstallTarget.BOTH):
             plan = plan_deployment(
                 info,
                 self.app.paths,
@@ -1334,7 +1359,12 @@ class ModsTab(ctk.CTkFrame):
             return
         try:
             info = inspect_archive(archive_path)
-            target = InstallTarget.BOTH if "both" in selected.targets else InstallTarget(selected.targets[0])
+            if "both" in selected.targets:
+                target = InstallTarget.BOTH
+            elif "dedicated_server" in selected.targets:
+                target = InstallTarget.DEDICATED_SERVER
+            else:
+                target = InstallTarget(selected.targets[0])
             plan = plan_deployment(info, self.app.paths, target, selected.selected_variant, selected.display_name)
         except Exception as exc:
             messagebox.showerror("Reinstall Failed", f"Could not prepare reinstall:\n{exc}")
@@ -1397,7 +1427,11 @@ class ModsTab(ctk.CTkFrame):
             return False
         if target in (InstallTarget.SERVER, InstallTarget.BOTH) and not paths.server_root:
             if not quiet:
-                messagebox.showerror("Missing Server Path", "Configure the local server path in Settings first.")
+                messagebox.showerror("Missing Server Path", "Configure the bundled server path in Settings first.")
+            return False
+        if target == InstallTarget.DEDICATED_SERVER and not paths.dedicated_server_root:
+            if not quiet:
+                messagebox.showerror("Missing Dedicated Server Path", "Configure the dedicated server path in Settings first.")
             return False
         plan = plan_deployment(info, paths, target, selected_variant, mod_name)
         if not plan.valid:

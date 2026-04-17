@@ -21,6 +21,9 @@ def resolve_pak_target(paths: AppPaths, target: InstallTarget) -> list[Path]:
     if target in (InstallTarget.SERVER, InstallTarget.BOTH):
         if paths.server_mods:
             targets.append(paths.server_mods)
+    if target == InstallTarget.DEDICATED_SERVER:
+        if paths.dedicated_server_mods:
+            targets.append(paths.dedicated_server_mods)
     return targets
 
 
@@ -33,6 +36,9 @@ def resolve_loose_target(paths: AppPaths, target: InstallTarget, info: ArchiveIn
     if target in (InstallTarget.SERVER, InstallTarget.BOTH):
         if paths.server_root:
             targets.append(paths.server_root)
+    if target == InstallTarget.DEDICATED_SERVER:
+        if paths.dedicated_server_root:
+            targets.append(paths.dedicated_server_root)
     return targets
 
 

@@ -75,28 +75,34 @@ def discover_client_root() -> Optional[Path]:
     return None
 
 
-def discover_server_root(client_root: Optional[Path] = None) -> Optional[Path]:
-    """Locate the preferred dedicated server install.
-
-    Prefer the standalone Steam dedicated-server app when present, and fall
-    back to the legacy client-bundled server layout only if needed.
-    """
+def discover_dedicated_server_root() -> Optional[Path]:
+    """Locate the standalone Steam dedicated-server install."""
     for base in STEAM_COMMON_DIRS:
         candidate = Path(base) / DEDICATED_SERVER_FOLDER_NAME
         if _validate_server_root(candidate):
             log.info("Discovered standalone dedicated server root: %s", candidate)
             return candidate
+    log.warning("Could not auto-discover Windrose standalone dedicated server root.")
+    return None
 
+
+def discover_bundled_server_root(client_root: Optional[Path] = None) -> Optional[Path]:
+    """Locate the legacy bundled WindowsServer runtime inside the client install."""
     if client_root is None:
-        log.warning("Could not auto-discover Windrose dedicated server root.")
+        log.warning("Could not auto-discover bundled WindowsServer root because no client root is set.")
         return None
 
     candidate = legacy_server_root(client_root)
     if _validate_server_root(candidate):
-        log.info("Discovered legacy dedicated server root: %s", candidate)
+        log.info("Discovered bundled WindowsServer root: %s", candidate)
         return candidate
-    log.warning("Could not auto-discover Windrose dedicated server root.")
+    log.warning("Could not auto-discover bundled WindowsServer root.")
     return None
+
+
+def discover_server_root(client_root: Optional[Path] = None) -> Optional[Path]:
+    """Compatibility wrapper for the bundled WindowsServer target."""
+    return discover_bundled_server_root(client_root)
 
 
 def discover_local_config() -> Optional[Path]:
@@ -112,14 +118,19 @@ def discover_local_config() -> Optional[Path]:
     return None
 
 
-def discover_local_save_root(server_root: Optional[Path] = None) -> Optional[Path]:
-    """Find the local dedicated-server save root.
+def discover_local_save_root(
+    dedicated_server_root: Optional[Path] = None,
+    server_root: Optional[Path] = None,
+) -> Optional[Path]:
+    """Find the preferred local server save root.
 
-    Prefer <server_root>/R5/Saved for both standalone and legacy dedicated
-    server installs. Fall back to the older %LOCALAPPDATA%/R5/Saved path.
+    Prefer <dedicated_server_root>/R5/Saved when a standalone dedicated server
+    install exists. Fall back to the bundled WindowsServer root, then to the
+    older %LOCALAPPDATA%/R5/Saved path.
     """
-    if server_root is not None:
-        candidate = server_save_root(server_root)
+    active_server_root = dedicated_server_root or server_root
+    if active_server_root is not None:
+        candidate = server_save_root(active_server_root)
         if candidate.parent.is_dir():
             log.info("Discovered local server save root: %s", candidate)
             return candidate
@@ -137,13 +148,15 @@ def discover_local_save_root(server_root: Optional[Path] = None) -> Optional[Pat
 def discover_all(known_client: Optional[Path] = None) -> AppPaths:
     """Run full discovery and return an AppPaths with all found paths."""
     client = known_client if known_client and _validate_client_root(known_client) else discover_client_root()
-    server = discover_server_root(client)
+    bundled_server = discover_bundled_server_root(client)
+    dedicated_server = discover_dedicated_server_root()
     local_config = discover_local_config()
-    local_save = discover_local_save_root(server)
+    local_save = discover_local_save_root(dedicated_server, bundled_server)
 
     return AppPaths(
         client_root=client,
-        server_root=server,
+        server_root=bundled_server,
+        dedicated_server_root=dedicated_server,
         local_config=local_config,
         local_save_root=local_save,
     )
@@ -181,13 +194,15 @@ def default_local_save_root() -> Optional[Path]:
 def reconcile_paths(paths: AppPaths) -> tuple[AppPaths, bool]:
     """Reconcile saved paths with current discovery results.
 
-    Existing installs may still point at the legacy bundled server path and the
-    old appdata save root. Upgrade those saved defaults conservatively to the
-    preferred standalone dedicated-server install when one is detected.
+    Existing installs may contain only one saved server root from the period
+    where bundled WindowsServer and the standalone dedicated server app were
+    collapsed into one setting. Split those safely, then fill in any missing
+    paths from discovery.
     """
     current = AppPaths(
         client_root=paths.client_root,
         server_root=paths.server_root,
+        dedicated_server_root=paths.dedicated_server_root,
         local_config=paths.local_config,
         local_save_root=paths.local_save_root,
         backup_dir=paths.backup_dir,
@@ -195,6 +210,8 @@ def reconcile_paths(paths: AppPaths) -> tuple[AppPaths, bool]:
     )
     changed = False
 
+    current, migrated = _split_legacy_server_settings(current)
+    changed = changed or migrated
     detected = discover_all(known_client=current.client_root)
 
     if detected.client_root and (
@@ -204,16 +221,18 @@ def reconcile_paths(paths: AppPaths) -> tuple[AppPaths, bool]:
         changed = True
 
     previous_server_root = current.server_root
-    if detected.server_root:
-        if current.server_root is None or not _validate_server_root(current.server_root):
-            current.server_root = detected.server_root
-            changed = True
-        elif (
-            current.server_root != detected.server_root
-            and is_legacy_server_root(current.server_root, current.client_root)
-        ):
-            current.server_root = detected.server_root
-            changed = True
+    if detected.server_root and (
+        current.server_root is None or not _validate_server_root(current.server_root)
+    ):
+        current.server_root = detected.server_root
+        changed = True
+
+    previous_dedicated_server_root = current.dedicated_server_root
+    if detected.dedicated_server_root and (
+        current.dedicated_server_root is None or not _validate_server_root(current.dedicated_server_root)
+    ):
+        current.dedicated_server_root = detected.dedicated_server_root
+        changed = True
 
     if detected.local_config and (current.local_config is None or not current.local_config.is_dir()):
         current.local_config = detected.local_config
@@ -231,7 +250,14 @@ def reconcile_paths(paths: AppPaths) -> tuple[AppPaths, bool]:
         ):
             should_update_save_root = True
         elif (
-            previous_server_root is not None
+            previous_dedicated_server_root is not None
+            and current.local_save_root == server_save_root(previous_dedicated_server_root)
+            and current.local_save_root != detected.local_save_root
+        ):
+            should_update_save_root = True
+        elif (
+            previous_dedicated_server_root is None
+            and previous_server_root is not None
             and current.local_save_root == server_save_root(previous_server_root)
             and current.local_save_root != detected.local_save_root
         ):
@@ -244,7 +270,24 @@ def reconcile_paths(paths: AppPaths) -> tuple[AppPaths, bool]:
     return current, changed
 
 
-# ------------------------------------------------------------------ helpers
+def _split_legacy_server_settings(paths: AppPaths) -> tuple[AppPaths, bool]:
+    """Migrate older settings where server_root was used for both meanings."""
+    if paths.dedicated_server_root is not None or paths.server_root is None:
+        return paths, False
+
+    current_server_root = Path(paths.server_root)
+    if not _validate_server_root(current_server_root):
+        return paths, False
+    if is_legacy_server_root(current_server_root, paths.client_root):
+        return paths, False
+
+    paths.dedicated_server_root = current_server_root
+    bundled_root = legacy_server_root(paths.client_root) if paths.client_root else None
+    if bundled_root is not None and _validate_server_root(bundled_root):
+        paths.server_root = bundled_root
+    else:
+        paths.server_root = None
+    return paths, True
 
 
 def _validate_client_root(path: Path) -> bool:

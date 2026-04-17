@@ -38,10 +38,10 @@ class SyncReport:
 class ServerSyncService:
     """Produce user-facing parity reports for client/server mod state."""
 
-    def compare_local(self, mods: list[ModInstall]) -> SyncReport:
+    def compare_local(self, mods: list[ModInstall], *, target: str = "server") -> SyncReport:
         client_groups = self._mods_by_name(mods, target="client")
-        server_groups = self._mods_by_name(mods, target="server")
-        return self._compare_mod_groups(client_groups, server_groups)
+        server_groups = self._mods_by_name(mods, target=target)
+        return self._compare_mod_groups(client_groups, server_groups, target=target)
 
     def compare_hosted(self, mods: list[ModInstall], remote_files: list[str]) -> SyncReport:
         client_mods = self._mods_for_target(mods, target="client")
@@ -89,8 +89,11 @@ class ServerSyncService:
         self,
         client_groups: dict[str, list[ModInstall]],
         server_groups: dict[str, list[ModInstall]],
+        *,
+        target: str,
     ) -> SyncReport:
         items: list[SyncItem] = []
+        target_label = self._target_label(target)
         for key in sorted(set(client_groups) | set(server_groups)):
             client_bucket = list(client_groups.get(key, []))
             remaining_servers = list(server_groups.get(key, []))
@@ -115,7 +118,7 @@ class ServerSyncService:
                         status="matched",
                         client_summary=self._mod_summary(client),
                         server_summary=self._mod_summary(server),
-                        details="Managed client and local server installs are aligned.",
+                        details=f"Managed client and {target_label.lower()} installs are aligned.",
                     )
                 )
 
@@ -129,7 +132,7 @@ class ServerSyncService:
                         status="version_mismatch",
                         client_summary=self._mod_summary(client),
                         server_summary=self._mod_summary(server),
-                        details="Client and local server installs use different archive revisions or variants.",
+                        details=f"Client and {target_label.lower()} installs use different archive revisions or variants.",
                     )
                 )
 
@@ -140,7 +143,7 @@ class ServerSyncService:
                         status="missing_on_server",
                         client_summary=self._mod_summary(client),
                         server_summary="Not installed",
-                        details="Installed for the client but missing from the local server target.",
+                        details=f"Installed for the client but missing from the {target_label.lower()} target.",
                     )
                 )
             for server in remaining_servers[pairs:]:
@@ -150,7 +153,7 @@ class ServerSyncService:
                         status="missing_on_client",
                         client_summary="Not installed",
                         server_summary=self._mod_summary(server),
-                        details="Installed for the local server but missing from the client target.",
+                        details=f"Installed for the {target_label.lower()} target but missing from the client target.",
                     )
                 )
         return SyncReport(items=items)
@@ -161,7 +164,7 @@ class ServerSyncService:
         for mod in mods:
             if not mod.enabled:
                 continue
-            targets = {"client", "server"} if "both" in mod.targets else set(mod.targets)
+            targets = ServerSyncService._expanded_targets(mod)
             if target not in targets:
                 continue
             filtered.append(mod)
@@ -213,3 +216,19 @@ class ServerSyncService:
                 name = name[: -len(".disabled")]
             expected.add(name)
         return expected
+
+    @staticmethod
+    def _expanded_targets(mod: ModInstall) -> set[str]:
+        targets = set(mod.targets)
+        if "both" in targets:
+            targets.update({"client", "server"})
+        return targets
+
+    @staticmethod
+    def _target_label(target: str) -> str:
+        labels = {
+            "server": "bundled server",
+            "dedicated_server": "dedicated server",
+            "hosted": "hosted server",
+        }
+        return labels.get(target, target.replace("_", " "))

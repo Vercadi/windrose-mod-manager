@@ -145,13 +145,16 @@ class AppWindow(ctk.CTk):
         reconciled_paths, changed = reconcile_paths(self.paths)
         if changed:
             old_server_root = self.paths.server_root
+            old_dedicated_server_root = self.paths.dedicated_server_root
             old_save_root = self.paths.local_save_root
             self.paths = reconciled_paths
             self.save_settings()
             log.info(
-                "Reconciled saved paths. Server root: %s -> %s | Save root: %s -> %s",
+                "Reconciled saved paths. Bundled server root: %s -> %s | Dedicated server root: %s -> %s | Save root: %s -> %s",
                 old_server_root,
                 self.paths.server_root,
+                old_dedicated_server_root,
+                self.paths.dedicated_server_root,
                 old_save_root,
                 self.paths.local_save_root,
             )
@@ -454,34 +457,65 @@ class AppWindow(ctk.CTk):
             messagebox.showerror("Not Found",
                                  "Windrose.exe not found. Check client path in Settings.")
 
-    def _on_start_server(self) -> None:
-        if self.paths.server_root:
-            bat = self.paths.server_root / "StartServerForeground.bat"
-            exe = self.paths.server_root / "WindroseServer.exe"
+    def _launch_server_root(self, root: Path | None, *, label: str) -> bool:
+        if root:
+            bat = root / "StartServerForeground.bat"
+            exe = root / "WindroseServer.exe"
             target = bat if bat.is_file() else exe
         else:
             target = None
 
-        if target and target.is_file():
-            subprocess.Popen([str(target)], cwd=str(target.parent))
-            log.info("Launched dedicated server: %s", target)
-        else:
-            messagebox.showerror("Not Found",
-                                 "Dedicated server executable not found. Check server path in Settings.")
+        if not target or not target.is_file():
+            messagebox.showerror(
+                "Not Found",
+                f"{label} executable not found. Check the corresponding server path in Settings.",
+            )
+            return False
+
+        try:
+            creation_flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
+            if target.suffix.lower() in {".bat", ".cmd"}:
+                subprocess.Popen(
+                    ["cmd.exe", "/c", str(target)],
+                    cwd=str(target.parent),
+                    creationflags=creation_flags,
+                )
+            else:
+                subprocess.Popen(
+                    [str(target)],
+                    cwd=str(target.parent),
+                    creationflags=creation_flags,
+                )
+            log.info("Launched %s: %s", label.lower(), target)
+            return True
+        except Exception as exc:
+            log.error("Failed to launch %s %s: %s", label.lower(), target, exc)
+            messagebox.showerror(
+                "Launch Failed",
+                f"Could not launch the {label.lower()}.\n"
+                f"{exc}",
+            )
+            return False
+
+    def _on_start_server(self) -> bool:
+        return self._launch_server_root(self.paths.dedicated_server_root, label="Dedicated Server")
 
     # ---------------------------------------------------------- lifecycle
 
     def _initial_load(self) -> None:
         """Run first-time discovery if no game or server path is configured."""
-        if not self.paths.client_root and not self.paths.server_root:
-            log.info("No client root configured — running auto-detection...")
+        if not self.paths.client_root and not self.paths.server_root and not self.paths.dedicated_server_root:
+            log.info("No client or server roots configured — running auto-detection...")
             detected = discover_all()
             if detected.client_root:
                 self.paths.client_root = detected.client_root
                 log.info("Auto-detected client: %s", detected.client_root)
             if detected.server_root:
                 self.paths.server_root = detected.server_root
-                log.info("Auto-detected server: %s", detected.server_root)
+                log.info("Auto-detected bundled server: %s", detected.server_root)
+            if detected.dedicated_server_root:
+                self.paths.dedicated_server_root = detected.dedicated_server_root
+                log.info("Auto-detected dedicated server: %s", detected.dedicated_server_root)
             if detected.local_config:
                 self.paths.local_config = detected.local_config
             if detected.local_save_root:
@@ -610,7 +644,7 @@ class AppWindow(ctk.CTk):
         ctk.CTkLabel(
             body,
             text=(
-                "Use Mods for archives and applied installs, Server for local or hosted settings, "
+                "Use Mods for archives and applied installs, Server for dedicated or hosted settings, "
                 "and Recovery when you need to undo or restore changes."
             ),
             justify="left",
@@ -620,7 +654,8 @@ class AppWindow(ctk.CTk):
 
         status_lines = [
             f"Client path: {self.paths.client_root or 'Not set'}",
-            f"Server path: {self.paths.server_root or 'Not set'}",
+            f"Bundled server path: {self.paths.server_root or 'Not set'}",
+            f"Dedicated server path: {self.paths.dedicated_server_root or 'Not set'}",
             f"Hosted profiles: {len(self.remote_profiles.list_profiles())}",
         ]
         ctk.CTkLabel(

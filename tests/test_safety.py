@@ -341,7 +341,7 @@ class TestBackupServiceRebinding:
 class TestSettingsSaveRootPersistence:
     def test_derived_server_save_root_stays_implicit_on_save(self, tmp_path):
         server_root = tmp_path / "Windrose Dedicated Server"
-        paths = AppPaths(server_root=server_root, local_save_root=None)
+        paths = AppPaths(dedicated_server_root=server_root, local_save_root=None)
         tab = object.__new__(SettingsTab)
         tab.app = SimpleNamespace(paths=paths)
         tab._explicit_path_values = {"local_save_root": ""}
@@ -357,7 +357,7 @@ class TestSettingsSaveRootPersistence:
     def test_custom_server_save_root_persists_as_override(self, tmp_path):
         server_root = tmp_path / "Windrose Dedicated Server"
         custom_save_root = tmp_path / "CustomSaves"
-        paths = AppPaths(server_root=server_root, local_save_root=None)
+        paths = AppPaths(dedicated_server_root=server_root, local_save_root=None)
         tab = object.__new__(SettingsTab)
         tab.app = SimpleNamespace(paths=paths)
         tab._explicit_path_values = {"local_save_root": ""}
@@ -427,13 +427,73 @@ class TestServerApplyFlow:
         calls = []
         tab = SimpleNamespace(
             _on_apply_changes=lambda: False,
-            _source_var=_DummyVar("local"),
+            _source_var=_DummyVar("dedicated"),
             app=SimpleNamespace(_on_start_server=lambda: calls.append("restart")),
             _status_label=SimpleNamespace(configure=lambda **kwargs: calls.append(("status", kwargs))),
         )
 
         ServerTab._on_apply_and_restart(tab)
         assert calls == []
+
+    def test_apply_and_restart_reports_local_launch_failure(self):
+        calls = []
+        tab = SimpleNamespace(
+            _on_apply_changes=lambda: True,
+            _source_var=_DummyVar("dedicated"),
+            _active_local_label=lambda: "Dedicated Server",
+            _active_local_root=lambda: Path("Z:/missing/server"),
+            app=SimpleNamespace(_launch_server_root=lambda root, *, label: False),
+            _status_label=SimpleNamespace(configure=lambda **kwargs: calls.append(kwargs)),
+        )
+
+        ServerTab._on_apply_and_restart(tab)
+
+        assert calls == [{
+            "text": "Dedicated Server launch failed after apply.",
+            "text_color": "#c0392b",
+        }]
+
+
+class TestDedicatedServerLaunch:
+    def test_start_server_uses_cmd_for_batch_file(self, tmp_path, monkeypatch):
+        server_root = tmp_path / "server"
+        server_root.mkdir()
+        bat = server_root / "StartServerForeground.bat"
+        bat.write_text("@echo off\r\n", encoding="utf-8")
+
+        popen_calls = []
+        monkeypatch.setattr(
+            "windrose_deployer.ui.app_window.subprocess.Popen",
+            lambda args, cwd=None, creationflags=0: popen_calls.append(
+                {"args": args, "cwd": cwd, "creationflags": creationflags}
+            ),
+        )
+        monkeypatch.setattr(
+            "windrose_deployer.ui.app_window.messagebox.showerror",
+            lambda *args, **kwargs: (_ for _ in ()).throw(AssertionError("unexpected showerror")),
+        )
+
+        app = SimpleNamespace(paths=AppPaths(dedicated_server_root=server_root))
+        app._launch_server_root = lambda root, *, label: AppWindow._launch_server_root(app, root, label=label)
+
+        assert AppWindow._on_start_server(app) is True
+        assert len(popen_calls) == 1
+        assert popen_calls[0]["args"][:2] == ["cmd.exe", "/c"]
+        assert popen_calls[0]["args"][2] == str(bat)
+        assert popen_calls[0]["cwd"] == str(server_root)
+
+    def test_start_server_returns_false_when_target_missing(self, monkeypatch):
+        errors = []
+        monkeypatch.setattr(
+            "windrose_deployer.ui.app_window.messagebox.showerror",
+            lambda *args: errors.append(args),
+        )
+
+        app = SimpleNamespace(paths=AppPaths(dedicated_server_root=Path("Z:/missing/server")))
+        app._launch_server_root = lambda root, *, label: AppWindow._launch_server_root(app, root, label=label)
+
+        assert AppWindow._on_start_server(app) is False
+        assert errors
 
 
 class TestServerSyncDuplicateNames:

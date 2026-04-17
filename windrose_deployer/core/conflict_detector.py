@@ -91,7 +91,14 @@ def check_existing_conflicts(manifest: ManifestStore) -> ConflictReport:
 def _check_sync_warning(plan: DeploymentPlan, manifest: ManifestStore, report: ConflictReport) -> None:
     """Warn if a mod is only being deployed to client but a server install exists."""
     for mod in manifest.list_mods():
-        if mod.display_name == plan.mod_name and "server" in mod.targets and "client" not in mod.targets:
+        targets = set(mod.targets)
+        if "both" in targets:
+            targets.update({"client", "server"})
+        if (
+            mod.display_name == plan.mod_name
+            and {"server", "dedicated_server"}.intersection(targets)
+            and "client" not in targets
+        ):
             report.warnings.append(
                 f"'{plan.mod_name}' is already installed on server but not client — consider syncing."
             )

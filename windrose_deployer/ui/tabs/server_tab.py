@@ -43,7 +43,7 @@ class ServerTab(ctk.CTkFrame):
         self._world_config: Optional[WorldConfig] = None
         self._world_path: Optional[Path | str] = None
         self._remote_profile_labels: dict[str, str] = {}
-        self._source_value = "local"
+        self._source_value = "dedicated"
         self._hosted_setup_dialog: ctk.CTkToplevel | None = None
         self._hosted_install_dialog: ctk.CTkToplevel | None = None
 
@@ -55,7 +55,7 @@ class ServerTab(ctk.CTkFrame):
         self._build_scrollable_body()
         self._build_actions()
         self.refresh_remote_profiles()
-        self._on_source_changed("local")
+        self._on_source_changed("dedicated")
 
     # ================================================================== layout
 
@@ -70,14 +70,14 @@ class ServerTab(ctk.CTkFrame):
         self._source_row = ctk.CTkFrame(frame, fg_color="transparent")
         self._source_row.pack(side="left", padx=12)
 
-        self._source_var = ctk.StringVar(value="local")
+        self._source_var = ctk.StringVar(value="dedicated")
         self._source_switch = ctk.CTkSegmentedButton(
             self._source_row,
-            values=["Local", "Hosted"],
+            values=["Server", "Dedicated", "Hosted"],
             command=self._on_source_segment_changed,
         )
         self._source_switch.pack(side="left", padx=(0, 8))
-        self._source_switch.set("Local")
+        self._source_switch.set("Dedicated")
 
         self._remote_profile_label = ctk.CTkLabel(self._source_row, text="Hosted Profile:")
         self._remote_profile_var = ctk.StringVar(value="(no remote profiles)")
@@ -339,9 +339,8 @@ class ServerTab(ctk.CTkFrame):
         self._sync_box = ctk.CTkTextbox(sync_card, height=126, font=ctk.CTkFont(family="Consolas", size=11))
         self._sync_box.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
         self._sync_box.configure(state="disabled")
-        ctk.CTkButton(sync_card, text="Run Client / Server Compare", width=204, command=self.compare_now).grid(
-            row=3, column=0, sticky="w", padx=10, pady=(0, 10)
-        )
+        self._compare_btn = ctk.CTkButton(sync_card, text="Run Compare", width=204, command=self.compare_now)
+        self._compare_btn.grid(row=3, column=0, sticky="w", padx=10, pady=(0, 10))
 
         apply_card = ctk.CTkFrame(frame)
         apply_card.grid(row=3, column=0, sticky="ew", pady=(0, 6))
@@ -437,7 +436,7 @@ class ServerTab(ctk.CTkFrame):
                 self._remote_profile_menu.pack_forget()
             self._test_btn.configure(state="disabled")
             self._status_label.configure(
-                text="Local source selected. Load current settings to review server and world config.",
+                text=f"{self._active_local_label()} source selected. Load current settings to review server and world config.",
                 text_color="#95a5a6",
             )
 
@@ -452,7 +451,8 @@ class ServerTab(ctk.CTkFrame):
         self._update_sync_placeholder(force=True)
 
     def _on_source_segment_changed(self, value: str) -> None:
-        self._on_source_changed("hosted" if value.lower() == "hosted" else "local")
+        source = value.strip().lower().replace(" ", "_")
+        self._on_source_changed("hosted" if source == "hosted" else source)
 
     def refresh_view(self) -> None:
         self.refresh_remote_profiles()
@@ -460,6 +460,32 @@ class ServerTab(ctk.CTkFrame):
         self._update_apply_summary()
         self._refresh_server_inventory()
         self._update_sync_placeholder()
+
+    def _active_local_target(self) -> str:
+        return "server" if self._source_var.get() == "server" else "dedicated_server"
+
+    def _active_local_label(self) -> str:
+        return "Server" if self._source_var.get() == "server" else "Dedicated Server"
+
+    def _active_local_root(self) -> Optional[Path]:
+        if self._source_var.get() == "server":
+            return self.app.paths.server_root
+        return self.app.paths.dedicated_server_root
+
+    def _active_local_server_config_path(self) -> Optional[Path]:
+        if self._source_var.get() == "server":
+            return self.app.paths.bundled_server_description_json
+        return self.app.paths.dedicated_server_description_json
+
+    def _active_local_save_root(self) -> Optional[Path]:
+        if self._source_var.get() == "server":
+            return self.app.paths.bundled_server_save_root
+        return self.app.paths.dedicated_server_save_root
+
+    def _active_local_world_hint(self) -> str:
+        if self._source_var.get() == "server":
+            return "Bundled Server Folder"
+        return "Dedicated Server World Saves Folder"
 
     def _update_source_summary(self) -> None:
         if self._source_var.get() == "hosted":
@@ -474,17 +500,18 @@ class ServerTab(ctk.CTkFrame):
                     f"Server Folder: {profile.remote_root_dir or '(not set)'}"
                 )
         else:
+            label = self._active_local_label()
             text = (
-                f"Mode: Local\n"
-                f"Local Server: {self.app.paths.server_root or '(not set)'}\n"
-                f"Server Settings: {self.app.paths.server_description_json or '(not detected)'}\n"
-                f"World Saves: {self.app.paths.effective_local_save_root or '(not set)'}"
+                f"Mode: {label}\n"
+                f"{label}: {self._active_local_root() or '(not set)'}\n"
+                f"Server Settings: {self._active_local_server_config_path() or '(not detected)'}\n"
+                f"World Saves: {self._active_local_save_root() or '(not set)'}"
             )
         self._source_summary_label.configure(text=text)
 
     def _update_apply_summary(self) -> None:
         lines = [
-            f"Current source: {'Hosted' if self._source_var.get() == 'hosted' else 'Local'}",
+            f"Current source: {'Hosted' if self._source_var.get() == 'hosted' else self._active_local_label()}",
             "Safe apply: backup copies are created before config writes.",
             "Apply Changes saves the currently loaded editor state.",
             "Apply and Restart saves first, then runs the active restart step.",
@@ -497,7 +524,7 @@ class ServerTab(ctk.CTkFrame):
             else:
                 lines.append("Restart: hosted command is not configured.")
         else:
-            lines.append("Restart: launches the configured local server executable.")
+            lines.append(f"Restart: launches the configured {self._active_local_label().lower()} executable.")
         if self._config:
             lines.append(f"Loaded server: {self._config.server_name or '(unnamed)'}")
         if self._world_config:
@@ -506,14 +533,17 @@ class ServerTab(ctk.CTkFrame):
 
     def _update_sync_placeholder(self, *, force: bool = False) -> None:
         if self._source_var.get() == "hosted":
+            self._compare_btn.configure(text="Run Client / Hosted Compare")
             text = (
                 "Run compare to review parity between client installs and the hosted server. "
                 "Use Hosted Server Mods for the current remote mods-folder contents."
             )
         else:
+            self._compare_btn.configure(text=f"Run Client / {self._active_local_label()} Compare")
+            label = self._active_local_label().lower()
             text = (
-                "Run compare to review parity between managed client installs and the local server target. "
-                "Use Local Server Mods for the current local server install list."
+                f"Run compare to review parity between managed client installs and the {label} target. "
+                f"Use {self._active_local_label()} Mods for the current local install list."
             )
         self._sync_hint_label.configure(text=text)
         if force or not self._sync_box.get("1.0", "end").strip():
@@ -545,25 +575,29 @@ class ServerTab(ctk.CTkFrame):
             threading.Thread(target=_work, daemon=True).start()
             return
 
-        self._inventory_title_label.configure(text="Local Server Mods")
+        label = self._active_local_label()
+        self._inventory_title_label.configure(text=f"{label} Mods")
         self._inventory_btn.configure(state="normal", text="Refresh Server Mods")
         server_mods = [
             mod for mod in self.app.manifest.list_mods()
-            if "server" in self._effective_targets(mod)
+            if self._active_local_target() in self._effective_targets(mod)
         ]
-        self._set_status_box(self._inventory_box, self._local_server_inventory_text(server_mods))
+        self._set_status_box(self._inventory_box, self._local_server_inventory_text(server_mods, label))
 
     @staticmethod
     def _effective_targets(mod) -> set[str]:
-        if "both" in mod.targets:
-            return {"client", "server"}
-        return {target for target in mod.targets if target in {"client", "server"}}
+        targets = set(mod.targets)
+        expanded: set[str] = set()
+        if "both" in targets:
+            expanded.update({"client", "server"})
+        expanded.update(target for target in targets if target in {"client", "server", "dedicated_server"})
+        return expanded
 
     @staticmethod
-    def _local_server_inventory_text(mods) -> str:
+    def _local_server_inventory_text(mods, label: str) -> str:
         if not mods:
-            return "No managed local server installs are currently tracked."
-        lines = [f"{len(mods)} managed install(s) for the local server.", ""]
+            return f"No managed {label.lower()} installs are currently tracked."
+        lines = [f"{len(mods)} managed install(s) for the {label.lower()}.", ""]
         for mod in sorted(mods, key=lambda item: item.display_name.lower()):
             variant = f" ({mod.selected_variant})" if mod.selected_variant else ""
             status = "disabled" if not mod.enabled else "enabled"
@@ -607,7 +641,7 @@ class ServerTab(ctk.CTkFrame):
 
     def _on_test_connection(self) -> None:
         if self._source_var.get() != "hosted":
-            log.info("Hosted connection test skipped because local source is active")
+            log.info("Hosted connection test skipped because a local server source is active")
             self._status_label.configure(
                 text="Connection testing only applies to hosted server profiles.",
                 text_color="#95a5a6",
@@ -653,7 +687,7 @@ class ServerTab(ctk.CTkFrame):
             threading.Thread(target=_work, daemon=True).start()
             return
 
-        report = self.app.server_sync.compare_local(self.app.manifest.list_mods())
+        report = self.app.server_sync.compare_local(self.app.manifest.list_mods(), target=self._active_local_target())
         self._set_status_box(self._sync_box, self._sync_report_text(report))
 
     @staticmethod
@@ -775,12 +809,13 @@ class ServerTab(ctk.CTkFrame):
                 return
             self._status_label.configure(text=f"Hosted server settings loaded from {profile.name}", text_color="#2d8a4e")
         else:
-            desc_path = self.app.paths.server_description_json
+            label = self._active_local_label()
+            desc_path = self._active_local_server_config_path()
             if not desc_path or not desc_path.is_file():
                 messagebox.showwarning(
                     "Not Found",
                     "ServerDescription.json not found.\n"
-                    "Check the local server path in Settings, then launch the dedicated server once so it can create R5/ServerDescription.json.",
+                    f"Check the {label.lower()} path in Settings, then launch it once so it can create R5/ServerDescription.json.",
                 )
                 return
 
@@ -789,7 +824,7 @@ class ServerTab(ctk.CTkFrame):
                 messagebox.showerror("Error", "Failed to load server config.")
                 return
 
-            self._status_label.configure(text="Local server settings loaded", text_color="#2d8a4e")
+            self._status_label.configure(text=f"{label} settings loaded", text_color="#2d8a4e")
 
         self._config = config
         self._populate_server_fields(config)
@@ -873,9 +908,11 @@ class ServerTab(ctk.CTkFrame):
                 return False
             success, save_errors = self.app.remote_config_svc.save_server(profile, config)
         else:
-            desc_path = self.app.paths.server_description_json
+            label = self._active_local_label()
+            target = self._active_local_target()
+            desc_path = self._active_local_server_config_path()
             if not desc_path:
-                messagebox.showerror("Error", "Local server path not configured.")
+                messagebox.showerror("Error", f"{label} path not configured.")
                 return False
             success, save_errors = self.app.server_config_svc.save(desc_path, config)
         if success:
@@ -887,11 +924,11 @@ class ServerTab(ctk.CTkFrame):
                     notes=f"Saved hosted server settings for {config.server_name or profile.name}",
                 )
             else:
-                self._status_label.configure(text="Local server settings saved", text_color="#2d8a4e")
+                self._status_label.configure(text=f"{label} settings saved", text_color="#2d8a4e")
                 self._record_action(
                     action="save_server_config",
-                    target="server",
-                    notes=f"Saved local server settings for {config.server_name or 'server'}",
+                    target=target,
+                    notes=f"Saved {label.lower()} settings for {config.server_name or 'server'}",
                 )
             self._confirm_var.set(False)
             self._update_apply_summary()
@@ -917,9 +954,10 @@ class ServerTab(ctk.CTkFrame):
                 return
             restored = self.app.remote_config_svc.restore_latest_server(profile)
         else:
-            desc_path = self.app.paths.server_description_json
+            label = self._active_local_label()
+            desc_path = self._active_local_server_config_path()
             if not desc_path:
-                messagebox.showerror("Error", "Local server path not configured.")
+                messagebox.showerror("Error", f"{label} path not configured.")
                 return
             restored = self.app.server_config_svc.restore_latest(desc_path)
 
@@ -955,11 +993,15 @@ class ServerTab(ctk.CTkFrame):
                 return
         else:
             world_path = self.app.world_config_svc.find_world_by_island_id(
-                island_id, self.app.paths.effective_local_save_root,
+                island_id, self._active_local_save_root(),
             )
             if world_path is None:
+                label = self._active_local_label()
                 self._world_info_label.configure(
-                    text=f"(world {island_id[:8]}... not found - start the local server once or review Server World Saves Folder)"
+                    text=(
+                        f"(world {island_id[:8]}... not found - start the {label.lower()} once or review "
+                        f"{self._active_local_world_hint()})"
+                    )
                 )
                 log.warning("Could not find WorldDescription.json for island %s", island_id)
                 return
@@ -1097,7 +1139,7 @@ class ServerTab(ctk.CTkFrame):
         if success:
             self._status_label.configure(
                 text="Hosted world settings saved" if self._source_var.get() == "hosted"
-                else "Local world settings saved",
+                else f"{self._active_local_label()} world settings saved",
                 text_color="#2d8a4e",
             )
             if self._source_var.get() == "hosted":
@@ -1107,10 +1149,11 @@ class ServerTab(ctk.CTkFrame):
                     notes=f"Saved hosted world settings for {config.world_name}",
                 )
             else:
+                label = self._active_local_label()
                 self._record_action(
                     action="save_world_config",
-                    target="server",
-                    notes=f"Saved local world settings for {config.world_name}",
+                    target=self._active_local_target(),
+                    notes=f"Saved {label.lower()} world settings for {config.world_name}",
                 )
             self._confirm_var.set(False)
             self._update_apply_summary()
@@ -1186,11 +1229,17 @@ class ServerTab(ctk.CTkFrame):
                     notes=f"Ran hosted restart command for {profile.name}",
                 )
         else:
-            self.app._on_start_server()
-            self._status_label.configure(
-                text="Launched dedicated server after applying changes.",
-                text_color="#2d8a4e",
-            )
+            label = self._active_local_label()
+            if self.app._launch_server_root(self._active_local_root(), label=label):
+                self._status_label.configure(
+                    text=f"Launched {label.lower()} after applying changes.",
+                    text_color="#2d8a4e",
+                )
+            else:
+                self._status_label.configure(
+                    text=f"{label} launch failed after apply.",
+                    text_color="#c0392b",
+                )
 
     def _record_action(self, *, action: str, target: str, notes: str) -> None:
         self.app.manifest.add_record(

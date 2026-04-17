@@ -9,6 +9,7 @@ from typing import Optional
 class InstallTarget(Enum):
     CLIENT = "client"
     SERVER = "server"
+    DEDICATED_SERVER = "dedicated_server"
     BOTH = "both"
 
 
