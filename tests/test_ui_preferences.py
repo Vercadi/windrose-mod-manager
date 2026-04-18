@@ -26,7 +26,20 @@ class TestAppPreferences:
         assert prefs.to_dict() == {
             "ui_size": "compact",
             "confirmation_mode": "reduced",
+            "show_welcome": True,
         }
+
+    def test_show_welcome_round_trips(self):
+        prefs = AppPreferences.from_dict(
+            {
+                "ui_size": "default",
+                "confirmation_mode": "destructive_only",
+                "show_welcome": False,
+            }
+        )
+
+        assert prefs.show_welcome is False
+        assert prefs.to_dict()["show_welcome"] is False
 
 
 class TestUiTokens:
@@ -61,6 +74,14 @@ class TestConfirmationBehavior:
         assert AppWindow.should_confirm(app, "hosted") is True
         assert AppWindow.should_confirm(app, "variant") is True
 
+    def test_disable_all_mode_skips_all_confirmation_categories(self):
+        app = SimpleNamespace(preferences=SimpleNamespace(confirmation_mode="none"))
+
+        assert AppWindow.should_confirm(app, "routine") is False
+        assert AppWindow.should_confirm(app, "bulk") is False
+        assert AppWindow.should_confirm(app, "destructive") is False
+        assert AppWindow.should_confirm(app, "variant") is False
+
 
 class TestSettingsBehaviorLabels:
     def test_ui_size_values_are_exposed_as_user_labels(self):
@@ -72,3 +93,4 @@ class TestSettingsBehaviorLabels:
         assert SettingsTab._confirmation_mode_label("always") == "Always Confirm"
         assert SettingsTab._confirmation_mode_label("destructive_only") == "Destructive Actions Only"
         assert SettingsTab._confirmation_mode_label("reduced") == "Reduced Confirmations"
+        assert SettingsTab._confirmation_mode_label("none") == "Disable All Confirmations"

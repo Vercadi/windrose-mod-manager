@@ -1,30 +1,48 @@
-## Windrose Mod Manager v0.3.3
+## Windrose Mod Manager v0.4.0
 
-Windrose Mod Manager v0.3.3 is a UX and readability hotfix focused on making the client/server cockpit easier to scan, less popup-heavy, and more comfortable on different screen densities.
+Windrose Mod Manager v0.4.0 is a major workflow update focused on install target clarity, cleaner applied/archive visibility, better local/dedicated/hosted separation, and safer multi-target mod management.
 
 ### Highlights
 
-- Restored bundled/local server support and correctly split bundled server, dedicated server, and hosted server workflows
-- The app now treats the main game's `R5\Builds\WindowsServer` files separately from the standalone **Windrose Dedicated Server** install
-- Added a new **UI Size** setting with `Compact`, `Default`, and `Large`
-- Added a new **Confirmation Behavior** setting so routine actions can stay quieter while destructive or high-risk actions still prompt
-- Replaced a number of routine success popups with inline status messages
-- Tightened button sizing and row density across the main workspace for a cleaner layout
-- Improved readability in Library, Server, Recovery, Settings, Help, and the Technical Log
+- Replaced vague target wording with clearer names: `Client`, `Local Server`, `Dedicated Server`, and `Hosted Server`
+- Replaced `Both` with explicit install presets such as `Client + Local Server` and `Client + Dedicated Server`
+- Reworked the Mods workspace around clearer `Applied Mods` and `Archives` sections
+- Added target scope filters directly in Mods: `All`, `Client`, `Local Server`, `Dedicated Server`, and `Hosted Server`
+- Archives now default to `Available Archives`, so already-applied source archives are hidden from the main archive list until uninstalled
+- Added inline archive install menus and reduced extra install popups
+- Added multi-select install and uninstall actions in the Mods workspace
+- Added real live `~mods` folder scanning for client, local server, dedicated server, and hosted server targets
+- Hosted server mods can now be selected and uninstalled from the Mods screen
+- Older combined client/local installs are normalized into separate records automatically when possible
 
-### Settings and Behavior Fixes
+### Workflow and Safety Improvements
 
-- UI Size now changes readability and density without resizing the outer app window
-- Behavior settings now use user-facing labels instead of raw internal values
-- Behavior changes preview immediately in Settings and persist after Save
-- The Behavior tab now scrolls properly instead of clipping helper text at smaller heights
-- Settings header and helper text wrap more cleanly in the updated layout
+- Combined multi-target install presets are transactional and roll back completed targets if a later target fails
+- `Client + Local Server` and `Client + Dedicated Server` installs now create separate target records instead of one ambiguous combined record
+- Added `Install To...` on applied rows so existing installs can be extended to additional targets later
+- Added direct folder-opening actions from archive, applied, and live-item menus
+- Live unmanaged UE5 bundles now group `.pak`, `.utoc`, and `.ucas` companion files together as one item
+- Unmanaged live content now uses the normal applied-mod uninstall workflow instead of a special-case removal UI
+- Recovery, sync, and target summaries now use the updated target terminology throughout the app
+
+### UX Improvements
+
+- Increased the default app window size for a better fit
+- The large Mods details tray is now hidden by default and can be opened only when needed
+- Welcome dialog now only auto-shows on first run and has a `Don't show this again` option
+- Remaining dialogs now open centered over the app window
+- Continued density and readability cleanup across the app
+
+### Packaging Note
+
+- UPX remains disabled in the PyInstaller spec to reduce heuristic antivirus false positives on unsigned Windows builds
+- Some antivirus engines may still produce low-confidence static-ML false positives on bundled Python runtime modules; the source code and release hashes are public for verification
 
 ### Validation
 
-- `python -m py_compile windrose_deployer\\ui\\app_window.py windrose_deployer\\ui\\tabs\\settings_tab.py`
-- `python -m pytest tests/test_ui_preferences.py --basetemp ... -o cache_dir=...` -> 8 passed
+- `python -m py_compile ...` on the touched `0.4.0` release files
+- `python -m pytest tests/test_safety.py tests/test_ui_preferences.py tests/test_live_mod_inventory.py tests/test_target_labels.py --basetemp ... -o cache_dir=...` -> 49 passed
 
 ### Full Changelog
 
-https://github.com/Vercadi/windrose-mod-manager/commits/v0.3.3
+https://github.com/Vercadi/windrose-mod-manager/commits/v0.4.0

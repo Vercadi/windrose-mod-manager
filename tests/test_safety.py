@@ -255,6 +255,17 @@ class TestManifestSchemaVersion:
         assert backup_raw["mods"][0]["mod_id"] == "old_mod"
 
 
+class TestManifestHistoryRollback:
+    def test_remove_last_records_truncates_history(self, workspace):
+        manifest = workspace["manifest"]
+        manifest.add_record(DeploymentRecord(mod_id="a", action="install", target="client"))
+        manifest.add_record(DeploymentRecord(mod_id="b", action="install", target="server"))
+
+        manifest.remove_last_records(1)
+
+        assert [record.mod_id for record in manifest.list_history()] == ["a"]
+
+
 class TestInstallAllCounting:
     """Install All must not overcount successes."""
 
@@ -271,6 +282,102 @@ class TestInstallAllCounting:
             warnings=["test failure"],
         )
         assert not plan.valid
+
+
+class TestPresetInstallRollback:
+    def test_combined_install_rolls_back_first_target_when_second_fails(self, monkeypatch):
+        client_plan = SimpleNamespace(target=InstallTarget.CLIENT)
+        local_plan = SimpleNamespace(target=InstallTarget.SERVER)
+        client_mod = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="Combo Mod",
+            source_archive="combo.zip",
+            targets=["client"],
+            installed_files=["C:/client/combo.pak"],
+        )
+        client_record = DeploymentRecord(
+            mod_id=client_mod.mod_id,
+            action="install",
+            target="client",
+            display_name="Combo Mod",
+            source_archive="combo.zip",
+        )
+        uninstalls: list[str] = []
+        refreshes: list[str] = []
+
+        class _Installer:
+            def install(self, plan):
+                if plan.target == InstallTarget.CLIENT:
+                    return client_mod, client_record
+                raise RuntimeError("local target failed")
+
+            def uninstall(self, mod):
+                uninstalls.append(mod.mod_id)
+                return DeploymentRecord(mod_id=mod.mod_id, action="uninstall", target="client")
+
+        class _Manifest:
+            def __init__(self):
+                self.mods: list[str] = []
+                self.records: list[str] = []
+                self.removed_mods: list[str] = []
+                self.removed_records: list[int] = []
+
+            def add_mod(self, mod):
+                self.mods.append(mod.mod_id)
+
+            def add_record(self, record):
+                self.records.append(record.mod_id)
+
+            def remove_mod(self, mod_id):
+                self.removed_mods.append(mod_id)
+
+            def remove_last_records(self, count):
+                self.removed_records.append(count)
+
+        manifest = _Manifest()
+        app = SimpleNamespace(
+            installer=_Installer(),
+            manifest=manifest,
+            confirm_action=lambda *args, **kwargs: True,
+            refresh_installed_tab=lambda: refreshes.append("installed"),
+            refresh_backups_tab=lambda: refreshes.append("backups"),
+            open_remote_deploy=lambda path: None,
+        )
+
+        tab = object.__new__(ModsTab)
+        tab.app = app
+        tab.refresh_view = lambda: refreshes.append("view")
+        tab._set_result = lambda *args, **kwargs: None
+        tab._target_label = lambda target: target.value
+        tab._install_preset_label = lambda preset: "Client + Local Server"
+        tab._install_targets_for_preset = lambda preset: [InstallTarget.CLIENT, InstallTarget.SERVER]
+        tab._prepare_install_target = lambda info, mod_name, target, selected_variant: (
+            (client_plan if target == InstallTarget.CLIENT else local_plan),
+            None,
+        )
+
+        monkeypatch.setattr(
+            "windrose_deployer.ui.tabs.mods_tab.check_plan_conflicts",
+            lambda plan, manifest: SimpleNamespace(has_conflicts=False, conflicts=[]),
+        )
+
+        result = ModsTab._run_install_preset(
+            tab,
+            SimpleNamespace(archive_path="combo.zip"),
+            "Combo Mod",
+            "client_local",
+            None,
+            quiet=True,
+            confirm_conflicts=True,
+        )
+
+        assert not result
+        assert uninstalls == [client_mod.mod_id]
+        assert manifest.mods == []
+        assert manifest.records == []
+        assert manifest.removed_mods == []
+        assert manifest.removed_records == []
+        assert refreshes == []
 
 
 class TestServerConfigRestoreTargeting:
@@ -297,6 +404,12 @@ class TestServerConfigRestoreTargeting:
 
 
 class TestSameArchiveMultiInstallState:
+    def test_client_local_preset_uses_separate_targets(self):
+        assert ModsTab._install_targets_for_preset("client_local") == [
+            InstallTarget.CLIENT,
+            InstallTarget.SERVER,
+        ]
+
     def test_archive_state_helpers_cover_multiple_targets(self, tmp_path):
         manifest = ManifestStore(tmp_path / "data")
         manifest.add_mod(ModInstall(
@@ -322,6 +435,177 @@ class TestSameArchiveMultiInstallState:
         assert tab._archive_covers_target("shared.zip", InstallTarget.SERVER)
         assert tab._archive_covers_target("shared.zip", InstallTarget.BOTH)
         assert tab._archive_badge_text("shared.zip").strip() == "CS"
+
+    def test_normalize_combined_local_server_install_splits_records(self, tmp_path):
+        client_root = tmp_path / "client"
+        server_root = tmp_path / "server"
+        client_root.mkdir()
+        server_root.mkdir()
+        client_file = client_root / "R5" / "Content" / "Paks" / "~mods" / "Combo_P.pak"
+        server_file = server_root / "R5" / "Content" / "Paks" / "~mods" / "Combo_P.pak"
+        client_file.parent.mkdir(parents=True)
+        server_file.parent.mkdir(parents=True)
+
+        manifest = ManifestStore(tmp_path / "data")
+        manifest.add_mod(
+            ModInstall(
+                mod_id=generate_mod_id(),
+                display_name="Combo",
+                source_archive="combo.zip",
+                targets=["both"],
+                installed_files=[str(client_file), str(server_file)],
+                backed_up_files=["client.bak", "server.bak"],
+                backup_map={
+                    str(client_file): "client.bak",
+                    str(server_file): "server.bak",
+                },
+            )
+        )
+
+        tab = object.__new__(ModsTab)
+        tab.app = SimpleNamespace(
+            manifest=manifest,
+            paths=SimpleNamespace(client_root=client_root, server_root=server_root),
+        )
+
+        ModsTab._normalize_combined_local_server_installs(tab)
+
+        mods = sorted(manifest.list_mods(), key=lambda item: item.targets[0])
+        assert [mod.targets for mod in mods] == [["client"], ["server"]]
+        assert mods[0].installed_files == [str(client_file)]
+        assert mods[1].installed_files == [str(server_file)]
+
+    def test_archive_uninstall_action_uses_clicked_archive_context(self, tmp_path):
+        archive = tmp_path / "clicked.zip"
+        archive.write_text("zip", encoding="utf-8")
+        calls = []
+
+        tab = object.__new__(ModsTab)
+        tab._selected_library_path = None
+        tab._load_archive = lambda path: calls.append(("load", str(path))) or setattr(tab, "_selected_library_path", str(path))
+        tab._on_uninstall = lambda: calls.append(("uninstall", tab._selected_library_path))
+
+        ModsTab._on_uninstall_for_archive(tab, archive)
+
+        assert calls == [
+            ("load", str(archive)),
+            ("uninstall", str(archive)),
+        ]
+
+    def test_remove_unmanaged_live_file_deletes_and_refreshes(self, tmp_path, monkeypatch):
+        file_path = tmp_path / "Manual_P.pak"
+        file_path.write_text("manual", encoding="utf-8")
+        refreshes = []
+        results = []
+
+        tab = object.__new__(ModsTab)
+        tab.app = SimpleNamespace(confirm_action=lambda *args, **kwargs: True)
+        tab.refresh_view = lambda: refreshes.append("refresh")
+        tab._set_result = lambda text, *, level="info": results.append((text, level))
+
+        ModsTab._remove_unmanaged_live_file(tab, file_path, "Client")
+
+        assert not file_path.exists()
+        assert refreshes == ["refresh"]
+        assert results == [("Removed unmanaged file Manual_P.pak from client ~mods.", "success")]
+
+    def test_uninstall_selected_handles_untracked_live_files(self, tmp_path):
+        file_path = tmp_path / "Manual_P.pak"
+        file_path.write_text("manual", encoding="utf-8")
+        refreshes = []
+        results = []
+
+        tab = object.__new__(ModsTab)
+        tab.app = SimpleNamespace(
+            confirm_action=lambda *args, **kwargs: True,
+            refresh_installed_tab=lambda: refreshes.append("installed"),
+            refresh_backups_tab=lambda: refreshes.append("backups"),
+            manifest=SimpleNamespace(list_mods=lambda: []),
+        )
+        tab._selected_mod_ids = set()
+        tab._selected_live_files = {str(file_path)}
+        tab.refresh_view = lambda: refreshes.append("view")
+        tab._set_result = lambda text, *, level="info": results.append((text, level))
+
+        ModsTab._on_uninstall_selected_mods(tab)
+
+        assert not file_path.exists()
+        assert refreshes == ["installed", "backups", "view"]
+        assert results == [("Uninstalled 1 selected item(s).", "success")]
+
+    def test_uninstall_selected_handles_untracked_live_bundle(self, tmp_path):
+        pak = tmp_path / "Manual_P.pak"
+        utoc = tmp_path / "Manual_P.utoc"
+        ucas = tmp_path / "Manual_P.ucas"
+        for path in (pak, utoc, ucas):
+            path.write_text("manual", encoding="utf-8")
+        refreshes = []
+        results = []
+
+        tab = object.__new__(ModsTab)
+        bundle_id = "||".join(str(path) for path in (pak, utoc, ucas))
+        tab.app = SimpleNamespace(
+            confirm_action=lambda *args, **kwargs: True,
+            refresh_installed_tab=lambda: refreshes.append("installed"),
+            refresh_backups_tab=lambda: refreshes.append("backups"),
+            manifest=SimpleNamespace(list_mods=lambda: []),
+        )
+        tab._selected_mod_ids = set()
+        tab._selected_live_files = {bundle_id}
+        tab._live_file_bundle_members = {bundle_id: [pak, utoc, ucas]}
+        tab.refresh_view = lambda: refreshes.append("view")
+        tab._set_result = lambda text, *, level="info": results.append((text, level))
+
+        ModsTab._on_uninstall_selected_mods(tab)
+
+        assert not pak.exists()
+        assert not utoc.exists()
+        assert not ucas.exists()
+        assert refreshes == ["installed", "backups", "view"]
+        assert results == [("Uninstalled 1 selected item(s).", "success")]
+
+    def test_uninstall_selected_handles_hosted_live_bundle(self):
+        refreshes = []
+        results = []
+        deleted_calls = []
+        records = []
+        bundle_id = "hosted::/remote/~mods/Manual_P.pak||/remote/~mods/Manual_P.utoc"
+
+        tab = object.__new__(ModsTab)
+        tab.app = SimpleNamespace(
+            confirm_action=lambda *args, **kwargs: True,
+            refresh_installed_tab=lambda: refreshes.append("installed"),
+            refresh_backups_tab=lambda: refreshes.append("backups"),
+            manifest=SimpleNamespace(
+                list_mods=lambda: [],
+                add_record=lambda record: records.append(record),
+            ),
+            remote_deployer=SimpleNamespace(
+                delete_remote_files=lambda profile, paths: (
+                    deleted_calls.append((profile.name, list(paths))) or list(paths),
+                    [],
+                )
+            ),
+        )
+        tab._selected_mod_ids = set()
+        tab._selected_live_files = {bundle_id}
+        tab._live_file_bundle_members = {
+            bundle_id: ["/remote/~mods/Manual_P.pak", "/remote/~mods/Manual_P.utoc"]
+        }
+        tab._live_file_bundle_meta = {
+            bundle_id: {"kind": "hosted", "target_label": "Hosted Server"}
+        }
+        tab._selected_hosted_profile = lambda: SimpleNamespace(profile_id="p1", name="Hosted Smoke")
+        tab.refresh_view = lambda: refreshes.append("view")
+        tab._set_result = lambda text, *, level="info": results.append((text, level))
+
+        ModsTab._on_uninstall_selected_mods(tab)
+
+        assert deleted_calls == [("Hosted Smoke", ["/remote/~mods/Manual_P.pak", "/remote/~mods/Manual_P.utoc"])]
+        assert refreshes == ["installed", "backups", "view"]
+        assert results == [("Uninstalled 1 selected item(s).", "success")]
+        assert len(records) == 1
+        assert records[0].action == "hosted_remove"
 
 
 class TestBackupServiceRebinding:

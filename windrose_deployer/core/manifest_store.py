@@ -64,6 +64,12 @@ class ManifestStore:
         self._history.append(record)
         self._save()
 
+    def remove_last_records(self, count: int) -> None:
+        if count <= 0:
+            return
+        del self._history[-count:]
+        self._save()
+
     def list_history(self) -> list[DeploymentRecord]:
         return list(self._history)
 

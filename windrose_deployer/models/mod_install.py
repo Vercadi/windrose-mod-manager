@@ -3,7 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from enum import Enum
-from typing import Optional
+from typing import Iterable, Optional
 
 
 class InstallTarget(Enum):
@@ -11,6 +11,48 @@ class InstallTarget(Enum):
     SERVER = "server"
     DEDICATED_SERVER = "dedicated_server"
     BOTH = "both"
+
+
+TARGET_DISPLAY_LABELS = {
+    "client": "Client",
+    "server": "Local Server",
+    "dedicated_server": "Dedicated Server",
+    "hosted": "Hosted Server",
+    "both": "Client + Local Server",
+}
+
+
+def expand_target_values(targets: Iterable[str]) -> set[str]:
+    expanded = {value for value in targets if value and value != "both"}
+    has_both = any(value == "both" for value in targets)
+    if has_both:
+        expanded.update({"client", "server"})
+    return expanded
+
+
+def target_value_label(target: str) -> str:
+    normalized = (target or "").strip()
+    return TARGET_DISPLAY_LABELS.get(normalized, normalized.replace("_", " ").title() or "Unknown")
+
+
+def install_target_label(target: InstallTarget) -> str:
+    return target_value_label(target.value)
+
+
+def summarize_target_values(targets: Iterable[str]) -> str:
+    expanded = expand_target_values(targets)
+    if not expanded:
+        return "Hosted Server"
+    if expanded == {"client", "server"}:
+        return "Client + Local Server"
+    if expanded == {"client", "dedicated_server"}:
+        return "Client + Dedicated Server"
+    ordered = [
+        TARGET_DISPLAY_LABELS[key]
+        for key in ("client", "server", "dedicated_server", "hosted")
+        if key in expanded
+    ]
+    return " + ".join(ordered) if ordered else "Unknown"
 
 
 @dataclass

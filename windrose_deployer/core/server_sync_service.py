@@ -227,7 +227,7 @@ class ServerSyncService:
     @staticmethod
     def _target_label(target: str) -> str:
         labels = {
-            "server": "bundled server",
+            "server": "local server",
             "dedicated_server": "dedicated server",
             "hosted": "hosted server",
         }

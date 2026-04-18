@@ -87,8 +87,8 @@ class AppWindow(ctk.CTk):
                 log.warning("tkdnd init failed, drag-and-drop disabled: %s", exc)
 
         self.title(f"{__app_name__} v{__version__}")
-        self.geometry("1100x750")
-        self.minsize(900, 600)
+        self.geometry("1280x860")
+        self.minsize(1040, 700)
 
         self._set_icon()
 
@@ -153,7 +153,7 @@ class AppWindow(ctk.CTk):
             self.paths = reconciled_paths
             self.save_settings()
             log.info(
-                "Reconciled saved paths. Bundled server root: %s -> %s | Dedicated server root: %s -> %s | Save root: %s -> %s",
+                "Reconciled saved paths. Local server root: %s -> %s | Dedicated server root: %s -> %s | Save root: %s -> %s",
                 old_server_root,
                 self.paths.server_root,
                 old_dedicated_server_root,
@@ -269,9 +269,11 @@ class AppWindow(ctk.CTk):
         return self._fonts[role]
 
     def should_confirm(self, category: str) -> bool:
+        mode = self.preferences.confirmation_mode
+        if mode == "none":
+            return False
         if category in {"destructive", "hosted", "conflict", "variant"}:
             return True
-        mode = self.preferences.confirmation_mode
         if mode == "always":
             return True
         if mode == "destructive_only":
@@ -282,6 +284,16 @@ class AppWindow(ctk.CTk):
         if not self.should_confirm(category):
             return True
         return messagebox.askyesno(title, message)
+
+    def center_dialog(self, window, width: int, height: int) -> None:
+        try:
+            self.update_idletasks()
+            window.update_idletasks()
+            x = self.winfo_rootx() + max(0, (self.winfo_width() - width) // 2)
+            y = self.winfo_rooty() + max(0, (self.winfo_height() - height) // 2)
+            window.geometry(f"{width}x{height}+{x}+{y}")
+        except Exception:
+            window.geometry(f"{width}x{height}")
 
     # ---------------------------------------------------------- UI
 
@@ -605,7 +617,7 @@ class AppWindow(ctk.CTk):
                 log.info("Auto-detected client: %s", detected.client_root)
             if detected.server_root:
                 self.paths.server_root = detected.server_root
-                log.info("Auto-detected bundled server: %s", detected.server_root)
+                log.info("Auto-detected local server: %s", detected.server_root)
             if detected.dedicated_server_root:
                 self.paths.dedicated_server_root = detected.dedicated_server_root
                 log.info("Auto-detected dedicated server: %s", detected.dedicated_server_root)
@@ -653,7 +665,7 @@ class AppWindow(ctk.CTk):
 
         window = ctk.CTkToplevel(self)
         window.title("Recovery")
-        window.geometry("1120x720")
+        self.center_dialog(window, 1120, 720)
         window.minsize(900, 560)
         window.transient(self)
         window.grid_columnconfigure(0, weight=1)
@@ -712,14 +724,14 @@ class AppWindow(ctk.CTk):
             self._about_tab.refresh_view()
 
     def _maybe_show_welcome(self) -> None:
-        should_show = self._first_run or not self.manifest.list_mods()
+        should_show = self._first_run and self.preferences.show_welcome
         if should_show:
             self._show_welcome_dialog()
 
     def _show_welcome_dialog(self) -> None:
         dialog = ctk.CTkToplevel(self)
         dialog.title("Welcome to Windrose Mod Manager")
-        dialog.geometry("540x330")
+        self.center_dialog(dialog, 540, 370)
         dialog.transient(self)
         dialog.grab_set()
         dialog.grid_columnconfigure(0, weight=1)
@@ -737,7 +749,7 @@ class AppWindow(ctk.CTk):
         ctk.CTkLabel(
             body,
             text=(
-                "Use Mods for archives and applied installs, Server for dedicated or hosted settings, "
+                "Use Mods for archives and applied installs, Server for local, dedicated, or hosted settings, "
                 "and Recovery when you need to undo or restore changes."
             ),
             justify="left",
@@ -747,7 +759,7 @@ class AppWindow(ctk.CTk):
 
         status_lines = [
             f"Client path: {self.paths.client_root or 'Not set'}",
-            f"Bundled server path: {self.paths.server_root or 'Not set'}",
+            f"Local server path: {self.paths.server_root or 'Not set'}",
             f"Dedicated server path: {self.paths.dedicated_server_root or 'Not set'}",
             f"Hosted profiles: {len(self.remote_profiles.list_profiles())}",
         ]
@@ -762,19 +774,28 @@ class AppWindow(ctk.CTk):
         action_frame = ctk.CTkFrame(body, fg_color="transparent")
         action_frame.grid(row=3, column=0, sticky="ew", padx=14, pady=(0, 10))
 
+        dont_show_var = tk.BooleanVar(value=not self.preferences.show_welcome)
+
+        def _close_dialog() -> None:
+            self.preferences.show_welcome = not bool(dont_show_var.get())
+            self.save_settings()
+            dialog.destroy()
+
+        dialog.protocol("WM_DELETE_WINDOW", _close_dialog)
+
         def _go_library() -> None:
             self._tabview.set("Mods")
-            dialog.destroy()
+            _close_dialog()
             self._mods_tab.import_archives()
 
         def _go_server() -> None:
             self._tabview.set("Server")
-            dialog.destroy()
+            _close_dialog()
             self._server_tab.open_hosted_setup()
 
         def _go_settings() -> None:
             self._tabview.set("Settings")
-            dialog.destroy()
+            _close_dialog()
 
         ctk.CTkButton(
             action_frame,
@@ -803,11 +824,20 @@ class AppWindow(ctk.CTk):
             command=_go_settings,
         ).pack(side="left", padx=8)
 
+        ctk.CTkCheckBox(
+            body,
+            text="Don't show this again",
+            variable=dont_show_var,
+            onvalue=True,
+            offvalue=False,
+            font=self.ui_font("body"),
+        ).grid(row=4, column=0, sticky="w", padx=14, pady=(0, 4))
+
         ctk.CTkButton(
             body,
             text="Close",
             width=120,
             fg_color="#444444",
             hover_color="#555555",
-            command=dialog.destroy,
-        ).grid(row=4, column=0, sticky="e", padx=14, pady=(6, 14))
+            command=_close_dialog,
+        ).grid(row=5, column=0, sticky="e", padx=14, pady=(6, 14))

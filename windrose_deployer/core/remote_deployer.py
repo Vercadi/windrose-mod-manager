@@ -248,6 +248,23 @@ class RemoteDeploymentService:
 
         return result
 
+    def delete_remote_files(self, profile: RemoteProfile, remote_paths: list[str]) -> tuple[list[str], list[str]]:
+        deleted: list[str] = []
+        failed: list[str] = []
+        provider = self.provider_factory(profile)
+        try:
+            for remote_path in remote_paths:
+                try:
+                    provider.delete_file(remote_path)
+                    deleted.append(remote_path)
+                    log.info("Deleted remote file: %s", remote_path)
+                except Exception as exc:
+                    log.error("Failed remote delete %s: %s", remote_path, exc)
+                    failed.append(f"{PurePosixPath(remote_path).name}: {exc}")
+        finally:
+            provider.close()
+        return deleted, failed
+
     def restart_remote(self, profile: RemoteProfile) -> tuple[bool, str]:
         if not profile.restart_command.strip():
             return False, "No restart command is configured for this profile."

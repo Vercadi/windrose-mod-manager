@@ -56,7 +56,9 @@ exe = EXE(
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
-    upx=True,
+    # Leave UPX off; compressed PyInstaller binaries are more likely to trip
+    # heuristic/ML detections on unsigned Windows releases.
+    upx=False,
     console=False,
     icon='assets/icon.ico',
 )
@@ -67,7 +69,7 @@ coll = COLLECT(
     a.zipfiles,
     a.datas,
     strip=False,
-    upx=True,
+    upx=False,
     upx_exclude=[],
     name='Windrose Mod Manager',
 )

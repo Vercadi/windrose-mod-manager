@@ -338,8 +338,11 @@ class BackupsTab(ctk.CTkFrame):
         self._restore_backup_record(self._selected_backup)
 
     def _restore_backup_record(self, record: BackupRecord) -> None:
-        confirm = messagebox.askyesno("Restore Previous Version", f"Restore backup?\n\n{record.description}\n{record.source_path}")
-        if not confirm:
+        if not self.app.confirm_action(
+            "destructive",
+            "Restore Previous Version",
+            f"Restore backup?\n\n{record.description}\n{record.source_path}",
+        ):
             return
         if record.category.startswith("remote_"):
             restored = self.app.remote_config_svc.restore_backup_record(record)
@@ -356,7 +359,11 @@ class BackupsTab(ctk.CTkFrame):
         if not self._selected_backup:
             self._set_result("Select a raw backup copy first.", level="info")
             return
-        if not messagebox.askyesno("Remove Backup Copy", f"Delete this backup copy?\n\n{self._selected_backup.backup_path}"):
+        if not self.app.confirm_action(
+            "destructive",
+            "Remove Backup Copy",
+            f"Delete this backup copy?\n\n{self._selected_backup.backup_path}",
+        ):
             return
         if self.app.backup.delete_backup(self._selected_backup, delete_file=True):
             self.refresh()
@@ -371,7 +378,8 @@ class BackupsTab(ctk.CTkFrame):
 
     def _on_cleanup_old(self) -> None:
         limit = self.app.backup.max_backups_per_source or DEFAULT_MAX_BACKUPS_PER_SOURCE
-        if not messagebox.askyesno(
+        if not self.app.confirm_action(
+            "destructive",
             "Clean Up Old Backups",
             f"Keep only the newest {limit} backups per source and remove older copies?",
         ):

@@ -11,8 +11,14 @@ from typing import TYPE_CHECKING, Optional
 import customtkinter as ctk
 
 from ...core.archive_inspector import inspect_archive
+from ...core.live_mod_inventory import (
+    LiveModsFolderSnapshot,
+    bundle_live_file_names,
+    snapshot_live_mods_folder,
+)
 from ...core.remote_deployer import plan_remote_deployment
 from ...models.deployment_record import DeploymentRecord
+from ...models.mod_install import expand_target_values
 from ...models.remote_profile import RemoteProfile
 from ...models.server_config import ServerConfig
 from ...models.world_config import (
@@ -43,7 +49,7 @@ class ServerTab(ctk.CTkFrame):
         self._world_config: Optional[WorldConfig] = None
         self._world_path: Optional[Path | str] = None
         self._remote_profile_labels: dict[str, str] = {}
-        self._source_value = "dedicated"
+        self._source_value = "dedicated_server"
         self._hosted_setup_dialog: ctk.CTkToplevel | None = None
         self._hosted_install_dialog: ctk.CTkToplevel | None = None
         self._action_buttons: list[ctk.CTkButton] = []
@@ -59,7 +65,7 @@ class ServerTab(ctk.CTkFrame):
         self._build_scrollable_body()
         self._build_actions()
         self.refresh_remote_profiles()
-        self._on_source_changed("dedicated")
+        self._on_source_changed("dedicated_server")
 
     # ================================================================== layout
 
@@ -74,15 +80,15 @@ class ServerTab(ctk.CTkFrame):
         self._source_row = ctk.CTkFrame(frame, fg_color="transparent")
         self._source_row.pack(side="left", padx=12)
 
-        self._source_var = ctk.StringVar(value="dedicated")
+        self._source_var = ctk.StringVar(value="dedicated_server")
         self._source_switch = ctk.CTkSegmentedButton(
             self._source_row,
-            values=["Server", "Dedicated", "Hosted"],
+            values=["Local Server", "Dedicated Server", "Hosted Server"],
             command=self._on_source_segment_changed,
             font=self.app.ui_font("body"),
         )
         self._source_switch.pack(side="left", padx=(0, 8))
-        self._source_switch.set("Dedicated")
+        self._source_switch.set("Dedicated Server")
 
         self._remote_profile_label = ctk.CTkLabel(self._source_row, text="Hosted Profile:")
         self._remote_profile_var = ctk.StringVar(value="(no remote profiles)")
@@ -544,10 +550,10 @@ class ServerTab(ctk.CTkFrame):
             self._confirm_var.set(False)
             self._confirm_check.configure(state="disabled")
             self._confirm_hint.configure(
-                text="Hosted apply always asks for confirmation before writing changes.",
+                text="Hosted applies follow the current confirmation behavior and always create recovery backups before writing changes.",
             )
             self._status_label.configure(
-                text="Hosted source selected. Load current settings after choosing a hosted profile.",
+                text="Hosted Server source selected. Load current settings after choosing a hosted profile.",
                 text_color="#95a5a6",
             )
         else:
@@ -558,7 +564,7 @@ class ServerTab(ctk.CTkFrame):
             self._test_btn.configure(state="disabled")
             self._confirm_check.configure(state="normal")
             self._confirm_hint.configure(
-                text="Leave this unchecked if you want a final confirmation popup before writing changes.",
+                text="Leave this unchecked if you want a final apply popup before writing changes. Disable All Confirmations in Settings overrides this.",
             )
             self._status_label.configure(
                 text=f"{self._active_local_label()} source selected. Load current settings to review server and world config.",
@@ -577,7 +583,12 @@ class ServerTab(ctk.CTkFrame):
 
     def _on_source_segment_changed(self, value: str) -> None:
         source = value.strip().lower().replace(" ", "_")
-        self._on_source_changed("hosted" if source == "hosted" else source)
+        mapped = {
+            "local_server": "server",
+            "dedicated_server": "dedicated_server",
+            "hosted_server": "hosted",
+        }.get(source, source)
+        self._on_source_changed(mapped)
 
     def refresh_view(self) -> None:
         self.refresh_remote_profiles()
@@ -590,7 +601,7 @@ class ServerTab(ctk.CTkFrame):
         return "server" if self._source_var.get() == "server" else "dedicated_server"
 
     def _active_local_label(self) -> str:
-        return "Server" if self._source_var.get() == "server" else "Dedicated Server"
+        return "Local Server" if self._source_var.get() == "server" else "Dedicated Server"
 
     def _active_local_root(self) -> Optional[Path]:
         if self._source_var.get() == "server":
@@ -609,17 +620,17 @@ class ServerTab(ctk.CTkFrame):
 
     def _active_local_world_hint(self) -> str:
         if self._source_var.get() == "server":
-            return "Bundled Server Folder"
+            return "Local Server Folder"
         return "Dedicated Server World Saves Folder"
 
     def _update_source_summary(self) -> None:
         if self._source_var.get() == "hosted":
             profile = self._selected_remote_profile()
             if profile is None:
-                text = "Mode: Hosted\nProfile: (not selected)\nServer Folder: (not set)"
+                text = "Mode: Hosted Server\nProfile: (not selected)\nServer Folder: (not set)"
             else:
                 text = (
-                    f"Mode: Hosted\n"
+                    f"Mode: Hosted Server\n"
                     f"Profile: {profile.name}\n"
                     f"Host: {profile.host}:{profile.port}\n"
                     f"Server Folder: {profile.remote_root_dir or '(not set)'}"
@@ -636,11 +647,11 @@ class ServerTab(ctk.CTkFrame):
 
     def _update_apply_summary(self) -> None:
         lines = [
-            f"Current source: {'Hosted' if self._source_var.get() == 'hosted' else self._active_local_label()}",
+            f"Current source: {'Hosted Server' if self._source_var.get() == 'hosted' else self._active_local_label()}",
             "Safe apply: backup copies are created before config writes.",
             "Apply Changes saves the currently loaded editor state.",
             "Apply and Restart saves first, then runs the active restart step.",
-            "If the confirmation checkbox stays off, you will still get a final popup before writing changes.",
+            "If the confirmation checkbox stays off, the current confirmation behavior decides whether a final apply popup appears.",
         ]
         if self._source_var.get() == "hosted":
             profile = self._selected_remote_profile()
@@ -707,28 +718,58 @@ class ServerTab(ctk.CTkFrame):
             mod for mod in self.app.manifest.list_mods()
             if self._active_local_target() in self._effective_targets(mod)
         ]
-        self._set_status_box(self._inventory_box, self._local_server_inventory_text(server_mods, label))
+        snapshot = snapshot_live_mods_folder(
+            self._active_local_mods_dir(),
+            server_mods,
+            target=self._active_local_target(),
+        )
+        self._set_status_box(self._inventory_box, self._local_server_inventory_text(server_mods, label, snapshot))
 
     @staticmethod
     def _effective_targets(mod) -> set[str]:
-        targets = set(mod.targets)
-        expanded: set[str] = set()
-        if "both" in targets:
-            expanded.update({"client", "server"})
-        expanded.update(target for target in targets if target in {"client", "server", "dedicated_server"})
-        return expanded
+        return expand_target_values(mod.targets)
+
+    def _active_local_mods_dir(self) -> Optional[Path]:
+        if self._source_var.get() == "server":
+            return self.app.paths.server_mods
+        return self.app.paths.dedicated_server_mods
 
     @staticmethod
-    def _local_server_inventory_text(mods, label: str) -> str:
+    def _local_server_inventory_text(mods, label: str, snapshot: LiveModsFolderSnapshot) -> str:
+        unmanaged_bundles = bundle_live_file_names(snapshot.unmanaged_files)
+        lines = [f"Folder: {snapshot.folder or '(not configured)'}"]
+        if snapshot.warning:
+            lines.append(snapshot.warning)
+        else:
+            lines.append(
+                f"{len(snapshot.live_files)} live file(s) | "
+                f"{len(unmanaged_bundles)} unmanaged item(s) | "
+                f"{len(snapshot.missing_managed_files)} missing managed"
+            )
+        lines.append("")
         if not mods:
-            return f"No managed {label.lower()} installs are currently tracked."
-        lines = [f"{len(mods)} managed install(s) for the {label.lower()}.", ""]
+            lines.append(f"No managed {label.lower()} installs are currently tracked.")
+        else:
+            lines.append(f"{len(mods)} managed install(s) for the {label.lower()}.")
+            lines.append("")
         for mod in sorted(mods, key=lambda item: item.display_name.lower()):
             variant = f" ({mod.selected_variant})" if mod.selected_variant else ""
             status = "disabled" if not mod.enabled else "enabled"
             lines.append(f"{mod.display_name}{variant} [{status}]")
             lines.append(f"  archive: {Path(mod.source_archive).name if mod.source_archive else '(no archive)'}")
             lines.append(f"  files:   {mod.file_count}")
+            lines.append("")
+        if unmanaged_bundles:
+            lines.append("Unmanaged items in ~mods:")
+            for bundle in unmanaged_bundles:
+                if bundle.file_count == 1:
+                    lines.append(f"  {bundle.file_names[0]}")
+                else:
+                    lines.append(f"  {bundle.display_name} ({bundle.file_count} files)")
+            lines.append("")
+        if snapshot.missing_managed_files:
+            lines.append("Managed files missing from ~mods:")
+            lines.extend(f"  {name}" for name in snapshot.missing_managed_files)
             lines.append("")
         return "\n".join(lines).strip()
 
@@ -1109,11 +1150,11 @@ class ServerTab(ctk.CTkFrame):
             return False
 
     def _on_restore_server(self) -> None:
-        confirm = messagebox.askyesno(
+        if not self.app.confirm_action(
+            "destructive",
             "Restore Previous Version",
             "Restore the most recent server config backup for the current source?",
-        )
-        if not confirm:
+        ):
             return
 
         if self._source_var.get() == "hosted":
@@ -1340,7 +1381,11 @@ class ServerTab(ctk.CTkFrame):
         if not self._world_path:
             self._set_result("Load world settings first.", level="info")
             return
-        if not messagebox.askyesno("Restore Previous Version", "Restore the most recent world settings backup?"):
+        if not self.app.confirm_action(
+            "destructive",
+            "Restore Previous Version",
+            "Restore the most recent world settings backup?",
+        ):
             return
         if self._source_var.get() == "hosted":
             profile = self._selected_remote_profile()
@@ -1426,7 +1471,7 @@ class ServerTab(ctk.CTkFrame):
     def open_hosted_setup(self) -> None:
         dialog = ctk.CTkToplevel(self)
         dialog.title("Hosted Server Setup")
-        dialog.geometry("580x700")
+        self.app.center_dialog(dialog, 580, 700)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
         self._hosted_setup_dialog = dialog
@@ -1479,26 +1524,33 @@ class ServerTab(ctk.CTkFrame):
         ctk.CTkEntry(connection, textvariable=vars_map["host"]).grid(row=2, column=1, sticky="ew", padx=8, pady=4)
         ctk.CTkLabel(connection, text="Port:").grid(row=2, column=2, sticky="w", padx=(8, 4), pady=4)
         ctk.CTkEntry(connection, textvariable=vars_map["port"], width=86).grid(row=2, column=3, sticky="e", padx=(0, 12), pady=4)
-        ctk.CTkLabel(connection, text="Username:").grid(row=3, column=0, sticky="w", padx=12, pady=4)
+        ctk.CTkLabel(
+            connection,
+            text="Host = your SSH/SFTP hostname or LAN IP. Port = the SSH/SFTP port, usually 22.",
+            justify="left",
+            wraplength=310,
+            text_color="#95a5a6",
+        ).grid(row=3, column=1, columnspan=3, sticky="ew", padx=8, pady=(0, 4))
         ctk.CTkEntry(connection, textvariable=vars_map["username"]).grid(
-            row=3, column=1, columnspan=3, sticky="ew", padx=8, pady=4
+            row=4, column=1, columnspan=3, sticky="ew", padx=8, pady=4
         )
-        ctk.CTkLabel(connection, text="Auth Mode:").grid(row=4, column=0, sticky="w", padx=12, pady=4)
+        ctk.CTkLabel(connection, text="Username:").grid(row=4, column=0, sticky="w", padx=12, pady=4)
+        ctk.CTkLabel(connection, text="Auth Mode:").grid(row=5, column=0, sticky="w", padx=12, pady=4)
         auth_menu = ctk.CTkOptionMenu(connection, variable=auth_var, values=["password", "key"], width=120)
-        auth_menu.grid(row=4, column=1, sticky="w", padx=8, pady=4)
+        auth_menu.grid(row=5, column=1, sticky="w", padx=8, pady=4)
         ctk.CTkLabel(
             connection,
             text="Use password for hosting-panel accounts or a private key for OpenSSH/SFTP logins.",
             justify="left",
             wraplength=310,
             text_color="#95a5a6",
-        ).grid(row=4, column=2, columnspan=2, sticky="ew", padx=(8, 12), pady=4)
-        ctk.CTkLabel(connection, text="Password:").grid(row=5, column=0, sticky="w", padx=12, pady=4)
+        ).grid(row=5, column=2, columnspan=2, sticky="ew", padx=(8, 12), pady=4)
+        ctk.CTkLabel(connection, text="Password:").grid(row=6, column=0, sticky="w", padx=12, pady=4)
         password_entry = ctk.CTkEntry(connection, textvariable=vars_map["password"], show="*")
-        password_entry.grid(row=5, column=1, columnspan=3, sticky="ew", padx=8, pady=4)
-        ctk.CTkLabel(connection, text="Private Key:").grid(row=6, column=0, sticky="w", padx=12, pady=4)
+        password_entry.grid(row=6, column=1, columnspan=3, sticky="ew", padx=8, pady=4)
+        ctk.CTkLabel(connection, text="Private Key:").grid(row=7, column=0, sticky="w", padx=12, pady=4)
         key_row = ctk.CTkFrame(connection, fg_color="transparent")
-        key_row.grid(row=6, column=1, columnspan=3, sticky="ew", padx=8, pady=4)
+        key_row.grid(row=7, column=1, columnspan=3, sticky="ew", padx=8, pady=4)
         key_row.grid_columnconfigure(0, weight=1)
         key_entry = ctk.CTkEntry(key_row, textvariable=vars_map["key"])
         key_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
@@ -1609,7 +1661,7 @@ class ServerTab(ctk.CTkFrame):
                 if profile_id == profile.profile_id:
                     self._remote_profile_var.set(label)
                     break
-            self._source_switch.set("Hosted")
+            self._source_switch.set("Hosted Server")
             self._on_source_changed("hosted")
             status.configure(text=f"Saved profile '{profile.name}'.", text_color="#2d8a4e")
 
@@ -1661,7 +1713,7 @@ class ServerTab(ctk.CTkFrame):
         info = inspect_archive(selected_path)
         dialog = ctk.CTkToplevel(self)
         dialog.title("Install to Hosted Server")
-        dialog.geometry("500x400")
+        self.app.center_dialog(dialog, 500, 400)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
         self._hosted_install_dialog = dialog

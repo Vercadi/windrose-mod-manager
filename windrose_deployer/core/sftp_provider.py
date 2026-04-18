@@ -114,6 +114,9 @@ class SftpProvider:
         with self._sftp.file(remote_path, "wb") as handle:
             handle.write(data)
 
+    def delete_file(self, remote_path: str) -> None:
+        self._sftp.remove(remote_path)
+
     def read_bytes(self, remote_path: str) -> bytes:
         with self._sftp.file(remote_path, "rb") as handle:
             return handle.read()

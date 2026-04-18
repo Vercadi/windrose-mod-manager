@@ -30,6 +30,7 @@ CONFIRMATION_LABELS = {
     "Always Confirm": "always",
     "Destructive Actions Only": "destructive_only",
     "Reduced Confirmations": "reduced",
+    "Disable All Confirmations": "none",
 }
 
 
@@ -114,7 +115,7 @@ class SettingsTab(ctk.CTkFrame):
         self._header_hint = ctk.CTkLabel(
             header,
             text=(
-                "App-level setup only: client paths, bundled and dedicated server paths, hosted profiles, "
+                "App-level setup only: client paths, local and dedicated server paths, hosted profiles, "
                 "backup storage, and update behavior."
             ),
             anchor="w",
@@ -207,15 +208,15 @@ class SettingsTab(ctk.CTkFrame):
 
     def _build_server_tab(self) -> None:
         card = self._section_card(self._tab_server, 0, "Server Targets")
-        self._add_path_row(card, 1, "server_root", "Bundled Server Folder")
+        self._add_path_row(card, 1, "server_root", "Local Server Folder")
         self._add_path_row(card, 2, "dedicated_server_root", "Dedicated Server Folder")
         self._add_path_row(card, 3, "local_save_root", "Dedicated Server World Saves Folder")
         self._server_hint = ctk.CTkLabel(
             card,
             text=(
-                "Bundled Server Folder should point at <Windrose>/R5/Builds/WindowsServer. "
+                "Local Server Folder should point at <Windrose>/R5/Builds/WindowsServer. "
                 "Dedicated Server Folder should point at the standalone Windrose Dedicated Server install. "
-                "Bundled server world files are derived from <bundled>/R5/Saved. Dedicated server launch and "
+                "Local server world files are derived from <local>/R5/Saved. Dedicated server launch and "
                 "dedicated server/world settings use the dedicated server folder, and world saves default to "
                 "<dedicated>/R5/Saved."
             ),
@@ -683,6 +684,7 @@ class SettingsTab(ctk.CTkFrame):
             "Always Confirm": "Routine actions will continue to ask before installing or applying changes.",
             "Destructive Actions Only": "Only destructive or high-risk actions will require confirmation.",
             "Reduced Confirmations": "Routine installs and applies will stay quieter while risky actions still prompt.",
+            "Disable All Confirmations": "All confirmation prompts are disabled. Use this only if you prefer speed over safety.",
         }
         message = descriptions.get(label, "Confirmation behavior updated. Click Save to keep it.")
         self._set_result(message, level="info")

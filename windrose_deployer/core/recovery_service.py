@@ -7,7 +7,7 @@ from pathlib import Path
 from typing import Iterable, Optional
 
 from ..models.deployment_record import DeploymentRecord
-from ..models.mod_install import ModInstall
+from ..models.mod_install import ModInstall, target_value_label
 from .backup_manager import BackupManager, BackupRecord
 from .manifest_store import ManifestStore
 
@@ -57,7 +57,7 @@ class RecoveryService:
                 display_name=record.mod_id,
                 source_archive=record.source_archive,
             )).display_name
-            title = self._history_title(record.action, name)
+            title = self._history_title(record.action, name, record.target)
             subtitle = self._target_label(record.target)
             details = [
                 f"Action: {record.action}",
@@ -128,21 +128,24 @@ class RecoveryService:
         return items
 
     @staticmethod
-    def _history_title(action: str, name: str) -> str:
+    def _history_title(action: str, name: str, target: str) -> str:
         verbs = {
             "install": "Installed",
             "uninstall": "Uninstalled",
             "disable": "Disabled",
             "enable": "Enabled",
             "repair": "Repaired",
-            "save_server_config": "Saved Dedicated Server Settings",
-            "save_world_config": "Saved Dedicated World Settings",
             "save_remote_server_config": "Saved Hosted Server Settings",
             "save_remote_world_config": "Saved Hosted World Settings",
             "hosted_upload": "Uploaded to Hosted Server",
             "hosted_restart": "Ran Hosted Restart Command",
         }
-        verb = verbs.get(action, action.replace("_", " ").title())
+        if action == "save_server_config":
+            verb = "Saved Local Server Settings" if target == "server" else "Saved Dedicated Server Settings"
+        elif action == "save_world_config":
+            verb = "Saved Local World Settings" if target == "server" else "Saved Dedicated World Settings"
+        else:
+            verb = verbs.get(action, action.replace("_", " ").title())
         if action.startswith("save_") or action == "hosted_restart":
             return verb
         return f"{verb} {name}"
@@ -150,30 +153,15 @@ class RecoveryService:
     @staticmethod
     def _target_label(target: str) -> str:
         target = (target or "").strip()
-        if target == "client":
-            return "Client"
-        if target == "server":
-            return "Bundled Server"
-        if target == "dedicated_server":
-            return "Dedicated Server"
-        if target == "both":
-            return "Client + Bundled Server"
-        if target == "hosted":
-            return "Hosted Server"
         if "," in target:
-            return (
-                target
-                .replace("dedicated_server", "Dedicated Server")
-                .replace("client", "Client")
-                .replace("server", "Bundled Server")
-            )
-        return target or "Unknown"
+            return ", ".join(target_value_label(part.strip()) for part in target.split(",") if part.strip())
+        return target_value_label(target)
 
     @staticmethod
     def _backup_category_label(category: str) -> str:
         labels = {
-            "server_config": "Dedicated Server",
-            "world_config": "Dedicated World",
+            "server_config": "Server Settings",
+            "world_config": "World Settings",
             "remote_server_config": "Hosted Server",
             "remote_world_config": "Hosted World",
         }
@@ -182,8 +170,8 @@ class RecoveryService:
     @staticmethod
     def _backup_title(record: BackupRecord) -> str:
         title_map = {
-            "server_config": "Saved Dedicated Server Settings",
-            "world_config": "Saved Dedicated World Settings",
+            "server_config": "Saved Server Settings",
+            "world_config": "Saved World Settings",
             "remote_server_config": "Saved Hosted Server Settings",
             "remote_world_config": "Saved Hosted World Settings",
         }

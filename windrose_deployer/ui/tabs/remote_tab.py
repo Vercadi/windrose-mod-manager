@@ -851,11 +851,11 @@ class RemoteTab(ctk.CTkFrame):
         profile = self.app.remote_profiles.get_profile(profile_id)
         if profile is None:
             return
-        confirm = messagebox.askyesno(
+        if not self.app.confirm_action(
+            "destructive",
             "Delete Profile",
             f"Delete remote profile '{profile.name}'?",
-        )
-        if not confirm:
+        ):
             return
 
         self.app.remote_profiles.remove(profile.profile_id)

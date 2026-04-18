@@ -222,12 +222,12 @@ class InstalledTab(ctk.CTkFrame):
         if not self._selected_mod:
             return
         mod = self._selected_mod
-        confirm = messagebox.askyesno(
+        if not self.app.confirm_action(
+            "destructive",
             "Confirm Uninstall",
             f"Uninstall '{mod.display_name}'?\n\n"
             f"This will remove {mod.file_count} managed files.",
-        )
-        if not confirm:
+        ):
             return
 
         record = self.app.installer.uninstall(mod)
@@ -271,13 +271,13 @@ class InstalledTab(ctk.CTkFrame):
                                  "New install plan is invalid:\n" + "\n".join(plan.warnings))
             return
 
-        confirm = messagebox.askyesno(
+        if not self.app.confirm_action(
+            "routine",
             "Confirm Reinstall",
             f"Reinstall '{mod.display_name}'?\n\n"
             f"This will uninstall the current version ({mod.file_count} files) "
             f"and install again from:\n{archive_path.name}",
-        )
-        if not confirm:
+        ):
             return
 
         # Uninstall current
@@ -308,12 +308,12 @@ class InstalledTab(ctk.CTkFrame):
             messagebox.showinfo("Nothing to Uninstall", "No mods are currently installed.")
             return
 
-        confirm = messagebox.askyesno(
+        if not self.app.confirm_action(
+            "destructive",
             "Uninstall All Mods",
             f"This will uninstall all {len(mods)} installed mod(s) and "
             "return your game to a vanilla state.\n\nAre you sure?",
-        )
-        if not confirm:
+        ):
             return
 
         count = 0
