@@ -135,9 +135,13 @@ class RecoveryService:
             "disable": "Disabled",
             "enable": "Enabled",
             "repair": "Repaired",
+            "launch_game": "Launched Windrose",
+            "launch_server": "Launched Server",
+            "manual_backup": "Created Manual Backup",
             "save_remote_server_config": "Saved Hosted Server Settings",
             "save_remote_world_config": "Saved Hosted World Settings",
             "hosted_upload": "Uploaded to Hosted Server",
+            "hosted_remove": "Removed from Hosted Server",
             "hosted_restart": "Ran Hosted Restart Command",
         }
         if action == "save_server_config":
@@ -146,7 +150,7 @@ class RecoveryService:
             verb = "Saved Local World Settings" if target == "server" else "Saved Dedicated World Settings"
         else:
             verb = verbs.get(action, action.replace("_", " ").title())
-        if action.startswith("save_") or action == "hosted_restart":
+        if action.startswith("save_") or action in {"hosted_restart", "launch_game", "launch_server", "manual_backup"}:
             return verb
         return f"{verb} {name}"
 

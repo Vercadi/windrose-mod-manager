@@ -43,7 +43,7 @@ class BackupsTab(ctk.CTkFrame):
         frame.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         frame.grid_columnconfigure(2, weight=1)
 
-        ctk.CTkLabel(frame, text="Recovery", font=self.app.ui_font("title")).grid(
+        ctk.CTkLabel(frame, text="Activity & Backups", font=self.app.ui_font("title")).grid(
             row=0, column=0, sticky="w", padx=(0, 12)
         )
         self._filter_menu = ctk.CTkOptionMenu(
@@ -57,6 +57,18 @@ class BackupsTab(ctk.CTkFrame):
         self._filter_menu.grid(row=0, column=1, sticky="w")
         self._summary_label = ctk.CTkLabel(frame, text="", anchor="w", text_color="#95a5a6", font=self.app.ui_font("small"))
         self._summary_label.grid(row=0, column=2, sticky="ew", padx=(12, 12))
+        backup_btn = ctk.CTkButton(
+            frame,
+            text="Back Up Now",
+            width=112,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self.app._server_tab._on_backup_now,
+        )
+        backup_btn.grid(row=0, column=3, sticky="e", padx=(0, 8))
+        self._action_buttons.append(backup_btn)
         cleanup_btn = ctk.CTkButton(
             frame,
             text="Clean Up Old",
@@ -67,7 +79,7 @@ class BackupsTab(ctk.CTkFrame):
             hover_color="#666666",
             command=self._on_cleanup_old,
         )
-        cleanup_btn.grid(row=0, column=3, sticky="e", padx=(0, 8))
+        cleanup_btn.grid(row=0, column=4, sticky="e", padx=(0, 8))
         self._action_buttons.append(cleanup_btn)
         self._advanced_btn = ctk.CTkButton(
             frame,
@@ -79,7 +91,7 @@ class BackupsTab(ctk.CTkFrame):
             hover_color="#666666",
             command=self._toggle_advanced,
         )
-        self._advanced_btn.grid(row=0, column=4, sticky="e")
+        self._advanced_btn.grid(row=0, column=5, sticky="e")
         self._action_buttons.append(self._advanced_btn)
         self._result_label = ctk.CTkLabel(
             frame,
@@ -89,7 +101,7 @@ class BackupsTab(ctk.CTkFrame):
             text_color="#95a5a6",
             font=self.app.ui_font("small"),
         )
-        self._result_label.grid(row=1, column=0, columnspan=5, sticky="ew", pady=(4, 0))
+        self._result_label.grid(row=1, column=0, columnspan=6, sticky="ew", pady=(4, 0))
 
     def _build_main(self) -> None:
         self._panes = tk.PanedWindow(

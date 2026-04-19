@@ -4,6 +4,7 @@ import pytest
 from pathlib import Path
 
 from windrose_deployer.core.manifest_store import ManifestStore
+from windrose_deployer.models.metadata import ModMetadata
 from windrose_deployer.models.mod_install import ModInstall
 
 
@@ -18,6 +19,8 @@ def _make_mod(mod_id: str = "test_mod", files: list[str] | None = None) -> ModIn
         targets=["client"],
         installed_files=files or ["C:/mods/test.pak"],
         backed_up_files=[],
+        component_map={"test.pak": files or ["C:/mods/test.pak"]},
+        metadata=ModMetadata(version_tag="1.0.0", nexus_mod_id="29"),
         enabled=True,
     )
 
@@ -85,3 +88,37 @@ class TestManifestStore:
         }), encoding="utf-8")
         store = ManifestStore(tmp_path)
         assert len(store.list_mods()) == 1
+
+    def test_metadata_and_component_map_round_trip(self, tmp_path):
+        store = ManifestStore(tmp_path)
+        mod = _make_mod()
+        store.add_mod(mod)
+
+        loaded = ManifestStore(tmp_path).get_mod("test_mod")
+        assert loaded is not None
+        assert loaded.metadata.version_tag == "1.0.0"
+        assert loaded.metadata.nexus_mod_id == "29"
+        assert loaded.component_map == {"test.pak": ["C:/mods/test.pak"]}
+
+    def test_legacy_flat_metadata_fields_still_load(self, tmp_path):
+        state_file = tmp_path / "app_state.json"
+        state_file.write_text(json.dumps({
+            "schema_version": 2,
+            "mods": [{
+                "mod_id": "flat_meta_mod",
+                "display_name": "Flat Meta",
+                "source_archive": "flat.zip",
+                "targets": ["client"],
+                "installed_files": ["C:/game/flat.pak"],
+                "nexus_mod_id": "42",
+                "nexus_file_id": "100",
+                "version_tag": "2.0.0",
+            }],
+            "history": [],
+        }), encoding="utf-8")
+
+        mod = ManifestStore(tmp_path).get_mod("flat_meta_mod")
+        assert mod is not None
+        assert mod.metadata.nexus_mod_id == "42"
+        assert mod.metadata.nexus_file_id == "100"
+        assert mod.metadata.version_tag == "2.0.0"

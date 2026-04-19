@@ -81,3 +81,37 @@ def test_repair_restores_expected_bytes(tmp_path: Path) -> None:
     assert result.failed == []
     assert str(target_file) in result.repaired
     assert target_file.read_text(encoding="utf-8") == "expected-data"
+
+
+def test_verify_respects_component_map_for_partial_bundle_installs(tmp_path: Path) -> None:
+    archive_dir, client_root, mod_dir = _workspace(tmp_path)
+    backup = BackupManager(tmp_path / "backups")
+    installer = Installer(backup)
+
+    archive = archive_dir / "bundle.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("Stack_10x_P.pak", "10x")
+        zf.writestr("Stack_100x_P.pak", "100x")
+
+    plan = DeploymentPlan(
+        mod_name="Stack Bundle",
+        archive_path=str(archive),
+        target=InstallTarget.CLIENT,
+        install_type="pak_only",
+    )
+    plan.files.append(
+        PlannedFile(
+            archive_entry_path="Stack_100x_P.pak",
+            dest_path=mod_dir / "Stack_100x_P.pak",
+            is_pak=True,
+        )
+    )
+
+    mod, _ = installer.install(plan)
+
+    integrity = IntegrityService(AppPaths(client_root=client_root), backup)
+    result = integrity.verify_mod(mod)
+
+    assert result.ok
+    assert result.issues == []
+    assert result.verified_files == 1

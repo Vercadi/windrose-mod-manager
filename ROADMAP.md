@@ -129,11 +129,19 @@ This is where the product becomes more useful than generic mod managers for Wind
 
 ---
 
-## v0.5.0 - Profiles
+## v0.5.x - Server Operations & Parity
 
-- [ ] Mod profiles (named sets of mods that can be switched)
-- [ ] Per-world mod configurations
-- [ ] Profile import/export
+Detailed working plan lives in `PLAN_v0.5.x.md`.
+Detailed implementation brief lives in `IMPLEMENTATION_v0.5.0.md`.
+
+High-level direction:
+- [ ] Server dashboard with clearer local/dedicated/hosted status
+- [ ] Metadata/version awareness foundation
+- [ ] Bundle-aware archive/applied mod cards
+- [ ] Better inspect surface for complex archives
+- [ ] Backups and activity/logs become first-class workflows
+- [ ] Framework/dependency awareness
+- [ ] Narrow, preview-first Profiles
 
 ---
 

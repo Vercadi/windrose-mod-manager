@@ -65,6 +65,7 @@ class Installer:
         installed_paths: list[str] = []
         backed_up_paths: list[str] = []
         backup_map: dict[str, str] = {}
+        component_map: dict[str, list[str]] = {}
         failed_count = 0
 
         reader = open_archive(archive_path)
@@ -98,6 +99,7 @@ class Installer:
                     continue
 
                 installed_paths.append(str(dest))
+                component_map.setdefault(pf.archive_entry_path, []).append(str(dest))
                 df = DeployedFile(
                     source_archive_path=pf.archive_entry_path,
                     dest_path=str(dest),
@@ -132,6 +134,7 @@ class Installer:
             installed_files=installed_paths,
             backed_up_files=backed_up_paths,
             backup_map=backup_map,
+            component_map=component_map,
             enabled=True,
         )
 

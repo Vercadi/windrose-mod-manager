@@ -5,6 +5,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Iterable, Optional
 
+from .metadata import ModMetadata
+
 
 class InstallTarget(Enum):
     CLIENT = "client"
@@ -68,6 +70,8 @@ class ModInstall:
     installed_files: list[str] = field(default_factory=list)
     backed_up_files: list[str] = field(default_factory=list)
     backup_map: dict[str, str] = field(default_factory=dict)
+    component_map: dict[str, list[str]] = field(default_factory=dict)
+    metadata: ModMetadata = field(default_factory=ModMetadata)
     install_time: str = field(default_factory=lambda: datetime.now().isoformat())
     enabled: bool = True
 
@@ -87,6 +91,8 @@ class ModInstall:
             "installed_files": self.installed_files,
             "backed_up_files": self.backed_up_files,
             "backup_map": self.backup_map,
+            "component_map": self.component_map,
+            "metadata": self.metadata.to_dict(),
             "install_time": self.install_time,
             "enabled": self.enabled,
         }
@@ -104,6 +110,8 @@ class ModInstall:
             installed_files=d.get("installed_files", []),
             backed_up_files=d.get("backed_up_files", []),
             backup_map=d.get("backup_map", {}),
+            component_map=d.get("component_map", {}),
+            metadata=ModMetadata.from_dict(d.get("metadata")) if d.get("metadata") else ModMetadata.from_legacy_fields(d),
             install_time=d.get("install_time", ""),
             enabled=d.get("enabled", True),
         )

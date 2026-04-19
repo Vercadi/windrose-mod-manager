@@ -2,8 +2,10 @@
 from __future__ import annotations
 
 import logging
+import queue
 import subprocess
 import threading
+import time
 import webbrowser
 from pathlib import Path
 import tkinter as tk
@@ -25,6 +27,8 @@ from ..core.integrity_service import IntegrityService
 from ..core.installer import Installer
 from ..core.logging_service import setup_logging
 from ..core.manifest_store import ManifestStore
+from ..core.profile_store import ProfileStore
+from ..core.profile_service import ProfileService
 from ..core.recovery_service import RecoveryService
 from ..core.remote_deployer import RemoteDeploymentService
 from ..core.remote_config_service import RemoteConfigService
@@ -35,6 +39,7 @@ from ..core.update_checker import ReleaseInfo, check_for_update, download_releas
 from ..core.world_config_service import WorldConfigService
 from ..models.app_preferences import AppPreferences
 from ..models.app_paths import AppPaths
+from ..models.deployment_record import DeploymentRecord
 from ..utils.json_io import read_json, write_json
 from ..utils.filesystem import ensure_dir
 from .ui_tokens import UiTokens, ui_tokens_for_size
@@ -75,6 +80,9 @@ class AppWindow(ctk.CTk):
         ctk.set_default_color_theme("blue")
         self._first_run = not SETTINGS_FILE.is_file()
         super().__init__()
+        self._ui_call_queue: queue.Queue = queue.Queue()
+        self._process_names_cache: set[str] = set()
+        self._process_names_cache_at = 0.0
 
         # Inject tkdnd so all widgets get drop_target_register / dnd_bind
         self._dnd_enabled = False
@@ -167,6 +175,8 @@ class AppWindow(ctk.CTk):
         self._rebind_backup_services()
         self.manifest = ManifestStore(self.paths.data_dir)
         self.remote_profiles = RemoteProfileStore(self.paths.data_dir)
+        self.profiles = ProfileStore(self.paths.data_dir)
+        self.profile_service = ProfileService()
         self.remote_deployer = RemoteDeploymentService()
         self.remote_config_svc = RemoteConfigService(self.backup, self.remote_profiles)
         self.recovery = RecoveryService(self.manifest, self.backup)
@@ -247,6 +257,8 @@ class AppWindow(ctk.CTk):
 
     def refresh_ui_preferences(self) -> None:
         self._apply_ui_preferences()
+        if "_dashboard_tab" in self.__dict__:
+            self._dashboard_tab.apply_ui_preferences()
         if "_mods_tab" in self.__dict__:
             self._mods_tab.apply_ui_preferences()
         if "_server_tab" in self.__dict__:
@@ -295,54 +307,93 @@ class AppWindow(ctk.CTk):
         except Exception:
             window.geometry(f"{width}x{height}")
 
+    def _record_action(self, action: str, *, target: str = "", display_name: str = "", notes: str = "") -> None:
+        try:
+            self.manifest.add_record(
+                DeploymentRecord(
+                    mod_id=f"app:{action}",
+                    action=action,
+                    target=target,
+                    display_name=display_name,
+                    notes=notes,
+                )
+            )
+        except Exception as exc:
+            log.warning("Could not record app action %s: %s", action, exc)
+
+    def _running_process_names(self) -> set[str]:
+        now = time.monotonic()
+        if now - self._process_names_cache_at < 2.0 and self._process_names_cache:
+            return set(self._process_names_cache)
+        try:
+            startupinfo = None
+            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+            if hasattr(subprocess, "STARTUPINFO"):
+                startupinfo = subprocess.STARTUPINFO()
+                startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
+                startupinfo.wShowWindow = 0
+            result = subprocess.run(
+                ["tasklist", "/FO", "CSV", "/NH"],
+                capture_output=True,
+                text=True,
+                check=False,
+                creationflags=creationflags,
+                startupinfo=startupinfo,
+            )
+            names: set[str] = set()
+            for raw_line in result.stdout.splitlines():
+                line = raw_line.strip().strip('"')
+                if not line:
+                    continue
+                first = line.split('","', 1)[0].strip('"')
+                if first:
+                    names.add(first.lower())
+            self._process_names_cache = names
+            self._process_names_cache_at = now
+            return names
+        except Exception as exc:
+            log.warning("Could not query running processes: %s", exc)
+            return set()
+
+    def is_game_running(self) -> bool:
+        names = self._running_process_names()
+        return any(name in names for name in {"windrose.exe", "eosauthlauncher.exe"})
+
+    def is_server_process_running(self) -> bool:
+        names = self._running_process_names()
+        return "windroseserver.exe" in names
+
     # ---------------------------------------------------------- UI
 
     def _build_ui(self) -> None:
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
-        self._status_collapsed_height = 38
-        self._status_expanded_height = 180
         self._recovery_window = None
         self._recovery_tab = None
 
         self._build_update_banner()
 
-        self._main_panes = tk.PanedWindow(
-            self,
-            orient=tk.VERTICAL,
-            sashwidth=8,
-            showhandle=True,
-            handlesize=8,
-            bd=0,
-            relief=tk.FLAT,
-            bg="#2b2b2b",
-            sashrelief=tk.RAISED,
-        )
-        self._main_panes.grid(row=1, column=0, sticky="nsew", padx=8, pady=(8, 8))
-
-        self._main_host = ctk.CTkFrame(self._main_panes, fg_color="transparent")
+        self._main_host = ctk.CTkFrame(self, fg_color="transparent")
+        self._main_host.grid(row=1, column=0, sticky="nsew", padx=8, pady=(8, 8))
         self._main_host.grid_columnconfigure(0, weight=1)
         self._main_host.grid_rowconfigure(0, weight=1)
-
-        self._status_host = ctk.CTkFrame(self._main_panes, fg_color="transparent")
-        self._status_host.grid_columnconfigure(0, weight=1)
-        self._status_host.grid_rowconfigure(0, weight=1)
-
-        self._main_panes.add(self._main_host, minsize=380, height=560, stretch="always")
-        self._main_panes.add(self._status_host, minsize=110, height=150, stretch="never")
 
         self._tabview = ctk.CTkTabview(self._main_host)
         self._tabview.grid(row=0, column=0, sticky="nsew", pady=(0, 4))
 
+        tab_dashboard = self._tabview.add("Dashboard")
         tab_mods = self._tabview.add("Mods")
         tab_server = self._tabview.add("Server")
+        tab_activity = self._tabview.add("Activity")
         tab_settings = self._tabview.add("Settings")
         tab_help = self._tabview.add("Help")
 
-        for tab in (tab_mods, tab_server, tab_settings, tab_help):
+        for tab in (tab_dashboard, tab_mods, tab_server, tab_activity, tab_settings, tab_help):
             tab.grid_columnconfigure(0, weight=1)
             tab.grid_rowconfigure(0, weight=1)
 
+        from .tabs.backups_tab import BackupsTab
+        from .tabs.dashboard_tab import DashboardTab
         from .tabs.mods_tab import ModsTab
         from .tabs.server_tab import ServerTab
         from .tabs.settings_tab import SettingsTab
@@ -354,6 +405,23 @@ class AppWindow(ctk.CTk):
         self._server_tab = ServerTab(tab_server, app=self)
         self._server_tab.grid(row=0, column=0, sticky="nsew")
 
+        self._dashboard_tab = DashboardTab(tab_dashboard, app=self)
+        self._dashboard_tab.grid(row=0, column=0, sticky="nsew")
+
+        tab_activity.grid_rowconfigure(0, weight=1)
+        tab_activity.grid_rowconfigure(1, weight=0)
+        activity_host = ctk.CTkFrame(tab_activity, fg_color="transparent")
+        activity_host.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
+        activity_host.grid_columnconfigure(0, weight=1)
+        activity_host.grid_rowconfigure(0, weight=1)
+        self._recovery_tab = BackupsTab(activity_host, app=self)
+        self._recovery_tab.grid(row=0, column=0, sticky="nsew")
+
+        status_host = ctk.CTkFrame(tab_activity, fg_color="transparent")
+        status_host.grid(row=1, column=0, sticky="ew")
+        status_host.grid_columnconfigure(0, weight=1)
+        status_host.grid_rowconfigure(0, weight=1)
+
         self._settings_tab = SettingsTab(tab_settings, app=self)
         self._settings_tab.grid(row=0, column=0, sticky="nsew")
 
@@ -363,44 +431,31 @@ class AppWindow(ctk.CTk):
         self._build_launch_bar(self._main_host)
 
         self._status = StatusPanel(
-            self._status_host,
-            height=140,
-            toggle_callback=self._toggle_technical_log,
+            status_host,
+            height=180,
             collapsed=True,
         )
         self._status.grid(row=0, column=0, sticky="nsew")
-        self.after(150, self._set_initial_split_positions)
-        self._tabview.set("Mods")
+        self._pump_ui_queue()
+        self._tabview.set("Dashboard")
         self._bind_shortcuts()
         self.refresh_ui_preferences()
 
-    def _set_initial_split_positions(self) -> None:
-        """Default to a compact status log while keeping it user-resizable."""
+    def dispatch_to_ui(self, callback) -> None:
+        self._ui_call_queue.put(callback)
+
+    def _pump_ui_queue(self) -> None:
         try:
-            total_height = max(self.winfo_height(), 700)
-            status_height = (
-                self._status_collapsed_height
-                if self._status.is_collapsed
-                else self._status_expanded_height
-            )
-            self._main_panes.sash_place(0, 0, total_height - status_height)
-        except tk.TclError:
+            while True:
+                callback = self._ui_call_queue.get_nowait()
+                try:
+                    callback()
+                except Exception as exc:
+                    log.warning("UI callback failed: %s", exc)
+        except queue.Empty:
             pass
-
-    def _toggle_technical_log(self, collapsed: bool) -> None:
-        def _apply() -> None:
-            try:
-                total_height = max(self.winfo_height(), 700)
-                status_height = (
-                    self._status_collapsed_height
-                    if collapsed
-                    else self._status_expanded_height
-                )
-                self._main_panes.sash_place(0, 0, total_height - status_height)
-            except tk.TclError:
-                pass
-
-        self.after(0, _apply)
+        if self.winfo_exists():
+            self.after(50, self._pump_ui_queue)
 
     # ---------------------------------------------------------- update banner
 
@@ -473,7 +528,7 @@ class AppWindow(ctk.CTk):
                 text=f"A new version is available: v{release.version}  (you have v{__version__})"
             )
             self._update_frame.grid(row=0, column=0, sticky="ew", padx=0, pady=0)
-        self.after(0, _show)
+        self.dispatch_to_ui(_show)
 
     def _on_update_download_progress(self, downloaded: int, total: int, asset_name: str) -> None:
         def _show() -> None:
@@ -488,7 +543,7 @@ class AppWindow(ctk.CTk):
                     text=f"Downloading {asset_name}... {mb:.1f} MB"
                 )
 
-        self.after(0, _show)
+        self.dispatch_to_ui(_show)
 
     def _on_update_download_complete(self, path: Path | None, error: str | None) -> None:
         def _show() -> None:
@@ -509,7 +564,7 @@ class AppWindow(ctk.CTk):
                 text_color="#d4efff",
             )
 
-        self.after(0, _show)
+        self.dispatch_to_ui(_show)
 
     def _open_download_folder(self, path: Path) -> None:
         if path.exists():
@@ -558,6 +613,7 @@ class AppWindow(ctk.CTk):
         if exe and exe.is_file():
             subprocess.Popen([str(exe)], cwd=str(exe.parent))
             log.info("Launched game: %s", exe)
+            self._record_action("launch_game", target="client", display_name="Windrose", notes=f"Launched {exe}")
         else:
             messagebox.showerror("Not Found",
                                  "Windrose.exe not found. Check client path in Settings.")
@@ -592,6 +648,14 @@ class AppWindow(ctk.CTk):
                     creationflags=creation_flags,
                 )
             log.info("Launched %s: %s", label.lower(), target)
+            record_action = getattr(self, "_record_action", None)
+            if callable(record_action):
+                record_action(
+                    "launch_server",
+                    target="server" if "local" in label.lower() else "dedicated_server",
+                    display_name=label,
+                    notes=f"Launched {target}",
+                )
             return True
         except Exception as exc:
             log.error("Failed to launch %s %s: %s", label.lower(), target, exc)
@@ -629,6 +693,8 @@ class AppWindow(ctk.CTk):
 
         self._mods_tab.refresh_view()
         self._server_tab.refresh_view()
+        if "_dashboard_tab" in self.__dict__:
+            self._dashboard_tab.refresh_view()
         self._about_tab.refresh_view()
         if self._recovery_tab is not None:
             self._recovery_tab.refresh()
@@ -640,8 +706,13 @@ class AppWindow(ctk.CTk):
     # ---------------------------------------------------------- cross-tab helpers
 
     def refresh_installed_tab(self) -> None:
+        if "_dashboard_tab" in self.__dict__:
+            self._dashboard_tab.refresh_view()
         self._mods_tab.refresh_view()
-        self._server_tab.refresh_view()
+        if self._tabview.get() == "Server":
+            self._server_tab.refresh_view()
+        else:
+            self._server_tab.refresh_remote_profiles()
         if self._recovery_tab is not None:
             self._recovery_tab.refresh()
         self._update_mod_badge()
@@ -649,41 +720,23 @@ class AppWindow(ctk.CTk):
     def refresh_backups_tab(self) -> None:
         if self._recovery_tab is not None:
             self._recovery_tab.refresh()
+        if "_dashboard_tab" in self.__dict__:
+            self._dashboard_tab.refresh_view()
 
     def refresh_mods_tab(self) -> None:
+        if "_dashboard_tab" in self.__dict__:
+            self._dashboard_tab.refresh_view()
         self._mods_tab.refresh_view()
-        self._server_tab.refresh_view()
+        if self._tabview.get() == "Server":
+            self._server_tab.refresh_view()
+        else:
+            self._server_tab.refresh_remote_profiles()
         self._update_mod_badge()
 
     def open_recovery_center(self) -> None:
-        if self._recovery_window is not None and self._recovery_window.winfo_exists():
-            self._recovery_window.focus()
-            self._recovery_window.lift()
-            if self._recovery_tab is not None:
-                self._recovery_tab.refresh()
-            return
-
-        window = ctk.CTkToplevel(self)
-        window.title("Recovery")
-        self.center_dialog(window, 1120, 720)
-        window.minsize(900, 560)
-        window.transient(self)
-        window.grid_columnconfigure(0, weight=1)
-        window.grid_rowconfigure(0, weight=1)
-
-        from .tabs.backups_tab import BackupsTab
-
-        recovery_tab = BackupsTab(window, app=self)
-        recovery_tab.grid(row=0, column=0, sticky="nsew")
-
-        def _on_close() -> None:
-            self._recovery_tab = None
-            self._recovery_window = None
-            window.destroy()
-
-        window.protocol("WM_DELETE_WINDOW", _on_close)
-        self._recovery_window = window
-        self._recovery_tab = recovery_tab
+        self._tabview.set("Activity")
+        if self._recovery_tab is not None:
+            self._recovery_tab.refresh()
 
     def open_remote_deploy(self, archive_path: str | Path | None = None) -> None:
         self._server_tab.open_hosted_install_dialog(archive_path)
@@ -714,10 +767,15 @@ class AppWindow(ctk.CTk):
 
     def _refresh_active_view(self) -> None:
         current = self._tabview.get()
-        if current == "Mods":
+        if current == "Dashboard":
+            self._dashboard_tab.refresh_view()
+        elif current == "Mods":
             self._mods_tab.refresh_view()
         elif current == "Server":
             self._server_tab.refresh_view()
+        elif current == "Activity":
+            if self._recovery_tab is not None:
+                self._recovery_tab.refresh()
         elif current == "Settings":
             self._settings_tab.refresh_view()
         elif current == "Help":

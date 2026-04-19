@@ -45,6 +45,7 @@ def plan_deployment(
     target: InstallTarget,
     selected_variant: Optional[str] = None,
     mod_name: Optional[str] = None,
+    selected_entries: Optional[set[str]] = None,
 ) -> DeploymentPlan:
     """Build a deployment plan from archive analysis and target selection."""
     name = mod_name or PurePosixPath(info.archive_path).stem
@@ -69,9 +70,9 @@ def plan_deployment(
         plan.warnings.append("No valid target directories found.")
         return plan
 
-    _plan_paks(info, plan, pak_targets, selected_variant)
-    _plan_companions(info, plan, pak_targets)
-    _plan_loose(info, plan, loose_targets)
+    _plan_paks(info, plan, pak_targets, selected_variant, selected_entries)
+    _plan_companions(info, plan, pak_targets, selected_entries)
+    _plan_loose(info, plan, loose_targets, selected_entries)
 
     if plan.file_count == 0:
         plan.valid = False
@@ -85,6 +86,7 @@ def _plan_paks(
     plan: DeploymentPlan,
     pak_targets: list[Path],
     selected_variant: Optional[str],
+    selected_entries: Optional[set[str]],
 ) -> None:
     entries_to_deploy: list[ArchiveEntry] = []
 
@@ -108,6 +110,9 @@ def _plan_paks(
     else:
         entries_to_deploy = list(info.pak_entries)
 
+    if selected_entries:
+        entries_to_deploy = [entry for entry in entries_to_deploy if entry.path in selected_entries]
+
     for entry in entries_to_deploy:
         filename = PurePosixPath(entry.path).name
         for tgt in pak_targets:
@@ -118,8 +123,21 @@ def _plan_paks(
             ))
 
 
-def _plan_companions(info: ArchiveInfo, plan: DeploymentPlan, pak_targets: list[Path]) -> None:
+def _plan_companions(
+    info: ArchiveInfo,
+    plan: DeploymentPlan,
+    pak_targets: list[Path],
+    selected_entries: Optional[set[str]],
+) -> None:
+    selected_stems: set[str] = set()
+    if selected_entries:
+        selected_stems = {
+            PurePosixPath(path).stem
+            for path in selected_entries
+        }
     for entry in info.companion_entries:
+        if selected_entries and entry.path not in selected_entries and PurePosixPath(entry.path).stem not in selected_stems:
+            continue
         filename = PurePosixPath(entry.path).name
         for tgt in pak_targets:
             plan.files.append(PlannedFile(
@@ -129,8 +147,15 @@ def _plan_companions(info: ArchiveInfo, plan: DeploymentPlan, pak_targets: list[
             ))
 
 
-def _plan_loose(info: ArchiveInfo, plan: DeploymentPlan, loose_targets: list[Path]) -> None:
+def _plan_loose(
+    info: ArchiveInfo,
+    plan: DeploymentPlan,
+    loose_targets: list[Path],
+    selected_entries: Optional[set[str]],
+) -> None:
     for entry in info.loose_entries:
+        if selected_entries and entry.path not in selected_entries:
+            continue
         rel = strip_archive_prefix(entry.path, info.root_prefix)
         for tgt in loose_targets:
             plan.files.append(PlannedFile(

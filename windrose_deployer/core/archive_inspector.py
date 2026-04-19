@@ -9,6 +9,7 @@ from typing import Optional
 
 from ..models.archive_info import ArchiveEntry, ArchiveInfo, ArchiveType, VariantGroup
 from .archive_handler import ArchiveReader, open_archive, is_supported_archive
+from .framework_detector import analyze_archive_framework
 
 log = logging.getLogger(__name__)
 
@@ -59,6 +60,7 @@ def inspect_archive(archive_path: Path) -> ArchiveInfo:
     _classify(info)
     _detect_variants(info)
     _suggest_target(info)
+    _detect_frameworks(info)
 
     if info.has_variants:
         info.archive_type = ArchiveType.MULTI_VARIANT_PAK
@@ -176,3 +178,17 @@ def _suggest_target(info: ArchiveInfo) -> None:
         info.suggested_target = "paks"
     else:
         info.suggested_target = "root"
+
+
+def _detect_frameworks(info: ArchiveInfo) -> None:
+    analysis = analyze_archive_framework(info.entries)
+    info.content_category = analysis.category
+    info.framework_name = analysis.framework_name
+    info.likely_destinations = list(analysis.likely_destinations)
+    info.dependency_warnings.extend(analysis.dependency_warnings)
+    if analysis.category == "framework_runtime":
+        info.warnings.append("Likely framework/runtime package. Review the destination before installing.")
+    elif analysis.category == "framework_mod" and analysis.framework_name:
+        info.dependency_warnings.append(
+            f"Review recommended: this archive may depend on {analysis.framework_name}."
+        )

@@ -165,7 +165,15 @@ class IntegrityService:
         try:
             info = inspect_archive(Path(mod.source_archive))
             target = self._target_for_mod(mod)
-            plan = plan_deployment(info, self.paths, target, mod.selected_variant, mod.display_name)
+            selected_entries = set(mod.component_map.keys()) if mod.component_map else None
+            plan = plan_deployment(
+                info,
+                self.paths,
+                target,
+                mod.selected_variant,
+                mod.display_name,
+                selected_entries=selected_entries,
+            )
             if not plan.valid:
                 warnings.extend(plan.warnings)
             return plan

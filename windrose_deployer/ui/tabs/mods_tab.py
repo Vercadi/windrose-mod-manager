@@ -5,6 +5,7 @@ from collections import defaultdict
 import logging
 import os
 import re
+import shutil
 import threading
 import tkinter as tk
 from pathlib import Path, PurePosixPath
@@ -17,13 +18,16 @@ from ...core.archive_handler import SUPPORTED_EXTENSIONS
 from ...core.archive_inspector import inspect_archive
 from ...core.conflict_detector import check_plan_conflicts
 from ...core.deployment_planner import plan_deployment
+from ...core.framework_detector import detect_framework_state
 from ...core.live_mod_inventory import (
     LiveModsFolderSnapshot,
     bundle_live_file_names,
     snapshot_live_mods_folder,
 )
+from ...core.version_hints import possible_update_hint_for_archive
 from ...models.archive_info import ArchiveInfo
-from ...models.deployment_record import DeploymentRecord
+from ...models.deployment_record import DeployedFile, DeploymentRecord
+from ...models.metadata import ModMetadata
 from ...models.mod_install import (
     InstallTarget,
     ModInstall,
@@ -84,20 +88,26 @@ class ModsTab(ctk.CTkFrame):
         self._current_info: Optional[ArchiveInfo] = None
         self._library: list[dict] = []
         self._library_widgets: list[ctk.CTkFrame] = []
+        self._library_row_frames: dict[str, ctk.CTkFrame] = {}
         self._applied_widgets: list[object] = []
         self._selected_library_path: Optional[str] = None
         self._selected_archive_paths: set[str] = set()
         self._selected_mod_ids: set[str] = set()
         self._selected_live_files: set[str] = set()
+        self._archive_info_cache: dict[str, tuple[int, int, ArchiveInfo]] = {}
         self._live_file_bundle_members: dict[str, list[Path | str]] = {}
         self._live_file_bundle_meta: dict[str, dict[str, str]] = {}
         self._pending_click_path: Optional[Path] = None
         self._single_click_job = None
         self._hosted_inventory_request = 0
         self._details_visible = False
+        self._expanded_archive_paths: set[str] = set()
+        self._expanded_mod_ids: set[str] = set()
+        self._archive_component_selections: dict[str, set[str]] = {}
+        self._mod_component_selections: dict[str, set[str]] = {}
 
         self._search_var = ctk.StringVar()
-        self._search_var.trace_add("write", lambda *_args: self._refresh_library_ui())
+        self._search_var.trace_add("write", lambda *_args: self._refresh_library_ui(refresh_applied=False))
         self._filter_var = ctk.StringVar(value="Available Archives")
         self._scope_var = ctk.StringVar(value="all")
         self._variant_var = ctk.StringVar(value="(none)")
@@ -143,7 +153,6 @@ class ModsTab(ctk.CTkFrame):
         )
         self._details_toggle_btn.grid(row=0, column=3, sticky="e")
         self._action_buttons.append(self._details_toggle_btn)
-
         self._result_label = ctk.CTkLabel(
             self,
             text="",
@@ -187,8 +196,8 @@ class ModsTab(ctk.CTkFrame):
 
         left_host = ctk.CTkFrame(self._lists_panes, fg_color="transparent")
         right_host = ctk.CTkFrame(self._lists_panes, fg_color="transparent")
-        self._lists_panes.add(left_host, minsize=300, width=360)
-        self._lists_panes.add(right_host, minsize=320, width=420)
+        self._lists_panes.add(left_host, minsize=400, width=470)
+        self._lists_panes.add(right_host, minsize=260, width=320)
 
         self._build_applied_panel(left_host)
         self._build_archive_panel(right_host)
@@ -263,7 +272,7 @@ class ModsTab(ctk.CTkFrame):
             variable=self._filter_var,
             values=list(_FILTER_LABELS.keys()),
             width=156,
-            command=lambda _value: self._refresh_library_ui(),
+            command=lambda _value: self._refresh_library_ui(refresh_applied=False),
             font=self.app.ui_font("body"),
         )
         self._filter_menu.grid(row=0, column=2, sticky="e", padx=(0, 6))
@@ -380,6 +389,36 @@ class ModsTab(ctk.CTkFrame):
 
     def _mods_for_archive(self, archive_path_str: str) -> list[ModInstall]:
         return [mod for mod in self.app.manifest.list_mods() if mod.source_archive == archive_path_str]
+
+    def _library_entry(self, archive_path_str: str) -> Optional[dict]:
+        for entry in getattr(self, "_library", []):
+            if str(entry.get("path", "")) == archive_path_str:
+                return entry
+        return None
+
+    def _archive_metadata(self, archive_path_str: str) -> ModMetadata:
+        entry = self._library_entry(archive_path_str)
+        if entry is not None:
+            return ModMetadata.from_dict(entry.get("metadata"))
+        return ModMetadata()
+
+    def _archive_update_hint(self, entry: dict) -> str:
+        return possible_update_hint_for_archive(entry, self.app.manifest.list_mods())
+
+    def _save_archive_metadata(self, archive_path_str: str, metadata: ModMetadata, *, sync_installs: bool = True) -> None:
+        entry = self._library_entry(archive_path_str)
+        if entry is None:
+            return
+        entry["metadata"] = metadata.to_dict()
+        self._save_library()
+        if sync_installs:
+            changed = False
+            for mod in self._mods_for_archive(archive_path_str):
+                mod.metadata = metadata
+                self.app.manifest.update_mod(mod)
+                changed = True
+            if changed:
+                self.app.refresh_installed_tab()
 
     @staticmethod
     def _canonical_installed_path(path_str: str) -> Path:
@@ -522,7 +561,11 @@ class ModsTab(ctk.CTkFrame):
 
     def _load_library(self) -> None:
         self._normalize_combined_local_server_installs()
-        self._library = read_json(self._library_path()).get("archives", [])
+        self._library = [
+            self._normalize_library_entry(entry)
+            for entry in read_json(self._library_path()).get("archives", [])
+            if isinstance(entry, dict)
+        ]
         self._refresh_library_ui()
 
     def _save_library(self) -> None:
@@ -533,16 +576,64 @@ class ModsTab(ctk.CTkFrame):
         for entry in self._library:
             if entry.get("path") == archive_str:
                 return
-        self._library.append({"path": archive_str, "name": archive_path.stem, "ext": archive_path.suffix.lower()})
+        self._library.append(
+            self._normalize_library_entry(
+                {
+                    "path": archive_str,
+                    "name": archive_path.stem,
+                    "ext": archive_path.suffix.lower(),
+                }
+            )
+        )
         self._save_library()
 
-    def _update_library_entry(self, archive_path: Path, info: ArchiveInfo) -> None:
+    def _get_archive_info(self, archive_path: Path) -> ArchiveInfo:
+        key = str(archive_path)
+        stat = archive_path.stat()
+        cached = self._archive_info_cache.get(key)
+        if cached and cached[0] == stat.st_mtime_ns and cached[1] == stat.st_size:
+            return cached[2]
+        info = inspect_archive(archive_path)
+        self._archive_info_cache[key] = (stat.st_mtime_ns, stat.st_size, info)
+        return info
+
+    def _update_library_entry(self, archive_path: Path, info: ArchiveInfo) -> bool:
         for entry in self._library:
             if entry.get("path") == str(archive_path):
-                entry["archive_type"] = info.archive_type.value.replace("_", " ")
-                entry["total_files"] = info.total_files
-                break
-        self._save_library()
+                changed = False
+                updates = {
+                    "archive_type": info.archive_type.value.replace("_", " "),
+                    "total_files": info.total_files,
+                    "child_items": self._archive_child_names(info),
+                    "content_category": info.content_category,
+                    "framework_name": info.framework_name,
+                    "dependency_warnings": list(info.dependency_warnings),
+                    "likely_destinations": list(info.likely_destinations),
+                }
+                for key, value in updates.items():
+                    if entry.get(key) != value:
+                        entry[key] = value
+                        changed = True
+                if changed:
+                    self._save_library()
+                return changed
+        return False
+
+    @staticmethod
+    def _normalize_library_entry(entry: dict) -> dict:
+        metadata = ModMetadata.from_dict(entry.get("metadata")).to_dict()
+        normalized = dict(entry)
+        normalized.setdefault("name", Path(str(entry.get("path", ""))).stem)
+        normalized.setdefault("ext", Path(str(entry.get("path", ""))).suffix.lower())
+        normalized.setdefault("archive_type", "")
+        normalized.setdefault("total_files", 0)
+        normalized.setdefault("child_items", [])
+        normalized.setdefault("content_category", "standard_mod")
+        normalized.setdefault("framework_name", "")
+        normalized.setdefault("dependency_warnings", [])
+        normalized.setdefault("likely_destinations", [])
+        normalized["metadata"] = metadata
+        return normalized
 
     @staticmethod
     def _set_textbox(widget: ctk.CTkTextbox, text: str) -> None:
@@ -601,7 +692,7 @@ class ModsTab(ctk.CTkFrame):
         if not self._selected_archive_paths:
             return
         self._selected_archive_paths.clear()
-        self._refresh_library_ui()
+        self._refresh_library_ui(refresh_applied=False)
 
     def _clear_selected_mods(self) -> None:
         if not self._selected_mod_ids and not self._selected_live_files:
@@ -655,8 +746,9 @@ class ModsTab(ctk.CTkFrame):
             self._show_details_panel()
 
     def _inspect_archive(self, archive_path: Path) -> None:
-        self._show_details_panel()
         self._load_archive(archive_path)
+        if self._current_info is not None:
+            self._open_inspect_dialog(archive_path, self._current_info, self._mods_for_archive(str(archive_path)))
 
     def _on_scope_changed(self, value: str) -> None:
         scope = _SCOPE_LABELS.get(value, "all")
@@ -950,7 +1042,7 @@ class ModsTab(ctk.CTkFrame):
                     return
                 self._render_hosted_inventory(profile.name, remote_files, error=error)
 
-            self.after(0, _show)
+            self.app.dispatch_to_ui(_show)
 
         threading.Thread(target=_work, daemon=True).start()
 
@@ -1054,9 +1146,6 @@ class ModsTab(ctk.CTkFrame):
         self._update_selection_state()
 
     def _show_applied_menu(self, event, mod: ModInstall) -> None:
-        if mod.source_archive:
-            self._selected_library_path = mod.source_archive
-            self._refresh_library_ui()
         menu = tk.Menu(self, tearoff=0)
         if mod.source_archive:
             menu.add_command(label="Inspect", command=lambda p=Path(mod.source_archive): self._inspect_archive(p))
@@ -1089,6 +1178,43 @@ class ModsTab(ctk.CTkFrame):
             menu.add_command(label="Uninstall Selected", command=self._on_uninstall_selected_mods)
         menu.add_separator()
         menu.add_command(label="Open Folder", command=lambda p=file_ref, label=target_label: self._open_live_item_folder(p, label))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _show_mod_component_menu(self, event, mod: ModInstall, group: dict[str, object]) -> None:
+        label = str(group.get("label", "Selected Pak"))
+        selected_entries = {str(path) for path in group.get("entry_paths", [])}
+        menu = tk.Menu(self, tearoff=0)
+        menu.add_command(
+            label=f"Uninstall {label}",
+            command=lambda current=mod, entries=selected_entries, item_label=label: self._uninstall_mod_component_group(current, entries, item_label),
+        )
+        menu.add_separator()
+        menu.add_command(label="Open Installed Folder", command=lambda current=mod: self._open_mod_folder(current))
+        try:
+            menu.tk_popup(event.x_root, event.y_root)
+        finally:
+            menu.grab_release()
+
+    def _show_archive_component_menu(self, event, archive_path: Path, info: ArchiveInfo | None, group: dict[str, object]) -> None:
+        label = str(group.get("label", "Selected Pak"))
+        selected_entries = {str(path) for path in group.get("entry_paths", [])}
+        installed_targets = self._component_targets_text(self._mods_for_archive(str(archive_path)), group)
+        menu = tk.Menu(self, tearoff=0)
+        if info is not None and self._supports_selected_child_install(info):
+            menu.add_command(
+                label=f"Install {label}",
+                command=lambda current=archive_path, current_info=info, entries=selected_entries: self._install_archive_components(current, current_info, entries),
+            )
+        if installed_targets != "Not installed":
+            menu.add_command(
+                label=f"Uninstall {label}",
+                command=lambda current=archive_path, entries=selected_entries: self._uninstall_archive_components(current, entries),
+            )
+        menu.add_separator()
+        menu.add_command(label="Inspect Archive", command=lambda current=archive_path: self._inspect_archive(current))
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -1182,6 +1308,8 @@ class ModsTab(ctk.CTkFrame):
 
             for mod in sorted(items, key=lambda item: (not item.enabled, item.display_name.lower(), item.install_time), reverse=False):
                 archive_name = Path(mod.source_archive).name if mod.source_archive else "(no archive)"
+                component_groups = self._mod_component_groups(mod)
+                is_expanded = mod.mod_id in self._expanded_mod_ids
                 row_frame = ctk.CTkFrame(
                     self._applied_list,
                     fg_color="#213040" if mod.source_archive == self._selected_library_path else "#2f2f2f",
@@ -1216,6 +1344,10 @@ class ModsTab(ctk.CTkFrame):
                 title.grid(row=0, column=1, sticky="ew", padx=9, pady=(5 + self.app.ui_tokens.row_pad_y, 1))
 
                 subtitle_parts = [summarize_target_values(mod.targets), archive_name, f"{mod.file_count} files"]
+                if mod.metadata.version_tag:
+                    subtitle_parts.append(f"version {mod.metadata.version_tag}")
+                elif mod.metadata.source_label:
+                    subtitle_parts.append(mod.metadata.source_label)
                 if mod.source_archive and not Path(mod.source_archive).is_file():
                     subtitle_parts.append("archive missing")
                 subtitle = ctk.CTkLabel(
@@ -1227,10 +1359,127 @@ class ModsTab(ctk.CTkFrame):
                 )
                 subtitle.grid(row=1, column=1, sticky="ew", padx=9, pady=(0, 5 + self.app.ui_tokens.row_pad_y))
 
+                if len(component_groups) > 1:
+                    expand_btn = ctk.CTkButton(
+                        row_frame,
+                        text="▾" if is_expanded else "▸",
+                        width=28,
+                        height=self.app.ui_tokens.compact_button_height,
+                        font=self.app.ui_font("body"),
+                        fg_color="#444444",
+                        hover_color="#666666",
+                        command=lambda value=mod.mod_id: self._toggle_mod_expanded(value),
+                    )
+                    expand_btn.grid(row=0, column=2, rowspan=2, padx=(0, 8), pady=6)
+                    expand_btn.configure(text="v" if is_expanded else ">")
+
                 if mod.source_archive:
                     for widget in (row_frame, title, subtitle):
                         widget.bind("<Button-1>", lambda _event, p=Path(mod.source_archive): self._load_archive(p))
                         widget.bind("<Button-3>", lambda event, m=mod: self._show_applied_menu(event, m))
+
+                if False and is_expanded and component_groups:
+                    for component_index, component in enumerate(component_groups, start=2):
+                        component_label = ctk.CTkLabel(
+                            row_frame,
+                            text=f"• {component['label']} | {len(component['installed_paths'])} installed file(s)",
+                            anchor="w",
+                            justify="left",
+                            text_color="#c1c7cd",
+                            font=self.app.ui_font("small"),
+                        )
+                        component_label.grid(
+                            row=component_index,
+                            column=1,
+                            columnspan=2,
+                            sticky="ew",
+                            padx=(24, 8),
+                            pady=(0, 2),
+                        )
+
+                if is_expanded and component_groups:
+                    selected_keys = self._mod_component_selections.get(mod.mod_id, set())
+                    visible_groups = component_groups[:12]
+                    for component_index, component in enumerate(visible_groups, start=2):
+                        child_row = ctk.CTkFrame(row_frame, fg_color="#27323a")
+                        child_row.grid(
+                            row=component_index,
+                            column=1,
+                            columnspan=2,
+                            sticky="ew",
+                            padx=(20, 8),
+                            pady=(0, 2),
+                        )
+                        child_row.grid_columnconfigure(1, weight=1)
+                        selection_key = str(component.get("selection_key", ""))
+                        selected_var = tk.BooleanVar(value=selection_key in selected_keys)
+                        ctk.CTkCheckBox(
+                            child_row,
+                            text="",
+                            width=18,
+                            variable=selected_var,
+                            command=lambda mod_id=mod.mod_id, key=selection_key, var=selected_var: self._toggle_mod_component_selection(mod_id, key, bool(var.get())),
+                        ).grid(row=0, column=0, rowspan=2, sticky="nw", padx=(8, 4), pady=(8, 4))
+                        child_title = ctk.CTkLabel(
+                            child_row,
+                            text=str(component["label"]),
+                            anchor="w",
+                            justify="left",
+                            text_color="#ffffff",
+                            font=self.app.ui_font("small"),
+                        )
+                        child_title.grid(row=0, column=1, sticky="ew", padx=(0, 8), pady=(6, 1))
+                        child_subtitle = ctk.CTkLabel(
+                            child_row,
+                            text=f"{len(component['installed_paths'])} installed file(s)",
+                            anchor="w",
+                            justify="left",
+                            text_color="#95a5a6",
+                            font=self.app.ui_font("tiny"),
+                        )
+                        child_subtitle.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(0, 6))
+                        for widget in (child_row, child_title, child_subtitle):
+                            widget.bind(
+                                "<Button-3>",
+                                lambda event, current=mod, group=component: self._show_mod_component_menu(event, current, group),
+                            )
+
+                    action_row = ctk.CTkFrame(row_frame, fg_color="transparent")
+                    action_row.grid(
+                        row=len(visible_groups) + 2,
+                        column=1,
+                        columnspan=2,
+                        sticky="w",
+                        padx=(20, 8),
+                        pady=(2, 6),
+                    )
+                    ctk.CTkButton(
+                        action_row,
+                        text="Uninstall Checked",
+                        width=138,
+                        height=self.app.ui_tokens.compact_button_height,
+                        font=self.app.ui_font("body"),
+                        fg_color="#555555",
+                        hover_color="#666666",
+                        command=lambda current=mod: self._uninstall_selected_mod_components(current),
+                    ).pack(side="left")
+                    if len(component_groups) > len(visible_groups):
+                        more_label = ctk.CTkLabel(
+                            row_frame,
+                            text=f"+ {len(component_groups) - len(visible_groups)} more pak item(s). Use Inspect for the full list.",
+                            anchor="w",
+                            justify="left",
+                            text_color="#95a5a6",
+                            font=self.app.ui_font("small"),
+                        )
+                        more_label.grid(
+                            row=len(visible_groups) + 3,
+                            column=1,
+                            columnspan=2,
+                            sticky="ew",
+                            padx=(24, 8),
+                            pady=(0, 6),
+                        )
 
                 self._applied_widgets.append(row_frame)
                 row += 1
@@ -1387,11 +1636,20 @@ class ModsTab(ctk.CTkFrame):
             entries.append(entry)
         return entries
 
-    def _refresh_library_ui(self) -> None:
+    def _refresh_library_selection_styles(self) -> None:
+        for path_str, row in list(self._library_row_frames.items()):
+            if not row.winfo_exists():
+                self._library_row_frames.pop(path_str, None)
+                continue
+            row.configure(fg_color="#213040" if path_str == self._selected_library_path else "transparent")
+
+    def _refresh_library_ui(self, *, refresh_applied: bool = True) -> None:
         for widget in self._library_widgets:
             widget.destroy()
         self._library_widgets.clear()
-        self._refresh_applied_ui()
+        self._library_row_frames.clear()
+        if refresh_applied:
+            self._refresh_applied_ui()
 
         display_entries = self._display_entries()
         if self._scope_var.get() == "hosted":
@@ -1440,12 +1698,24 @@ class ModsTab(ctk.CTkFrame):
         for index, entry in enumerate(filtered_entries):
             self._add_library_row(entry, index)
         self._update_selection_state()
+        self._refresh_library_selection_styles()
 
-    def _add_library_row(self, entry: dict, index: int) -> None:
+    def _add_library_row_legacy_unused(self, entry: dict, index: int) -> None:
         path = Path(entry["path"])
         exists = path.is_file()
         mods = self._mods_for_archive(str(path))
         is_synthetic = bool(entry.get("_synthetic"))
+        child_items = list(entry.get("child_items", []) or [])
+        is_expanded = str(path) in self._expanded_archive_paths
+        update_hint = self._archive_update_hint(entry)
+        component_groups: list[dict[str, object]] = []
+        component_info = None
+        if is_expanded and exists and child_items:
+            try:
+                component_info = self._get_archive_info(path)
+                component_groups = self._archive_component_groups(component_info)
+            except Exception as exc:
+                log.warning("Could not inspect archive for inline bundle view: %s", exc)
         if mods and is_synthetic and exists:
             status = "Applied"
         elif mods and is_synthetic and not exists:
@@ -1462,6 +1732,7 @@ class ModsTab(ctk.CTkFrame):
         )
         row.grid(row=index, column=0, sticky="ew", pady=1)
         row.grid_columnconfigure(2, weight=1)
+        self._library_row_frames[str(path)] = row
 
         selected_var = tk.BooleanVar(value=str(path) in self._selected_archive_paths)
         ctk.CTkCheckBox(
@@ -1494,9 +1765,14 @@ class ModsTab(ctk.CTkFrame):
 
         type_label = str(entry.get("archive_type", "Unknown")).title()
         total_files = int(entry.get("total_files", 0) or 0)
+        category_label = {
+            "framework_runtime": "Framework Runtime",
+            "framework_mod": "Framework-Dependent Mod",
+        }.get(str(entry.get("content_category", "standard_mod")), "")
         details = " | ".join(
             part for part in [
                 type_label,
+                category_label,
                 f"{total_files} files" if total_files else "",
                 f"Installed To: {self._installed_to_text(mods)}",
                 "Not tracked" if is_synthetic else "",
@@ -1506,8 +1782,27 @@ class ModsTab(ctk.CTkFrame):
             row, text=details, anchor="w", text_color="#95a5a6", wraplength=self.app.ui_tokens.panel_wrap, font=self.app.ui_font("small")
         )
         detail_label.grid(row=1, column=1, columnspan=2, sticky="ew", padx=9, pady=(0, 1))
-        action_label = ctk.CTkLabel(row, text=self._last_action_text(str(path)), anchor="w", text_color="#6f7a81", font=self.app.ui_font("tiny"))
+        footer_text = self._last_action_text(str(path))
+        if entry.get("dependency_warnings"):
+            footer_text += " | dependency review recommended"
+        if update_hint:
+            footer_text += " | possible update available"
+        action_label = ctk.CTkLabel(row, text=footer_text, anchor="w", text_color="#6f7a81", font=self.app.ui_font("tiny"))
         action_label.grid(row=2, column=1, columnspan=2, sticky="ew", padx=9, pady=(0, 5 + self.app.ui_tokens.row_pad_y))
+
+        if child_items:
+            expand_btn = ctk.CTkButton(
+                row,
+                text="▾" if is_expanded else "▸",
+                width=28,
+                height=self.app.ui_tokens.compact_button_height,
+                font=self.app.ui_font("body"),
+                fg_color="#444444",
+                hover_color="#666666",
+                command=lambda value=str(path): self._toggle_archive_expanded(value),
+            )
+            expand_btn.configure(text="v" if is_expanded else ">")
+            expand_btn.grid(row=0, column=3, rowspan=3, padx=(0, 6), pady=6)
 
         if is_synthetic and exists:
             action_btn = ctk.CTkButton(
@@ -1520,7 +1815,7 @@ class ModsTab(ctk.CTkFrame):
                 hover_color="#666666",
                 command=lambda value=str(path): self._track_in_library(value),
             )
-            action_btn.grid(row=0, column=3, rowspan=3, padx=(6, 9), pady=6)
+            action_btn.grid(row=0, column=4, rowspan=3, padx=(6, 9), pady=6)
         elif not is_synthetic:
             action_btn = ctk.CTkButton(
                 row,
@@ -1532,7 +1827,282 @@ class ModsTab(ctk.CTkFrame):
                 hover_color="#666666",
                 command=lambda value=str(path): self._remove_from_library(value),
             )
-            action_btn.grid(row=0, column=3, rowspan=3, padx=(6, 9), pady=6)
+            action_btn.grid(row=0, column=4, rowspan=3, padx=(6, 9), pady=6)
+
+        if is_expanded and child_items:
+            for child_index, child_name in enumerate(child_items[:12], start=3):
+                child_label = ctk.CTkLabel(
+                    row,
+                    text=f"• {child_name}",
+                    anchor="w",
+                    justify="left",
+                    text_color="#c1c7cd",
+                    font=self.app.ui_font("small"),
+                )
+                child_label.grid(
+                    row=child_index,
+                    column=1,
+                    columnspan=4,
+                    sticky="ew",
+                    padx=(24, 9),
+                    pady=(0, 2),
+                )
+            if len(child_items) > 12:
+                more_label = ctk.CTkLabel(
+                    row,
+                    text=f"+ {len(child_items) - 12} more item(s). Use Inspect for the full list.",
+                    anchor="w",
+                    justify="left",
+                    text_color="#95a5a6",
+                    font=self.app.ui_font("small"),
+                )
+                more_label.grid(
+                    row=15,
+                    column=1,
+                    columnspan=4,
+                    sticky="ew",
+                    padx=(24, 9),
+                    pady=(0, 6),
+                )
+
+        for widget in (row, badge, name, detail_label, action_label):
+            widget.bind("<Button-1>", lambda _event, p=path: self._on_library_row_click(p))
+            widget.bind("<Double-Button-1>", lambda event, p=path: self._on_library_row_double_click(event, p))
+            widget.bind("<Button-3>", lambda event, p=path: self._show_library_menu(event, p))
+        self._library_widgets.append(row)
+
+    def _add_library_row(self, entry: dict, index: int) -> None:
+        path = Path(entry["path"])
+        exists = path.is_file()
+        mods = self._mods_for_archive(str(path))
+        is_synthetic = bool(entry.get("_synthetic"))
+        child_items = list(entry.get("child_items", []) or [])
+        is_expanded = str(path) in self._expanded_archive_paths
+        update_hint = self._archive_update_hint(entry)
+        component_groups: list[dict[str, object]] = []
+        component_info = None
+        if is_expanded and exists and child_items:
+            try:
+                component_info = self._get_archive_info(path)
+                component_groups = self._archive_component_groups(component_info)
+            except Exception as exc:
+                log.warning("Could not inspect archive for inline bundle view: %s", exc)
+
+        if mods and is_synthetic and exists:
+            status = "Applied"
+        elif mods and is_synthetic and not exists:
+            status = "Applied*"
+        else:
+            status = "Missing" if not exists else "Applied" if mods else "Ready"
+        if mods and all(not mod.enabled for mod in mods) and status == "Applied":
+            status = "Disabled"
+
+        row = ctk.CTkFrame(
+            self._library_list,
+            fg_color="#213040" if str(path) == self._selected_library_path else "transparent",
+            cursor="hand2" if exists or mods else "arrow",
+        )
+        row.grid(row=index, column=0, sticky="ew", pady=1)
+        row.grid_columnconfigure(2, weight=1)
+
+        selected_var = tk.BooleanVar(value=str(path) in self._selected_archive_paths)
+        ctk.CTkCheckBox(
+            row,
+            text="",
+            width=18,
+            variable=selected_var,
+            command=lambda value=str(path), var=selected_var: self._toggle_archive_selection(value, bool(var.get())),
+        ).grid(row=0, column=0, rowspan=3, sticky="nw", padx=(8, 2), pady=(8, 4))
+
+        color = {
+            "Ready": "#3498db",
+            "Applied": "#2d8a4e",
+            "Disabled": "#f39c12",
+            "Applied*": "#f39c12",
+            "Missing": "#c0392b",
+        }.get(status, "#95a5a6")
+        badge = ctk.CTkLabel(row, text=status, text_color=color, width=58, anchor="w", font=self.app.ui_font("small"))
+        badge.grid(row=0, column=1, sticky="w", padx=(4, 4), pady=(5 + self.app.ui_tokens.row_pad_y, 1))
+        name = ctk.CTkLabel(
+            row,
+            text=self._display_name(entry.get("name", path.stem), max_len=max(24, self.app.ui_tokens.compact_name_len - 6)),
+            anchor="w",
+            font=self.app.ui_font("row_title"),
+            text_color="#ffffff" if exists else "#777777",
+        )
+        name.grid(row=0, column=2, sticky="w", padx=4, pady=(5 + self.app.ui_tokens.row_pad_y, 1))
+
+        type_label = str(entry.get("archive_type", "Unknown")).title()
+        total_files = int(entry.get("total_files", 0) or 0)
+        category_label = {
+            "framework_runtime": "Framework Runtime",
+            "framework_mod": "Framework-Dependent Mod",
+        }.get(str(entry.get("content_category", "standard_mod")), "")
+        details = " | ".join(
+            part for part in [
+                type_label,
+                category_label,
+                f"{total_files} files" if total_files else "",
+                f"Installed To: {self._installed_to_text(mods)}",
+                "Not tracked" if is_synthetic else "",
+            ] if part
+        )
+        detail_label = ctk.CTkLabel(
+            row, text=details, anchor="w", text_color="#95a5a6", wraplength=self.app.ui_tokens.panel_wrap, font=self.app.ui_font("small")
+        )
+        detail_label.grid(row=1, column=1, columnspan=2, sticky="ew", padx=9, pady=(0, 1))
+        footer_text = self._last_action_text(str(path))
+        if entry.get("dependency_warnings"):
+            footer_text += " | dependency review recommended"
+        if update_hint:
+            footer_text += " | possible update available"
+        action_label = ctk.CTkLabel(row, text=footer_text, anchor="w", text_color="#6f7a81", font=self.app.ui_font("tiny"))
+        action_label.grid(row=2, column=1, columnspan=2, sticky="ew", padx=9, pady=(0, 5 + self.app.ui_tokens.row_pad_y))
+
+        if child_items:
+            expand_btn = ctk.CTkButton(
+                row,
+                        text="v" if is_expanded else ">",
+                width=28,
+                height=self.app.ui_tokens.compact_button_height,
+                font=self.app.ui_font("body"),
+                fg_color="#444444",
+                hover_color="#666666",
+                command=lambda value=str(path): self._toggle_archive_expanded(value),
+            )
+            expand_btn.grid(row=0, column=3, rowspan=3, padx=(0, 6), pady=6)
+
+        if is_synthetic and exists:
+            action_btn = ctk.CTkButton(
+                row,
+                text="Track",
+                width=64,
+                height=self.app.ui_tokens.compact_button_height,
+                font=self.app.ui_font("body"),
+                fg_color="#444444",
+                hover_color="#666666",
+                command=lambda value=str(path): self._track_in_library(value),
+            )
+            action_btn.grid(row=0, column=4, rowspan=3, padx=(6, 9), pady=6)
+        elif not is_synthetic:
+            action_btn = ctk.CTkButton(
+                row,
+                text="Untrack",
+                width=76,
+                height=self.app.ui_tokens.compact_button_height,
+                font=self.app.ui_font("body"),
+                fg_color="#444444",
+                hover_color="#666666",
+                command=lambda value=str(path): self._remove_from_library(value),
+            )
+            action_btn.grid(row=0, column=4, rowspan=3, padx=(6, 9), pady=6)
+
+        if is_expanded and child_items:
+            if component_groups:
+                selected_keys = self._archive_component_selections.get(str(path), set())
+                for child_index, group in enumerate(component_groups[:12], start=3):
+                    child_row = ctk.CTkFrame(row, fg_color="#27323a")
+                    child_row.grid(row=child_index, column=1, columnspan=4, sticky="ew", padx=(20, 9), pady=(0, 2))
+                    child_row.grid_columnconfigure(1, weight=1)
+                    selection_key = str(group.get("selection_key", ""))
+                    selectable = bool(group.get("selectable", True))
+                    selected_var = tk.BooleanVar(value=selection_key in selected_keys)
+                    ctk.CTkCheckBox(
+                        child_row,
+                        text="",
+                        width=18,
+                        variable=selected_var,
+                        state="normal" if selectable else "disabled",
+                        command=lambda archive_key=str(path), key=selection_key, var=selected_var: self._toggle_archive_component_selection(archive_key, key, bool(var.get())),
+                    ).grid(row=0, column=0, rowspan=2, sticky="nw", padx=(8, 4), pady=(8, 4))
+                    child_title = ctk.CTkLabel(
+                        child_row,
+                        text=str(group["label"]),
+                        anchor="w",
+                        justify="left",
+                        text_color="#ffffff",
+                        font=self.app.ui_font("small"),
+                    )
+                    child_title.grid(row=0, column=1, sticky="ew", padx=(0, 8), pady=(6, 1))
+                    child_subtitle = ctk.CTkLabel(
+                        child_row,
+                        text=f"Installed: {self._component_targets_text(mods, group)}",
+                        anchor="w",
+                        justify="left",
+                        text_color="#95a5a6",
+                        font=self.app.ui_font("tiny"),
+                    )
+                    child_subtitle.grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(0, 6))
+                    for widget in (child_row, child_title, child_subtitle):
+                        widget.bind(
+                            "<Button-3>",
+                            lambda event, current=path, current_info=component_info, current_group=group: self._show_archive_component_menu(
+                                event,
+                                current,
+                                current_info,
+                                current_group,
+                            ),
+                        )
+
+                action_row = ctk.CTkFrame(row, fg_color="transparent")
+                action_row.grid(row=min(len(component_groups), 12) + 3, column=1, columnspan=4, sticky="w", padx=(20, 9), pady=(2, 6))
+                ctk.CTkButton(
+                    action_row,
+                    text="Install Checked",
+                    width=126,
+                    height=self.app.ui_tokens.compact_button_height,
+                    font=self.app.ui_font("body"),
+                    state="normal" if component_info and self._supports_selected_child_install(component_info) else "disabled",
+                    command=lambda archive_path=path, info=component_info, groups=component_groups: self._install_archive_components(
+                        archive_path,
+                        info,
+                        self._selected_component_entry_paths(set(self._archive_component_selections.get(str(archive_path), set())), groups),
+                    ),
+                ).pack(side="left", padx=(0, 6))
+                ctk.CTkButton(
+                    action_row,
+                    text="Uninstall Checked",
+                    width=138,
+                    height=self.app.ui_tokens.compact_button_height,
+                    font=self.app.ui_font("body"),
+                    fg_color="#555555",
+                    hover_color="#666666",
+                    command=lambda archive_path=path, groups=component_groups: self._uninstall_archive_components(
+                        archive_path,
+                        self._selected_component_entry_paths(set(self._archive_component_selections.get(str(archive_path), set())), groups),
+                    ),
+                ).pack(side="left")
+                if len(component_groups) > 12:
+                    more_label = ctk.CTkLabel(
+                        row,
+                        text=f"+ {len(component_groups) - 12} more pak item(s). Use Inspect for the full list.",
+                        anchor="w",
+                        justify="left",
+                        text_color="#95a5a6",
+                        font=self.app.ui_font("small"),
+                    )
+                    more_label.grid(row=min(len(component_groups), 12) + 4, column=1, columnspan=4, sticky="ew", padx=(24, 9), pady=(0, 6))
+            else:
+                for child_index, child_name in enumerate(child_items[:12], start=3):
+                    child_label = ctk.CTkLabel(
+                        row,
+                        text=f"â€¢ {child_name}",
+                        anchor="w",
+                        justify="left",
+                        text_color="#c1c7cd",
+                        font=self.app.ui_font("small"),
+                    )
+                    child_label.grid(row=child_index, column=1, columnspan=4, sticky="ew", padx=(24, 9), pady=(0, 2))
+                if len(child_items) > 12:
+                    more_label = ctk.CTkLabel(
+                        row,
+                        text=f"+ {len(child_items) - 12} more item(s). Use Inspect for the full list.",
+                        anchor="w",
+                        justify="left",
+                        text_color="#95a5a6",
+                        font=self.app.ui_font("small"),
+                    )
+                    more_label.grid(row=15, column=1, columnspan=4, sticky="ew", padx=(24, 9), pady=(0, 6))
 
         for widget in (row, badge, name, detail_label, action_label):
             widget.bind("<Button-1>", lambda _event, p=path: self._on_library_row_click(p))
@@ -1556,6 +2126,29 @@ class ModsTab(ctk.CTkFrame):
         self._save_library()
         self._refresh_library_ui()
         self._set_result(f"Removed {Path(path_str).name} from the tracked archive list.", level="info")
+
+    def _toggle_archive_expanded(self, path_str: str) -> None:
+        if path_str in self._expanded_archive_paths:
+            self._expanded_archive_paths.remove(path_str)
+            self._refresh_library_ui(refresh_applied=False)
+            return
+        archive_path = Path(path_str)
+        entry = self._library_entry(path_str)
+        if archive_path.is_file() and (entry is None or not entry.get("child_items")):
+            try:
+                info = self._get_archive_info(archive_path)
+                self._update_library_entry(archive_path, info)
+            except Exception as exc:
+                log.warning("Could not inspect archive for expansion: %s", exc)
+        self._expanded_archive_paths.add(path_str)
+        self._refresh_library_ui(refresh_applied=False)
+
+    def _toggle_mod_expanded(self, mod_id: str) -> None:
+        if mod_id in self._expanded_mod_ids:
+            self._expanded_mod_ids.remove(mod_id)
+        else:
+            self._expanded_mod_ids.add(mod_id)
+        self._refresh_applied_ui()
 
     def _track_in_library(self, path_str: str) -> None:
         archive_path = Path(path_str)
@@ -1834,11 +2427,13 @@ class ModsTab(ctk.CTkFrame):
             self._set_result(f"Added {len(valid)} archive(s) to the library.", level="success")
 
     def _load_archive(self, archive_path: Path, *, refresh_only: bool = False) -> None:
-        self._selected_library_path = str(archive_path)
-        self._refresh_library_ui()
+        archive_str = str(archive_path)
+        if self._selected_library_path != archive_str:
+            self._selected_library_path = archive_str
+            self._refresh_library_selection_styles()
         installed_mods = self._mods_for_archive(str(archive_path))
         try:
-            info = inspect_archive(archive_path)
+            info = self._get_archive_info(archive_path)
         except Exception as exc:
             self._current_info = None
             self._detail_header.configure(text=self._compact_name(archive_path.stem or archive_path.name))
@@ -1864,8 +2459,8 @@ class ModsTab(ctk.CTkFrame):
             return
 
         self._current_info = info
-        self._update_library_entry(archive_path, info)
-        self._refresh_library_ui()
+        if self._update_library_entry(archive_path, info):
+            self._refresh_library_ui(refresh_applied=False)
         meta_parts = [
             info.archive_type.value.replace("_", " ").title(),
             f"{info.total_files} files",
@@ -2012,6 +2607,10 @@ class ModsTab(ctk.CTkFrame):
             lines.append("")
             lines.append("Archive warnings:")
             lines.extend(f"- {warning}" for warning in info.warnings)
+        if info.dependency_warnings:
+            lines.append("")
+            lines.append("Dependency review:")
+            lines.extend(f"- {warning}" for warning in info.dependency_warnings)
         return "\n".join(lines)
 
     def _preview_text(self, info: ArchiveInfo) -> str:
@@ -2019,6 +2618,7 @@ class ModsTab(ctk.CTkFrame):
             f"Archive:     {Path(info.archive_path).name}",
             f"Source Path: {info.archive_path}",
             f"Type:        {info.archive_type.value}",
+            f"Category:    {info.content_category}",
             f"Files:       {info.total_files}",
             "",
         ]
@@ -2041,6 +2641,786 @@ class ModsTab(ctk.CTkFrame):
                 for variant in group.variants:
                     lines.append(f"    - {PurePosixPath(variant.path).name}")
         return "\n".join(lines)
+
+    @staticmethod
+    def _archive_child_names(info: ArchiveInfo) -> list[str]:
+        return [str(group["label"]) for group in ModsTab._archive_component_groups(info)]
+
+    @staticmethod
+    def _archive_component_groups(info: ArchiveInfo) -> list[dict[str, object]]:
+        grouped: dict[str, dict[str, object]] = {}
+
+        for entry in info.pak_entries:
+            posix = PurePosixPath(entry.path)
+            stem = posix.stem
+            grouped.setdefault(
+                stem,
+                {
+                    "label": posix.name,
+                    "selection_key": entry.path,
+                    "entry_paths": [],
+                    "display_paths": [],
+                    "kind": "asset",
+                    "selectable": True,
+                },
+            )
+            grouped[stem]["entry_paths"].append(entry.path)
+            grouped[stem]["display_paths"].append(posix.name)
+            grouped[stem]["label"] = posix.name
+            grouped[stem]["selection_key"] = entry.path
+
+        for entry in info.companion_entries:
+            posix = PurePosixPath(entry.path)
+            stem = posix.stem
+            grouped.setdefault(
+                stem,
+                {
+                    "label": posix.name,
+                    "selection_key": entry.path,
+                    "entry_paths": [],
+                    "display_paths": [],
+                    "kind": "asset",
+                    "selectable": True,
+                },
+            )
+            grouped[stem]["entry_paths"].append(entry.path)
+            grouped[stem]["display_paths"].append(posix.name)
+
+        return sorted(grouped.values(), key=lambda item: str(item["label"]).lower())
+
+    @staticmethod
+    def _mod_component_groups(mod: ModInstall) -> list[dict[str, object]]:
+        component_map = mod.component_map or {}
+        if not component_map:
+            component_map = {Path(path).name: [path] for path in mod.installed_files}
+
+        grouped: dict[str, dict[str, object]] = {}
+        for entry_path, installed_paths in component_map.items():
+            posix = PurePosixPath(entry_path)
+            suffix = posix.suffix.lower()
+            group_key = posix.stem if suffix in {".pak", ".utoc", ".ucas"} else entry_path
+            group = grouped.setdefault(
+                group_key,
+                {
+                    "label": posix.name,
+                    "selection_key": entry_path,
+                    "entry_paths": [],
+                    "installed_paths": [],
+                },
+            )
+            group["entry_paths"].append(entry_path)
+            group["installed_paths"].extend(list(installed_paths))
+            if suffix == ".pak":
+                group["label"] = posix.name
+                group["selection_key"] = entry_path
+        values = sorted(grouped.values(), key=lambda item: str(item["label"]).lower())
+        pak_values = [item for item in values if str(item.get("label", "")).lower().endswith(".pak")]
+        return pak_values or values
+
+    @classmethod
+    def _supports_selected_child_install(cls, info: ArchiveInfo) -> bool:
+        groups = cls._archive_component_groups(info)
+        selectable = [group for group in groups if bool(group.get("selectable"))]
+        return len(selectable) >= 2 and not info.loose_entries
+
+    def _toggle_archive_component_selection(self, archive_path: str, selection_key: str, selected: bool) -> None:
+        selected_keys = self._archive_component_selections.setdefault(archive_path, set())
+        if selected:
+            selected_keys.add(selection_key)
+        else:
+            selected_keys.discard(selection_key)
+        if not selected_keys:
+            self._archive_component_selections.pop(archive_path, None)
+
+    def _toggle_mod_component_selection(self, mod_id: str, selection_key: str, selected: bool) -> None:
+        selected_keys = self._mod_component_selections.setdefault(mod_id, set())
+        if selected:
+            selected_keys.add(selection_key)
+        else:
+            selected_keys.discard(selection_key)
+        if not selected_keys:
+            self._mod_component_selections.pop(mod_id, None)
+
+    def _selected_component_entry_paths(self, selection_keys: set[str], groups: list[dict[str, object]]) -> set[str]:
+        selected_entries: set[str] = set()
+        for group in groups:
+            if str(group.get("selection_key", "")) in selection_keys:
+                selected_entries.update(str(path) for path in group.get("entry_paths", []))
+        return selected_entries
+
+    def _component_targets_text(self, mods: list[ModInstall], group: dict[str, object]) -> str:
+        targets: set[str] = set()
+        group_entries = {str(path) for path in group.get("entry_paths", [])}
+        for mod in mods:
+            component_entries = set(mod.component_map.keys()) if mod.component_map else set()
+            if component_entries and component_entries.intersection(group_entries):
+                targets.update(self._effective_targets(mod))
+        if not targets:
+            return "Not installed"
+        return summarize_target_values(sorted(targets))
+
+    def _open_inspect_dialog(self, archive_path: Path, info: ArchiveInfo, installed_mods: list[ModInstall]) -> None:
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(f"Inspect Archive - {archive_path.name}")
+        self.app.center_dialog(dialog, 860, 720)
+        dialog.minsize(760, 620)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        dialog.grid_columnconfigure(0, weight=1)
+        dialog.grid_rowconfigure(1, weight=1)
+
+        header = ctk.CTkFrame(dialog, fg_color="transparent")
+        header.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 8))
+        header.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(header, text=self._compact_name(archive_path.stem), font=self.app.ui_font("detail_title")).grid(
+            row=0, column=0, sticky="w"
+        )
+        meta = self._archive_metadata(str(archive_path))
+        meta_bits = [
+            info.archive_type.value.replace("_", " ").title(),
+            f"{info.total_files} files",
+            summarize_target_values([target for mod in installed_mods for target in mod.targets]) if installed_mods else "Not installed",
+        ]
+        ctk.CTkLabel(
+            header,
+            text=" | ".join(bit for bit in meta_bits if bit),
+            text_color="#95a5a6",
+            font=self.app.ui_font("body"),
+            anchor="w",
+        ).grid(row=1, column=0, sticky="ew", pady=(2, 0))
+
+        body = ctk.CTkScrollableFrame(dialog)
+        body.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 12))
+        body.grid_columnconfigure(0, weight=1)
+
+        overview = ctk.CTkFrame(body)
+        overview.grid(row=0, column=0, sticky="ew", pady=(0, 8))
+        overview.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(overview, text="Archive Overview", font=self.app.ui_font("card_title")).grid(
+            row=0, column=0, sticky="w", padx=12, pady=(12, 6)
+        )
+        overview_text = [
+            f"Archive: {archive_path.name}",
+            f"Type: {info.archive_type.value.replace('_', ' ').title()}",
+            f"Suggested destination: {', '.join(info.likely_destinations) if info.likely_destinations else (info.suggested_target or 'Review recommended')}",
+            f"Category: {info.content_category.replace('_', ' ').title()}",
+        ]
+        update_hint = self._archive_update_hint(self._library_entry(str(archive_path)) or {"path": str(archive_path), "name": archive_path.stem, "metadata": meta.to_dict()})
+        if update_hint:
+            overview_text.append(update_hint)
+        if info.framework_name:
+            overview_text.append(f"Framework: {info.framework_name}")
+        if info.root_prefix:
+            overview_text.append(f"Wrapper folder: {info.root_prefix}")
+        ctk.CTkLabel(
+            overview,
+            text="\n".join(overview_text),
+            justify="left",
+            anchor="w",
+            font=self.app.ui_font("body"),
+        ).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 12))
+
+        warnings_card = ctk.CTkFrame(body)
+        warnings_card.grid(row=1, column=0, sticky="ew", pady=(0, 8))
+        warnings_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(warnings_card, text="Warnings and Review", font=self.app.ui_font("card_title")).grid(
+            row=0, column=0, sticky="w", padx=12, pady=(12, 6)
+        )
+        warning_lines = list(info.warnings) + list(info.dependency_warnings)
+        if not warning_lines:
+            warning_lines = ["No immediate warnings. Review the install target before applying."]
+        ctk.CTkLabel(
+            warnings_card,
+            text="\n".join(f"- {line}" for line in warning_lines),
+            justify="left",
+            anchor="w",
+            wraplength=760,
+            text_color="#c1c7cd",
+            font=self.app.ui_font("body"),
+        ).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 12))
+
+        installed_card = ctk.CTkFrame(body)
+        installed_card.grid(row=2, column=0, sticky="ew", pady=(0, 8))
+        installed_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(installed_card, text="Installed Targets", font=self.app.ui_font("card_title")).grid(
+            row=0, column=0, sticky="w", padx=12, pady=(12, 6)
+        )
+        ctk.CTkLabel(
+            installed_card,
+            text=self._installed_text(installed_mods),
+            justify="left",
+            anchor="w",
+            wraplength=760,
+            font=self.app.ui_font("body"),
+        ).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 12))
+
+        child_card = ctk.CTkFrame(body)
+        child_card.grid(row=3, column=0, sticky="ew", pady=(0, 8))
+        child_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(child_card, text="Bundle Items", font=self.app.ui_font("card_title")).grid(
+            row=0, column=0, sticky="w", padx=12, pady=(12, 6)
+        )
+        component_groups = self._archive_component_groups(info)
+        selected_group_vars: dict[str, tk.BooleanVar] = {}
+        for row_index, group in enumerate(component_groups, start=1):
+            group_row = ctk.CTkFrame(child_card, fg_color="#2f2f2f")
+            group_row.grid(row=row_index, column=0, sticky="ew", padx=12, pady=2)
+            group_row.grid_columnconfigure(1, weight=1)
+            selectable = bool(group.get("selectable"))
+            value = tk.BooleanVar(value=selectable)
+            selected_group_vars[str(group["label"])] = value
+            ctk.CTkCheckBox(
+                group_row,
+                text="",
+                width=18,
+                variable=value,
+                state="normal" if selectable else "disabled",
+            ).grid(row=0, column=0, rowspan=2, sticky="nw", padx=(8, 4), pady=(8, 4))
+            ctk.CTkLabel(
+                group_row,
+                text=str(group["label"]),
+                font=self.app.ui_font("row_title"),
+                anchor="w",
+            ).grid(row=0, column=1, sticky="ew", padx=(0, 8), pady=(6, 1))
+            subtitle = " | ".join(str(path) for path in group.get("display_paths", []))
+            if not selectable:
+                subtitle += " | whole-bundle install only"
+            ctk.CTkLabel(
+                group_row,
+                text=subtitle,
+                anchor="w",
+                wraplength=700,
+                text_color="#95a5a6",
+                font=self.app.ui_font("small"),
+            ).grid(row=1, column=1, sticky="ew", padx=(0, 8), pady=(0, 6))
+
+        metadata_card = ctk.CTkFrame(body)
+        metadata_card.grid(row=4, column=0, sticky="ew", pady=(0, 8))
+        metadata_card.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(metadata_card, text="Metadata", font=self.app.ui_font("card_title")).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(12, 6)
+        )
+        metadata_fields = [
+            ("Nexus URL", "nexus_mod_url"),
+            ("Nexus Mod ID", "nexus_mod_id"),
+            ("Nexus File ID", "nexus_file_id"),
+            ("Version Tag", "version_tag"),
+            ("Source Label", "source_label"),
+            ("Author Label", "author_label"),
+        ]
+        metadata_vars: dict[str, ctk.StringVar] = {}
+        for row_index, (label, key) in enumerate(metadata_fields, start=1):
+            ctk.CTkLabel(metadata_card, text=label + ":", font=self.app.ui_font("body")).grid(
+                row=row_index, column=0, sticky="w", padx=(12, 6), pady=4
+            )
+            var = ctk.StringVar(value=getattr(meta, key))
+            metadata_vars[key] = var
+            ctk.CTkEntry(metadata_card, textvariable=var, font=self.app.ui_font("body")).grid(
+                row=row_index, column=1, sticky="ew", padx=(0, 12), pady=4
+            )
+
+        button_row = ctk.CTkFrame(body, fg_color="transparent")
+        button_row.grid(row=5, column=0, sticky="ew", pady=(4, 14))
+
+        def _save_metadata() -> None:
+            metadata = ModMetadata(
+                nexus_mod_url=metadata_vars["nexus_mod_url"].get().strip(),
+                nexus_mod_id=metadata_vars["nexus_mod_id"].get().strip(),
+                nexus_file_id=metadata_vars["nexus_file_id"].get().strip(),
+                version_tag=metadata_vars["version_tag"].get().strip(),
+                source_label=metadata_vars["source_label"].get().strip(),
+                author_label=metadata_vars["author_label"].get().strip(),
+            )
+            self._save_archive_metadata(str(archive_path), metadata, sync_installs=True)
+            self.refresh_view()
+            self._set_result(f"Saved metadata for {archive_path.name}.", level="success")
+
+        def _install_whole_bundle() -> None:
+            preset = self._choose_install_preset(
+                title=f"Install {archive_path.name}",
+                subtitle="Choose the install target for the full bundle.",
+            )
+            if not preset:
+                return
+            selected_variant = self._prompt_variant_choice(info)
+            if info.has_variants and not selected_variant:
+                return
+            mod_name = self._mod_name_var.get().strip() or self._compact_name(archive_path.stem)
+            if self._run_install_preset(info, mod_name, preset, selected_variant):
+                dialog.destroy()
+
+        def _install_selected_children() -> None:
+            selected_entries: set[str] = set()
+            for group in component_groups:
+                if selected_group_vars[str(group["label"])].get():
+                    selected_entries.update(str(path) for path in group.get("entry_paths", []))
+            if not selected_entries:
+                self._set_result("Select one or more bundle items first.", level="info")
+                return
+            preset = self._choose_install_preset(
+                title=f"Install Selected Items - {archive_path.name}",
+                subtitle="Selected-child install is only used when the archive structure looks safe for partial install.",
+            )
+            if not preset:
+                return
+            mod_name = self._mod_name_var.get().strip() or self._compact_name(archive_path.stem)
+            if self._run_install_preset(info, mod_name, preset, None, selected_entries=selected_entries):
+                dialog.destroy()
+
+        save_btn = ctk.CTkButton(
+            button_row,
+            text="Save Metadata",
+            width=120,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=_save_metadata,
+        )
+        save_btn.pack(side="left", padx=(0, 6))
+        whole_btn = ctk.CTkButton(
+            button_row,
+            text="Install Whole Bundle",
+            width=150,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=_install_whole_bundle,
+        )
+        whole_btn.pack(side="left", padx=6)
+        child_btn = ctk.CTkButton(
+            button_row,
+            text="Install Selected Items",
+            width=164,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            state="normal" if self._supports_selected_child_install(info) else "disabled",
+            command=_install_selected_children,
+        )
+        child_btn.pack(side="left", padx=6)
+        close_btn = ctk.CTkButton(
+            button_row,
+            text="Close",
+            width=90,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=dialog.destroy,
+        )
+        close_btn.pack(side="right")
+        open_btn = ctk.CTkButton(
+            button_row,
+            text="Open Archive Folder",
+            width=138,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=lambda p=archive_path: self._open_archive_folder(p),
+        )
+        open_btn.pack(side="right", padx=(0, 6))
+
+        self.wait_window(dialog)
+
+    @staticmethod
+    def _target_enum_for_value(target: str) -> Optional[InstallTarget]:
+        mapping = {
+            "client": InstallTarget.CLIENT,
+            "server": InstallTarget.SERVER,
+            "dedicated_server": InstallTarget.DEDICATED_SERVER,
+        }
+        return mapping.get(target)
+
+    def _install_archive_components(self, archive_path: Path, info: ArchiveInfo, selected_entries: set[str]) -> None:
+        if not selected_entries:
+            self._set_result("Select one or more pak items first.", level="info")
+            return
+        preset = self._choose_install_preset(
+            title=f"Install Selected Items - {archive_path.name}",
+            subtitle="Selected-child install is only used when the archive structure looks safe for partial install.",
+        )
+        if not preset:
+            return
+        mod_name = self._mod_name_var.get().strip() or self._compact_name(archive_path.stem)
+        self._run_install_preset(info, mod_name, preset, None, selected_entries=selected_entries)
+
+    def _uninstall_mod_components(self, mod: ModInstall, selected_entries: set[str]) -> bool:
+        if not selected_entries:
+            return False
+        component_map = mod.component_map or {}
+        target_paths: set[str] = set()
+        for entry_path, installed_paths in component_map.items():
+            if entry_path in selected_entries:
+                target_paths.update(installed_paths)
+        if not target_paths:
+            return False
+
+        removed: list[DeployedFile] = []
+        restored_count = 0
+        remaining_files: list[str] = []
+        remaining_backup_map: dict[str, str] = {}
+        remaining_component_map: dict[str, list[str]] = {}
+
+        for entry_path, installed_paths in component_map.items():
+            keep_paths: list[str] = []
+            for file_path in installed_paths:
+                canonical_path = self._canonical_installed_path(file_path)
+                backup_path = mod.backup_map.get(str(canonical_path)) or mod.backup_map.get(file_path)
+                if file_path in target_paths:
+                    if Path(file_path).exists():
+                        safe_delete(Path(file_path))
+                    disabled = Path(file_path + ".disabled")
+                    if disabled.exists():
+                        safe_delete(disabled)
+                    if backup_path and Path(backup_path).is_file():
+                        canonical_path.parent.mkdir(parents=True, exist_ok=True)
+                        shutil.copy2(backup_path, canonical_path)
+                        restored_count += 1
+                    removed.append(
+                        DeployedFile(
+                            source_archive_path=entry_path,
+                            dest_path=file_path,
+                            backup_path=backup_path,
+                        )
+                    )
+                else:
+                    keep_paths.append(file_path)
+                    remaining_files.append(file_path)
+                    if backup_path:
+                        remaining_backup_map[str(canonical_path)] = backup_path
+            if keep_paths:
+                remaining_component_map[entry_path] = keep_paths
+
+        if not removed:
+            return False
+
+        mod.installed_files = remaining_files
+        mod.backup_map = remaining_backup_map
+        mod.component_map = remaining_component_map
+
+        record = DeploymentRecord(
+            mod_id=mod.mod_id,
+            target=",".join(mod.targets),
+            action="uninstall_component",
+            display_name=mod.display_name,
+            source_archive=mod.source_archive,
+            files=removed,
+            notes=f"Removed {len(removed)} file(s) from selected bundle items"
+            + (f", restored {restored_count} originals" if restored_count else ""),
+        )
+        self.app.manifest.add_record(record)
+        if mod.installed_files:
+            self.app.manifest.update_mod(mod)
+        else:
+            self.app.manifest.remove_mod(mod.mod_id)
+        return True
+
+    def _uninstall_archive_components(self, archive_path: Path, selected_entries: set[str]) -> None:
+        if not selected_entries:
+            self._set_result("Select one or more pak items first.", level="info")
+            return
+        mods = self._mods_for_archive(str(archive_path))
+        targets = [mod for mod in mods if set(mod.component_map.keys()).intersection(selected_entries)]
+        if not targets:
+            self._set_result("None of the selected pak items are currently installed.", level="info")
+            return
+        if not self.app.confirm_action(
+            "destructive",
+            "Uninstall Selected Items",
+            f"Uninstall selected pak item(s) from {len(targets)} install(s)?",
+        ):
+            return
+        removed = 0
+        failed = 0
+        for mod in targets:
+            try:
+                if self._uninstall_mod_components(mod, selected_entries):
+                    removed += 1
+            except Exception as exc:
+                log.error("Component uninstall failed for %s: %s", mod.mod_id, exc)
+                failed += 1
+        self.app.refresh_installed_tab()
+        self.app.refresh_backups_tab()
+        self.refresh_view()
+        self._set_result(
+            f"Updated {removed} install(s)." + (f" {failed} failed." if failed else ""),
+            level="success" if removed and not failed else "warning",
+        )
+
+    def _uninstall_selected_mod_components(self, mod: ModInstall) -> None:
+        groups = self._mod_component_groups(mod)
+        selected_keys = set(self._mod_component_selections.get(mod.mod_id, set()))
+        selected_entries = self._selected_component_entry_paths(selected_keys, groups)
+        if not selected_entries:
+            self._set_result("Select one or more pak items first.", level="info")
+            return
+        self._uninstall_mod_component_group(mod, selected_entries, "selected pak item(s)")
+
+    def _uninstall_mod_component_group(self, mod: ModInstall, selected_entries: set[str], item_label: str) -> None:
+        if not selected_entries:
+            self._set_result("Select one or more pak items first.", level="info")
+            return
+        if not self.app.confirm_action(
+            "destructive",
+            "Uninstall Selected Items",
+            f"Uninstall {item_label} from '{mod.display_name}'?",
+        ):
+            return
+        try:
+            changed = self._uninstall_mod_components(mod, selected_entries)
+        except Exception as exc:
+            log.error("Selected component uninstall failed for %s: %s", mod.mod_id, exc)
+            self._set_result(f"Could not uninstall selected items: {exc}", level="error")
+            return
+        if changed:
+            self.app.refresh_installed_tab()
+            self.app.refresh_backups_tab()
+            self.refresh_view()
+            self._set_result(f"Updated {mod.display_name}.", level="success")
+
+    def _profile_preview_text(self, profile, comparison) -> str:
+        lines = [
+            f"Profile: {profile.name}",
+            f"Matching: {len(comparison.matching)}",
+            f"Install: {len(comparison.to_install)}",
+            f"Uninstall: {len(comparison.to_uninstall)}",
+            f"Missing archives: {len(comparison.missing_archives)}",
+            "",
+        ]
+        if comparison.to_install:
+            lines.append("Will install:")
+            for entry in comparison.to_install[:12]:
+                lines.append(
+                    f"  {entry.display_name} [{summarize_target_values(entry.targets)}]"
+                    + (f" | variant: {entry.selected_variant}" if entry.selected_variant else "")
+                )
+            lines.append("")
+        if comparison.to_uninstall:
+            lines.append("Will uninstall:")
+            for mod in comparison.to_uninstall[:12]:
+                lines.append(f"  {mod.display_name} [{summarize_target_values(mod.targets)}]")
+            lines.append("")
+        if comparison.missing_archives:
+            lines.append("Missing source archives:")
+            for entry in comparison.missing_archives[:12]:
+                lines.append(f"  {entry.display_name} | {entry.source_archive}")
+        return "\n".join(lines).strip()
+
+    def _apply_profile(self, profile) -> None:
+        comparison = self.app.profile_service.compare(profile, self.app.manifest.list_mods())
+        preview = self._profile_preview_text(profile, comparison)
+        if not self.app.confirm_action(
+            "destructive",
+            "Apply Profile",
+            preview + "\n\nApply this profile now?",
+        ):
+            return
+
+        installed = 0
+        removed = 0
+        failed: list[str] = []
+
+        for entry in comparison.to_install:
+            archive_path = Path(entry.source_archive)
+            try:
+                info = inspect_archive(archive_path)
+            except Exception as exc:
+                failed.append(f"{entry.display_name}: {exc}")
+                continue
+
+            selected_entries = set(entry.component_entries) if entry.component_entries else None
+            for target_value in entry.targets:
+                target_enum = self._target_enum_for_value(target_value)
+                if target_enum is None:
+                    continue
+                try:
+                    plan, error = self._prepare_install_target(
+                        info,
+                        entry.display_name,
+                        target_enum,
+                        entry.selected_variant or None,
+                        selected_entries,
+                    )
+                except TypeError:
+                    plan, error = self._prepare_install_target(
+                        info,
+                        entry.display_name,
+                        target_enum,
+                        entry.selected_variant or None,
+                    )
+                if plan is None:
+                    failed.append(f"{entry.display_name}: {error}")
+                    continue
+                try:
+                    mod, record = self.app.installer.install(plan)
+                    mod.metadata = entry.metadata
+                    self.app.manifest.add_mod(mod)
+                    self.app.manifest.add_record(record)
+                    installed += 1
+                except Exception as exc:
+                    failed.append(f"{entry.display_name}: {exc}")
+
+        for mod in comparison.to_uninstall:
+            try:
+                record = self.app.installer.uninstall(mod)
+                self.app.manifest.add_record(record)
+                self.app.manifest.remove_mod(mod.mod_id)
+                removed += 1
+            except Exception as exc:
+                failed.append(f"{mod.display_name}: {exc}")
+
+        self.app.refresh_installed_tab()
+        self.app.refresh_backups_tab()
+        self.refresh_view()
+        if failed:
+            self._set_result(
+                f"Profile applied with warnings. Installed {installed}, removed {removed}, failed {len(failed)} item(s).",
+                level="warning",
+            )
+        else:
+            self._set_result(f"Applied profile '{profile.name}'. Installed {installed}, removed {removed}.", level="success")
+
+    def _open_profiles_dialog(self) -> None:
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Profiles")
+        self.app.center_dialog(dialog, 860, 620)
+        dialog.minsize(760, 540)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        dialog.grid_columnconfigure(1, weight=1)
+        dialog.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(dialog, text="Profiles", font=self.app.ui_font("detail_title")).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=16, pady=(16, 8)
+        )
+
+        left = ctk.CTkScrollableFrame(dialog, width=260)
+        left.grid(row=1, column=0, sticky="nsw", padx=(16, 8), pady=(0, 16))
+        left.grid_columnconfigure(0, weight=1)
+        right = ctk.CTkFrame(dialog)
+        right.grid(row=1, column=1, sticky="nsew", padx=(0, 16), pady=(0, 16))
+        right.grid_columnconfigure(0, weight=1)
+        right.grid_rowconfigure(2, weight=1)
+
+        name_var = ctk.StringVar(value="")
+        notes_var = ctk.StringVar(value="")
+        selected = {"profile_id": None}
+
+        ctk.CTkLabel(right, text="Name", font=self.app.ui_font("small")).grid(row=0, column=0, sticky="w", padx=12, pady=(12, 2))
+        name_entry = ctk.CTkEntry(right, textvariable=name_var, font=self.app.ui_font("body"))
+        name_entry.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 6))
+        ctk.CTkLabel(right, text="Notes", font=self.app.ui_font("small")).grid(row=2, column=0, sticky="w", padx=12, pady=(0, 2))
+        notes_entry = ctk.CTkEntry(right, textvariable=notes_var, font=self.app.ui_font("body"))
+        notes_entry.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 6))
+        preview_box = ctk.CTkTextbox(right, font=self.app.ui_font("mono_small"))
+        preview_box.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 8))
+        preview_box.configure(state="disabled")
+
+        def _set_preview(text: str) -> None:
+            preview_box.configure(state="normal")
+            preview_box.delete("1.0", "end")
+            preview_box.insert("1.0", text)
+            preview_box.configure(state="disabled")
+
+        def _select_profile(profile_id: str) -> None:
+            selected["profile_id"] = profile_id
+            profile = self.app.profiles.get_profile(profile_id)
+            if profile is None:
+                return
+            name_var.set(profile.name)
+            notes_var.set(profile.notes)
+            comparison = self.app.profile_service.compare(profile, self.app.manifest.list_mods())
+            _set_preview(self._profile_preview_text(profile, comparison))
+
+        def _refresh_profile_rows() -> None:
+            for widget in left.winfo_children():
+                widget.destroy()
+            profiles = self.app.profiles.list_profiles()
+            if not profiles:
+                ctk.CTkLabel(
+                    left,
+                    text="No saved profiles yet.",
+                    text_color="#95a5a6",
+                    font=self.app.ui_font("small"),
+                ).grid(row=0, column=0, sticky="ew", padx=8, pady=8)
+                _set_preview("Save the current setup as a profile to compare and re-apply it later.")
+                return
+            for index, profile in enumerate(profiles):
+                row = ctk.CTkFrame(left, fg_color="#213040" if profile.profile_id == selected["profile_id"] else "#2f2f2f")
+                row.grid(row=index, column=0, sticky="ew", pady=2)
+                row.grid_columnconfigure(0, weight=1)
+                ctk.CTkLabel(row, text=profile.name, anchor="w", font=self.app.ui_font("row_title")).grid(
+                    row=0, column=0, sticky="ew", padx=10, pady=(8, 2)
+                )
+                ctk.CTkLabel(
+                    row,
+                    text=f"{len(profile.entries)} item(s) | {profile.created_at[:19].replace('T', ' ')}",
+                    anchor="w",
+                    text_color="#95a5a6",
+                    font=self.app.ui_font("small"),
+                ).grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 8))
+                for widget in row.winfo_children() + [row]:
+                    widget.bind("<Button-1>", lambda _event, value=profile.profile_id: _select_profile(value))
+
+        actions = ctk.CTkFrame(right, fg_color="transparent")
+        actions.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 12))
+
+        def _save_current_profile() -> None:
+            name = name_var.get().strip() or "New Profile"
+            profile = self.app.profile_service.capture_current_state(
+                name=name,
+                mods=self.app.manifest.list_mods(),
+                notes=notes_var.get().strip(),
+            )
+            existing = selected["profile_id"]
+            if existing:
+                profile.profile_id = existing
+            self.app.profiles.upsert(profile)
+            selected["profile_id"] = profile.profile_id
+            _refresh_profile_rows()
+            _select_profile(profile.profile_id)
+            self._set_result(f"Saved profile '{profile.name}'.", level="success")
+
+        def _compare_selected_profile() -> None:
+            profile = self.app.profiles.get_profile(selected["profile_id"] or "")
+            if profile is None:
+                self._set_result("Choose a profile first.", level="info")
+                return
+            comparison = self.app.profile_service.compare(profile, self.app.manifest.list_mods())
+            _set_preview(self._profile_preview_text(profile, comparison))
+
+        def _apply_selected_profile() -> None:
+            profile = self.app.profiles.get_profile(selected["profile_id"] or "")
+            if profile is None:
+                self._set_result("Choose a profile first.", level="info")
+                return
+            self._apply_profile(profile)
+            _compare_selected_profile()
+
+        def _delete_selected_profile() -> None:
+            profile = self.app.profiles.get_profile(selected["profile_id"] or "")
+            if profile is None:
+                self._set_result("Choose a profile first.", level="info")
+                return
+            if not self.app.confirm_action(
+                "destructive",
+                "Delete Profile",
+                f"Delete profile '{profile.name}'?",
+            ):
+                return
+            self.app.profiles.remove(profile.profile_id)
+            selected["profile_id"] = None
+            name_var.set("")
+            notes_var.set("")
+            _refresh_profile_rows()
+            self._set_result(f"Deleted profile '{profile.name}'.", level="info")
+
+        ctk.CTkButton(actions, text="Save Current State", width=148, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=_save_current_profile).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(actions, text="Compare", width=96, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=_compare_selected_profile).pack(side="left", padx=6)
+        ctk.CTkButton(actions, text="Apply", width=96, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#2d8a4e", hover_color="#236b3d", command=_apply_selected_profile).pack(side="left", padx=6)
+        ctk.CTkButton(actions, text="Delete", width=96, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#c0392b", hover_color="#962d22", command=_delete_selected_profile).pack(side="left", padx=6)
+        ctk.CTkButton(actions, text="Close", width=96, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#555555", hover_color="#666666", command=dialog.destroy).pack(side="right")
+
+        _refresh_profile_rows()
+        self.wait_window(dialog)
 
     def _selected_variant(self) -> Optional[str]:
         value = self._variant_var.get()
@@ -2070,6 +3450,7 @@ class ModsTab(ctk.CTkFrame):
         mod_name: str,
         target: InstallTarget,
         selected_variant: Optional[str],
+        selected_entries: Optional[set[str]] = None,
     ):
         paths = self.app.paths
         if target in (InstallTarget.CLIENT, InstallTarget.BOTH) and not paths.client_root:
@@ -2078,9 +3459,18 @@ class ModsTab(ctk.CTkFrame):
             return None, "Configure the local server path in Settings first."
         if target == InstallTarget.DEDICATED_SERVER and not paths.dedicated_server_root:
             return None, "Configure the dedicated server path in Settings first."
-        plan = plan_deployment(info, paths, target, selected_variant, mod_name)
+        plan = plan_deployment(info, paths, target, selected_variant, mod_name, selected_entries)
         if not plan.valid:
             return None, "\n".join(plan.warnings) if plan.warnings else "The install plan is not valid."
+        if info.content_category == "framework_mod":
+            framework_root = {
+                InstallTarget.CLIENT: paths.client_root,
+                InstallTarget.SERVER: paths.server_root,
+                InstallTarget.DEDICATED_SERVER: paths.dedicated_server_root,
+            }.get(target)
+            framework_state = detect_framework_state(framework_root)
+            if not framework_state.get("ue4ss_runtime", False):
+                plan.warnings.append("Likely depends on UE4SS, but that runtime was not detected for this target.")
         return plan, None
 
     def _run_install_preset(
@@ -2089,6 +3479,7 @@ class ModsTab(ctk.CTkFrame):
         mod_name: str,
         preset_key: str,
         selected_variant: Optional[str],
+        selected_entries: Optional[set[str]] = None,
         *,
         quiet: bool = False,
         confirm_conflicts: Optional[bool] = None,
@@ -2109,7 +3500,16 @@ class ModsTab(ctk.CTkFrame):
         warnings: list[str] = []
         conflict_lines: list[str] = []
         for target in targets:
-            plan, error = self._prepare_install_target(info, mod_name, target, selected_variant)
+            try:
+                plan, error = self._prepare_install_target(
+                    info,
+                    mod_name,
+                    target,
+                    selected_variant,
+                    selected_entries,
+                )
+            except TypeError:
+                plan, error = self._prepare_install_target(info, mod_name, target, selected_variant)
             if plan is None:
                 warnings.append(f"{self._target_label(target)}: {error}")
                 continue
@@ -2141,6 +3541,7 @@ class ModsTab(ctk.CTkFrame):
         try:
             for target, plan in prepared:
                 mod, record = self.app.installer.install(plan)
+                mod.metadata = self._archive_metadata(str(Path(info.archive_path)))
                 installed_results.append((target, mod, record))
 
             for _, mod, _ in installed_results:

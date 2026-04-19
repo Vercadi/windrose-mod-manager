@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import logging
+import os
+import subprocess
 import threading
 import tkinter as tk
 from pathlib import Path
@@ -56,6 +58,8 @@ class ServerTab(ctk.CTkFrame):
         self._field_labels: list[ctk.CTkLabel] = []
         self._field_inputs: list[object] = []
         self._status_boxes: list[ctk.CTkTextbox] = []
+        self._hosted_dashboard_state = "Not configured"
+        self._hosted_dashboard_profile_id: str | None = None
 
         self.grid_columnconfigure(0, weight=3)
         self.grid_columnconfigure(1, weight=2)
@@ -97,9 +101,10 @@ class ServerTab(ctk.CTkFrame):
             variable=self._remote_profile_var,
             values=["(no remote profiles)"],
             width=220,
+            command=self._on_remote_profile_changed,
         )
 
-        hosted_setup_btn = ctk.CTkButton(
+        self._hosted_setup_btn = ctk.CTkButton(
             frame,
             text="Hosted Setup",
             width=112,
@@ -109,8 +114,8 @@ class ServerTab(ctk.CTkFrame):
             hover_color="#666666",
             command=self.open_hosted_setup,
         )
-        hosted_setup_btn.pack(side="right", padx=4)
-        self._action_buttons.append(hosted_setup_btn)
+        self._hosted_setup_btn.pack(side="right", padx=4)
+        self._action_buttons.append(self._hosted_setup_btn)
         self._test_btn = ctk.CTkButton(
             frame,
             text="Test Connection",
@@ -352,8 +357,110 @@ class ServerTab(ctk.CTkFrame):
         frame.grid(row=1, column=1, sticky="nsew", padx=(4, 8), pady=4)
         frame.grid_columnconfigure(0, weight=1)
 
+        dashboard_card = ctk.CTkFrame(frame)
+        dashboard_card.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        dashboard_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(dashboard_card, text="Operations Overview", font=self.app.ui_font("card_title")).grid(
+            row=0, column=0, sticky="w", padx=10, pady=(10, 4)
+        )
+        self._dashboard_summary_label = ctk.CTkLabel(
+            dashboard_card,
+            text="",
+            justify="left",
+            wraplength=self.app.ui_tokens.panel_wrap,
+            text_color="#c1c7cd",
+            font=self.app.ui_font("body"),
+        )
+        self._dashboard_summary_label.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 4))
+        self._dashboard_counts_label = ctk.CTkLabel(
+            dashboard_card,
+            text="",
+            justify="left",
+            wraplength=self.app.ui_tokens.panel_wrap,
+            text_color="#95a5a6",
+            font=self.app.ui_font("small"),
+        )
+        self._dashboard_counts_label.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
+        dashboard_actions = ctk.CTkFrame(dashboard_card, fg_color="transparent")
+        dashboard_actions.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
+        self._dashboard_backup_btn = ctk.CTkButton(
+            dashboard_actions,
+            text="Back Up Now",
+            width=108,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._on_backup_now,
+        )
+        self._dashboard_backup_btn.pack(side="left", padx=(0, 6))
+        self._dashboard_open_folder_btn = ctk.CTkButton(
+            dashboard_actions,
+            text="Open Server Folder",
+            width=138,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._open_active_server_folder,
+        )
+        self._dashboard_open_folder_btn.pack(side="left", padx=6)
+        self._dashboard_open_settings_btn = ctk.CTkButton(
+            dashboard_actions,
+            text="Open Settings File",
+            width=136,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._open_active_settings_file,
+        )
+        self._dashboard_open_settings_btn.pack(side="left", padx=6)
+        self._dashboard_compare_btn = ctk.CTkButton(
+            dashboard_actions,
+            text="Run Compare",
+            width=110,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=self.compare_now,
+        )
+        self._dashboard_compare_btn.pack(side="left", padx=6)
+        self._dashboard_launch_game_btn = ctk.CTkButton(
+            dashboard_actions,
+            text="Launch Windrose",
+            width=118,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#2d8a4e",
+            hover_color="#236b3d",
+            command=self.app._on_start_game,
+        )
+        self._dashboard_launch_game_btn.pack(side="left", padx=6)
+        self._dashboard_launch_server_btn = ctk.CTkButton(
+            dashboard_actions,
+            text="Launch Dedicated Server",
+            width=156,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self.app._on_start_server,
+        )
+        self._dashboard_launch_server_btn.pack(side="left", padx=6)
+        self._action_buttons.extend(
+            [
+                self._dashboard_backup_btn,
+                self._dashboard_open_folder_btn,
+                self._dashboard_open_settings_btn,
+                self._dashboard_compare_btn,
+                self._dashboard_launch_game_btn,
+                self._dashboard_launch_server_btn,
+            ]
+        )
+        dashboard_card.grid_remove()
+
         source_card = ctk.CTkFrame(frame)
-        source_card.grid(row=0, column=0, sticky="ew", pady=(0, 6))
+        source_card.grid(row=1, column=0, sticky="ew", pady=(0, 6))
         source_card.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(source_card, text="Server Source", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 4)
@@ -376,7 +483,7 @@ class ServerTab(ctk.CTkFrame):
         )
         self._status_label.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 8))
         inventory_card = ctk.CTkFrame(frame)
-        inventory_card.grid(row=1, column=0, sticky="ew", pady=(0, 6))
+        inventory_card.grid(row=2, column=0, sticky="ew", pady=(0, 6))
         inventory_card.grid_columnconfigure(0, weight=1)
         self._inventory_title_label = ctk.CTkLabel(
             inventory_card, text="Server Mods", font=self.app.ui_font("card_title")
@@ -400,7 +507,7 @@ class ServerTab(ctk.CTkFrame):
         self._status_boxes.append(self._inventory_box)
 
         sync_card = ctk.CTkFrame(frame)
-        sync_card.grid(row=2, column=0, sticky="ew", pady=(0, 6))
+        sync_card.grid(row=3, column=0, sticky="ew", pady=(0, 6))
         sync_card.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(sync_card, text="Sync Review", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 4)
@@ -430,7 +537,7 @@ class ServerTab(ctk.CTkFrame):
         self._status_boxes.append(self._sync_box)
 
         apply_card = ctk.CTkFrame(frame)
-        apply_card.grid(row=3, column=0, sticky="ew", pady=(0, 6))
+        apply_card.grid(row=4, column=0, sticky="ew", pady=(0, 6))
         apply_card.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(apply_card, text="Apply Summary", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 4)
@@ -483,7 +590,7 @@ class ServerTab(ctk.CTkFrame):
         self._status_boxes.append(self._apply_box)
 
         recovery_card = ctk.CTkFrame(frame)
-        recovery_card.grid(row=4, column=0, sticky="ew", pady=(0, 6))
+        recovery_card.grid(row=5, column=0, sticky="ew", pady=(0, 6))
         recovery_card.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(recovery_card, text="Recovery Shortcut", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 4)
@@ -520,6 +627,7 @@ class ServerTab(ctk.CTkFrame):
         self._action_buttons.extend([self._restore_server_btn, self._restore_world_btn, self._open_recovery_btn])
 
     def refresh_remote_profiles(self) -> None:
+        previous_profile_id = self._hosted_dashboard_profile_id
         profiles = self.app.remote_profiles.list_profiles()
         self._remote_profile_labels = {}
         values = ["(no remote profiles)"]
@@ -535,7 +643,52 @@ class ServerTab(ctk.CTkFrame):
                 self._remote_profile_var.set(values[1])
         elif self._remote_profile_var.get() not in values:
             self._remote_profile_var.set(values[0])
+        selected = self._selected_remote_profile()
+        if selected is None:
+            self._hosted_dashboard_state = "Not configured"
+            self._hosted_dashboard_profile_id = None
+        elif selected.profile_id != previous_profile_id or self._hosted_dashboard_state == "Checking connection...":
+            self._hosted_dashboard_state = "Configured"
+            self._hosted_dashboard_profile_id = selected.profile_id
         self._update_source_summary()
+
+    def remote_profile_options(self) -> list[str]:
+        return list(self._remote_profile_menu.cget("values"))
+
+    def selected_remote_profile_label(self) -> str:
+        return self._remote_profile_var.get()
+
+    def select_remote_profile_label(self, label: str, *, refresh_inventory: bool = False) -> None:
+        if label not in set(self.remote_profile_options()):
+            return
+        self._remote_profile_var.set(label)
+        self._on_remote_profile_changed(label, refresh_inventory=refresh_inventory)
+
+    def _on_remote_profile_changed(self, _value: str, *, refresh_inventory: bool = False) -> None:
+        profile = self._selected_remote_profile()
+        if profile is None:
+            self._hosted_dashboard_state = "Not configured"
+            self._hosted_dashboard_profile_id = None
+        else:
+            self._hosted_dashboard_state = "Configured"
+            self._hosted_dashboard_profile_id = profile.profile_id
+        self._update_source_summary()
+        self._update_sync_placeholder(force=True)
+        if self._source_var.get() == "hosted":
+            self._status_label.configure(
+                text="Hosted profile selected. Use Test Connection or Load Current Settings when ready.",
+                text_color="#95a5a6",
+            )
+            self._inventory_title_label.configure(text="Hosted Server Mods")
+            if refresh_inventory:
+                self._refresh_server_inventory()
+            elif profile is None:
+                self._set_status_box(self._inventory_box, "Choose a hosted profile first.")
+            else:
+                self._set_status_box(self._inventory_box, "Select Refresh Server Mods to load the hosted ~mods inventory.")
+        self._refresh_dashboard()
+        if "_dashboard_tab" in self.app.__dict__:
+            self.app._dashboard_tab.refresh_view()
 
     def _on_source_changed(self, value: str) -> None:
         self._source_value = value
@@ -546,6 +699,8 @@ class ServerTab(ctk.CTkFrame):
                 self._remote_profile_label.pack(side="left", padx=(0, 4))
             if not self._remote_profile_menu.winfo_manager():
                 self._remote_profile_menu.pack(side="left")
+            if not self._test_btn.winfo_manager():
+                self._test_btn.pack(side="right", padx=4, before=self._hosted_setup_btn)
             self._test_btn.configure(state="normal")
             self._confirm_var.set(False)
             self._confirm_check.configure(state="disabled")
@@ -561,7 +716,8 @@ class ServerTab(ctk.CTkFrame):
                 self._remote_profile_label.pack_forget()
             if self._remote_profile_menu.winfo_manager():
                 self._remote_profile_menu.pack_forget()
-            self._test_btn.configure(state="disabled")
+            if self._test_btn.winfo_manager():
+                self._test_btn.pack_forget()
             self._confirm_check.configure(state="normal")
             self._confirm_hint.configure(
                 text="Leave this unchecked if you want a final apply popup before writing changes. Disable All Confirmations in Settings overrides this.",
@@ -578,8 +734,16 @@ class ServerTab(ctk.CTkFrame):
         self._clear_world_fields()
         self._update_source_summary()
         self._update_apply_summary()
-        self._refresh_server_inventory()
         self._update_sync_placeholder(force=True)
+        if is_hosted:
+            self._inventory_title_label.configure(text="Hosted Server Mods")
+            if self._selected_remote_profile() is None:
+                self._set_status_box(self._inventory_box, "Choose a hosted profile first.")
+            else:
+                self._set_status_box(self._inventory_box, "Select Refresh Server Mods to load the hosted ~mods inventory.")
+        else:
+            self._refresh_server_inventory()
+        self._refresh_dashboard()
 
     def _on_source_segment_changed(self, value: str) -> None:
         source = value.strip().lower().replace(" ", "_")
@@ -594,8 +758,16 @@ class ServerTab(ctk.CTkFrame):
         self.refresh_remote_profiles()
         self._update_source_summary()
         self._update_apply_summary()
-        self._refresh_server_inventory()
         self._update_sync_placeholder()
+        if self._source_var.get() == "hosted":
+            self._inventory_title_label.configure(text="Hosted Server Mods")
+            if self._selected_remote_profile() is None:
+                self._set_status_box(self._inventory_box, "Choose a hosted profile first.")
+            else:
+                self._set_status_box(self._inventory_box, "Select Refresh Server Mods to load the hosted ~mods inventory.")
+        else:
+            self._refresh_server_inventory()
+        self._refresh_dashboard()
 
     def _active_local_target(self) -> str:
         return "server" if self._source_var.get() == "server" else "dedicated_server"
@@ -623,6 +795,162 @@ class ServerTab(ctk.CTkFrame):
             return "Local Server Folder"
         return "Dedicated Server World Saves Folder"
 
+    def _dashboard_target_counts(self) -> dict[str, int]:
+        counts = {"client": 0, "server": 0, "dedicated_server": 0, "hosted": 0}
+        for mod in self.app.manifest.list_mods():
+            targets = self._effective_targets(mod)
+            for key in counts:
+                if key in targets:
+                    counts[key] += 1
+        return counts
+
+    def _last_backup_text(self) -> str:
+        backups = sorted(self.app.backup.list_backups(), key=lambda item: item.timestamp, reverse=True)
+        if not backups:
+            return "No backups yet"
+        latest = backups[0]
+        return f"{latest.category.replace('_', ' ').title()} @ {latest.timestamp[:19].replace('T', ' ')}"
+
+    def _last_apply_text(self) -> str:
+        actions = {
+            "save_server_config",
+            "save_world_config",
+            "save_remote_server_config",
+            "save_remote_world_config",
+            "launch_game",
+            "launch_server",
+            "hosted_upload",
+            "hosted_remove",
+            "manual_backup",
+        }
+        for record in reversed(self.app.manifest.list_history()):
+            if record.action in actions:
+                label = record.action.replace("_", " ")
+                return f"{label.title()} @ {record.timestamp[:19].replace('T', ' ')}"
+        return "No recent apply/launch actions"
+
+    @staticmethod
+    def _world_display_name(config: WorldConfig | None) -> str:
+        if config is None:
+            return "(not loaded)"
+        name = (config.world_name or "").strip()
+        return name or "(unnamed world)"
+
+    def _refresh_dashboard(self) -> None:
+        counts = self._dashboard_target_counts()
+        active_world = self._world_display_name(self._world_config)
+        source_label = "Hosted Server" if self._source_var.get() == "hosted" else self._active_local_label()
+        client_state = "Running" if self.app.is_game_running() else "Not running"
+        if self._source_var.get() == "hosted":
+            hosted_state = self._hosted_dashboard_state
+            server_line = f"Hosted Server: {hosted_state}"
+        elif self._source_var.get() == "server":
+            hosted_state = self._hosted_dashboard_state
+            server_line = f"Local Server: {'Configured' if self.app.paths.server_root else 'Not configured'}"
+        else:
+            hosted_state = self._hosted_dashboard_state
+            dedicated_state = (
+                "Running"
+                if self.app.is_server_process_running()
+                else ("Configured" if self.app.paths.dedicated_server_root else "Not configured")
+            )
+            server_line = f"Dedicated Server: {dedicated_state}"
+        summary_lines = [
+            f"Current source: {source_label}",
+            f"Windrose client: {client_state}",
+            server_line,
+            f"Hosted profile: {hosted_state}",
+            f"Active world: {active_world}",
+            f"Last backup: {self._last_backup_text()}",
+            f"Last action: {self._last_apply_text()}",
+        ]
+        self._dashboard_summary_label.configure(text="\n".join(summary_lines))
+        self._dashboard_counts_label.configure(
+            text=(
+                f"Mod counts | Client: {counts['client']} | "
+                f"Local Server: {counts['server']} | "
+                f"Dedicated Server: {counts['dedicated_server']} | "
+                f"Hosted Server: {counts['hosted']}"
+            )
+        )
+
+    def _refresh_hosted_dashboard_state(self) -> None:
+        profile = self._selected_remote_profile()
+        if profile is None:
+            self._hosted_dashboard_state = "Not configured"
+            self._hosted_dashboard_profile_id = None
+            self._refresh_dashboard()
+            return
+        self._hosted_dashboard_state = "Configured"
+        self._hosted_dashboard_profile_id = profile.profile_id
+        self._refresh_dashboard()
+
+    def _open_active_server_folder(self) -> None:
+        root = self._active_local_root()
+        if self._source_var.get() == "hosted":
+            profile = self._selected_remote_profile()
+            if profile is None:
+                self._set_result("Choose a hosted profile first.", level="info")
+            else:
+                self._set_result("Hosted server folders are managed through the hosted connection flow.", level="info")
+            return
+        if root is None or not root.exists():
+            self._set_result("Server folder is not configured.", level="warning")
+            return
+        try:
+            os.startfile(str(root))
+        except OSError:
+            subprocess.Popen(["explorer", str(root)])
+
+    def _open_active_settings_file(self) -> None:
+        if self._source_var.get() == "hosted":
+            self._set_result("Hosted settings are edited through the current server forms.", level="info")
+            return
+        config_path = self._active_local_server_config_path()
+        if config_path is None or not config_path.exists():
+            self._set_result("Server settings file was not found.", level="warning")
+            return
+        try:
+            os.startfile(str(config_path.parent))
+        except OSError:
+            subprocess.Popen(["explorer", str(config_path.parent)])
+
+    def _on_backup_now(self) -> None:
+        if self._source_var.get() == "hosted":
+            self._set_result("Manual backup now is currently supported for local and dedicated sources only.", level="info")
+            return
+        backed_up = 0
+        config_path = self._active_local_server_config_path()
+        if config_path and config_path.exists():
+            self.app.backup.backup_file(
+                config_path,
+                category="server_config",
+                description=f"Manual backup of {config_path.name}",
+            )
+            backed_up += 1
+        if isinstance(self._world_path, Path) and self._world_path.exists():
+            self.app.backup.backup_file(
+                self._world_path,
+                category="world_config",
+                description=f"Manual backup of {self._world_path.name}",
+            )
+            backed_up += 1
+        if not backed_up:
+            self._set_result("Load server/world settings first so there is something to back up.", level="info")
+            return
+        self.app.manifest.add_record(
+            DeploymentRecord(
+                mod_id="app:manual_backup",
+                action="manual_backup",
+                target=self._active_local_target(),
+                display_name=self._active_local_label(),
+                notes=f"Manual backup created for {self._active_local_label()}",
+            )
+        )
+        self.app.refresh_backups_tab()
+        self._refresh_dashboard()
+        self._set_result(f"Created {backed_up} backup item(s).", level="success")
+
     def _update_source_summary(self) -> None:
         if self._source_var.get() == "hosted":
             profile = self._selected_remote_profile()
@@ -644,6 +972,7 @@ class ServerTab(ctk.CTkFrame):
                 f"World Saves: {self._active_local_save_root() or '(not set)'}"
             )
         self._source_summary_label.configure(text=text)
+        self._refresh_dashboard()
 
     def _update_apply_summary(self) -> None:
         lines = [
@@ -699,14 +1028,21 @@ class ServerTab(ctk.CTkFrame):
                 try:
                     remote_files = self.app.remote_deployer.list_remote_files(profile)
                     text = self._hosted_server_inventory_text(remote_files)
+                    state = "Connected"
                 except Exception as exc:
                     text = f"Could not load hosted mod inventory:\n{exc}"
+                    state = "Offline"
 
                 def _show() -> None:
+                    if not self.winfo_exists():
+                        return
                     self._inventory_btn.configure(state="normal", text="Refresh Server Mods")
                     self._set_status_box(self._inventory_box, text)
+                    self._hosted_dashboard_state = state
+                    self._hosted_dashboard_profile_id = profile.profile_id
+                    self._refresh_dashboard()
 
-                self.after(0, _show)
+                self.app.dispatch_to_ui(_show)
 
             threading.Thread(target=_work, daemon=True).start()
             return
@@ -813,6 +1149,8 @@ class ServerTab(ctk.CTkFrame):
         self._remote_profile_menu.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)
         self._source_summary_label.configure(font=self.app.ui_font("body"), wraplength=tokens.panel_wrap)
         self._status_label.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
+        self._dashboard_summary_label.configure(font=self.app.ui_font("body"), wraplength=tokens.panel_wrap)
+        self._dashboard_counts_label.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
         self._server_hint_label.configure(font=self.app.ui_font("small"))
         self._world_info_label.configure(font=self.app.ui_font("small"))
         self._sync_hint_label.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
@@ -870,10 +1208,15 @@ class ServerTab(ctk.CTkFrame):
             log.info("Hosted connection result for %s: %s", profile.name, message)
 
             def _show() -> None:
+                if not self.winfo_exists():
+                    return
                 self._test_btn.configure(state="normal", text="Test Connection")
                 self._status_label.configure(text=message, text_color="#2d8a4e" if ok else "#c0392b")
+                self._hosted_dashboard_state = "Connected" if ok else "Offline"
+                self._hosted_dashboard_profile_id = profile.profile_id
+                self._refresh_dashboard()
 
-            self.after(0, _show)
+            self.app.dispatch_to_ui(_show)
 
         threading.Thread(target=_work, daemon=True).start()
 
@@ -892,7 +1235,7 @@ class ServerTab(ctk.CTkFrame):
                     text = self._sync_report_text(report)
                 except Exception as exc:
                     text = f"Hosted comparison failed:\n{exc}"
-                self.after(0, lambda: self._set_status_box(self._sync_box, text))
+                self.app.dispatch_to_ui(lambda: self.winfo_exists() and self._set_status_box(self._sync_box, text))
 
             threading.Thread(target=_work, daemon=True).start()
             return
@@ -949,7 +1292,9 @@ class ServerTab(ctk.CTkFrame):
                     profile,
                     config.world_island_id,
                 )
-            self.after(0, lambda: self._finish_remote_load(profile.name, config, world_config, world_path))
+            self.app.dispatch_to_ui(
+                lambda: self.winfo_exists() and self._finish_remote_load(profile.name, config, world_config, world_path)
+            )
 
         threading.Thread(target=_work, daemon=True).start()
 
@@ -968,26 +1313,29 @@ class ServerTab(ctk.CTkFrame):
             self._clear_server_fields()
             self._clear_world_fields()
             self._status_label.configure(text=f"Failed to load hosted settings from {profile_name}", text_color="#c0392b")
+            self._hosted_dashboard_state = "Offline"
             messagebox.showerror(
                 "Hosted Load Failed",
                 "Failed to load hosted server settings.\n"
                 "Check the profile connection details, server folder, and overrides.",
             )
+            self._refresh_dashboard()
             return
 
         self._config = config
         self._populate_server_fields(config)
         self._status_label.configure(text=f"Hosted server settings loaded from {profile_name}", text_color="#2d8a4e")
+        self._hosted_dashboard_state = "Connected"
+        profile = self._selected_remote_profile()
+        self._hosted_dashboard_profile_id = profile.profile_id if profile else None
 
         if config.world_island_id:
             if world_config is not None and world_path is not None:
                 self._world_config = world_config
                 self._world_path = world_path
                 self._populate_world_fields(world_config)
-                self._world_info_label.configure(
-                    text=f'"{world_config.world_name}" — {world_config.world_preset_type}',
-                    text_color="#2d8a4e",
-                )
+                world_label = self._world_display_name(world_config)
+                self._world_info_label.configure(text=f'"{world_label}" - {world_config.world_preset_type}', text_color="#2d8a4e")
             else:
                 self._world_config = None
                 self._world_path = None
@@ -1002,6 +1350,7 @@ class ServerTab(ctk.CTkFrame):
         self._update_apply_summary()
         self._refresh_server_inventory()
         self.compare_now()
+        self._refresh_dashboard()
 
     def _load_server_config(self) -> None:
         if self._source_var.get() == "hosted":
@@ -1228,6 +1577,8 @@ class ServerTab(ctk.CTkFrame):
             text=f'"{config.world_name}" — {config.world_preset_type}',
             text_color="#2d8a4e",
         )
+        world_label = self._world_display_name(config)
+        self._world_info_label.configure(text=f'"{world_label}" - {config.world_preset_type}', text_color="#2d8a4e")
         self._update_apply_summary()
         log.info("World config loaded: %s", config.world_name)
 
@@ -1675,7 +2026,12 @@ class ServerTab(ctk.CTkFrame):
 
             def _work() -> None:
                 ok, message = self.app.remote_deployer.test_connection(profile)
-                self.after(0, lambda: status.configure(text=message, text_color="#2d8a4e" if ok else "#c0392b"))
+                self.app.dispatch_to_ui(
+                    lambda: status.winfo_exists() and status.configure(
+                        text=message,
+                        text_color="#2d8a4e" if ok else "#c0392b",
+                    )
+                )
 
             threading.Thread(target=_work, daemon=True).start()
 
@@ -1783,6 +2139,8 @@ class ServerTab(ctk.CTkFrame):
                     )
                     message = result.summary
                     def _show() -> None:
+                        if not deploy_btn.winfo_exists() or not status.winfo_exists():
+                            return
                         deploy_btn.configure(state="normal", text="Install to Hosted Server")
                         status.configure(text=message, text_color="#2d8a4e" if not result.failed else "#e67e22")
                         self._status_label.configure(text=message, text_color="#2d8a4e" if not result.failed else "#e67e22")
@@ -1793,17 +2151,19 @@ class ServerTab(ctk.CTkFrame):
                                 "Hosted Install Completed with Issues",
                                 f"{message}\n\n" + "\n".join(result.failed[:5]),
                             )
-                    self.after(0, _show)
+                    self.app.dispatch_to_ui(_show)
                 except Exception as exc:
                     log.exception("Hosted install failed for %s on %s", selected_path.name, chosen_profile.name)
 
                     def _show_error() -> None:
+                        if not deploy_btn.winfo_exists() or not status.winfo_exists():
+                            return
                         deploy_btn.configure(state="normal", text="Install to Hosted Server")
                         status.configure(text=str(exc), text_color="#c0392b")
                         self._status_label.configure(text=str(exc), text_color="#c0392b")
                         messagebox.showerror("Hosted Install Failed", str(exc))
 
-                    self.after(0, _show_error)
+                    self.app.dispatch_to_ui(_show_error)
 
             threading.Thread(target=_work, daemon=True).start()
 
