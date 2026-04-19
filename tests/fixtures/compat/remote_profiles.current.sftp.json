@@ -1,0 +1,34 @@
+{
+  "profiles": [
+    {
+      "profile_id": "profile-hosted-a",
+      "name": "Hosted Smoke A",
+      "host": "example-host-a",
+      "port": 22,
+      "username": "test-user",
+      "auth_mode": "key",
+      "password": "redacted",
+      "private_key_path": "C:/Users/TestUser/.ssh/windrose_test_key",
+      "remote_root_dir": "C:/Servers/WindroseHostedSmokeA",
+      "remote_mods_dir": "C:/Servers/WindroseHostedSmokeA/R5/Content/Paks/~mods",
+      "remote_server_description_path": "C:/Servers/WindroseHostedSmokeA/R5/ServerDescription.json",
+      "remote_save_root": "C:/Servers/WindroseHostedSmokeA/R5/Saved",
+      "restart_command": ""
+    },
+    {
+      "profile_id": "profile-hosted-b",
+      "name": "Hosted Smoke B",
+      "host": "example-host-b",
+      "port": 22,
+      "username": "test-user",
+      "auth_mode": "password",
+      "password": "redacted",
+      "private_key_path": "",
+      "remote_root_dir": "C:/Servers/WindroseHostedSmokeB",
+      "remote_mods_dir": "C:/Servers/WindroseHostedSmokeB/R5/Content/Paks/~mods",
+      "remote_server_description_path": "C:/Servers/WindroseHostedSmokeB/R5/ServerDescription.json",
+      "remote_save_root": "C:/Servers/WindroseHostedSmokeB/R5/Saved",
+      "restart_command": "restart-windrose-server"
+    }
+  ]
+}

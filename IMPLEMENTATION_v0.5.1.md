@@ -20,6 +20,24 @@ This release should **not** become:
 - a shell/SSH automation suite for every provider
 - a risky rewrite of existing hosted config/install logic
 
+## Locked Decisions Before Implementation
+
+These are fixed for this pass unless a concrete blocker appears during coding:
+
+- Startup target:
+  - visible, usable main window in about `1 second` on the reference dev machine
+  - no hosted connection tests on boot
+  - no eager full refresh of every tab before the window appears
+- Dashboard role:
+  - Dashboard stays top-level only if it becomes the real operations home
+  - it must answer "what is running, what source is active, and what needs attention?" quickly
+  - if a section only repeats text from Server or Activity, cut it
+- Hosted transport scope:
+  - `sftp` = supported
+  - `ftp` = supported
+  - `ftps` = cut unless a real provider/test case forces it later
+  - FTP remains file-transfer only; no restart-command support is promised there
+
 ## Provider Research
 
 ### Host Havoc
@@ -73,6 +91,55 @@ No official provider documentation found in this audit requires FTPS, so FTPS sh
 - [Host Havoc - How to use an FTP client with your server](https://hosthavoc.com/billing/knowledgebase/488/How-to-use-an-FTP-client-with-your-server.html)
 - [Host Havoc - How to install mods on your Satisfactory server](https://hosthavoc.com/billing/knowledgebase/604/How-to-install-mods-on-your-Satisfactory-server.html)
 - [Indifferent Broccoli - How to use an FTP Client](https://wiki.indifferentbroccoli.com/General/FTP)
+
+## Current Architecture Audit
+
+### Startup path today
+
+Current startup is still eager in a few important places:
+
+- `windrose_deployer/ui/app_window.py`
+  - `_init_services()` loads settings, reconciles paths, wires services
+  - `_build_ui()` constructs every top-level tab on startup
+  - `_initial_load()` refreshes Mods, Server, Dashboard, Help, and Activity immediately
+- `windrose_deployer/core/discovery.py`
+  - `reconcile_paths()` currently calls `discover_all()` every launch
+
+Implementation implication:
+
+- the first optimization pass should target eager refresh and eager discovery first
+- do not guess about startup cost; use the new timing logs to measure before and after
+
+### Hosted transport assumptions today
+
+Current hosted logic is still SFTP-shaped in key places:
+
+- `windrose_deployer/core/remote_deployer.py`
+  - defaults provider creation to `SftpProvider`
+  - restart flow calls `provider.execute(...)`
+- `windrose_deployer/core/remote_config_service.py`
+  - defaults provider creation to `SftpProvider`
+  - remote backup source URIs are hardcoded as `sftp://...`
+  - restore parsing only accepts `sftp://...`
+- `windrose_deployer/models/remote_profile.py`
+  - no protocol field exists yet
+  - auth model is still `password` / `key`
+  - restart command is part of the current model and UI
+
+Implementation implication:
+
+- FTP support cannot be treated as a UI-only change
+- protocol-aware provider routing and protocol-aware backup identity are the real compatibility seams
+
+### Compatibility data captured for this pass
+
+The current local data shape is now represented by sanitized fixtures under `tests/fixtures/compat/`:
+
+- current `settings.json` shape
+- current `remote_profiles.json` shape without a protocol field
+- current `app_state.json` schema 2 shape
+- legacy `app_state.v1.bak.json` style shape without schema version
+- current hosted backup-record shape with `sftp://...` source paths
 
 ## Final Scope
 
@@ -463,6 +530,7 @@ Reasoning:
 ### Must-have manual smoke tests
 
 - cold app launch with existing settings and library
+- confirm the visible main window appears in about `1 second` on the reference dev machine before secondary work finishes
 - first paint / usable window timing check
 - Dashboard shows useful status at default size
 - Host Havoc profile:

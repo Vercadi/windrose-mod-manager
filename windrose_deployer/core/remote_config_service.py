@@ -1,35 +1,37 @@
-"""Remote ServerDescription.json and WorldDescription.json support over SFTP."""
+"""Remote ServerDescription.json and WorldDescription.json support over hosted transports."""
 from __future__ import annotations
 
 import json
 import logging
 from pathlib import Path, PurePosixPath
 from typing import Optional
+from urllib.parse import urlsplit
 
-from ..models.remote_profile import RemoteProfile
+from ..models.remote_profile import RemoteProfile, normalize_remote_protocol
 from ..models.server_config import ServerConfig
 from ..models.world_config import WorldConfig
 from .backup_manager import BackupManager, BackupRecord
+from .remote_provider_factory import create_remote_provider
 from .remote_profile_store import RemoteProfileStore
 from .remote_provider import RemoteProvider
-from .sftp_provider import SftpProvider
 
 log = logging.getLogger(__name__)
 
 
-def remote_source_uri(profile_id: str, remote_path: str) -> str:
+def remote_source_uri(protocol: str, profile_id: str, remote_path: str) -> str:
+    scheme = normalize_remote_protocol(protocol)
     normalized = remote_path if remote_path.startswith("/") else f"/{remote_path}"
-    return f"sftp://{profile_id}{normalized}"
+    return f"{scheme}://{profile_id}{normalized}"
 
 
-def parse_remote_source_uri(source_uri: str) -> tuple[str, str]:
-    if not source_uri.startswith("sftp://"):
+def parse_remote_source_uri(source_uri: str) -> tuple[str, str, str]:
+    parsed = urlsplit(source_uri)
+    scheme = normalize_remote_protocol(parsed.scheme)
+    if scheme not in {"sftp", "ftp"}:
         raise ValueError(f"Unsupported remote source uri: {source_uri}")
-    rest = source_uri[len("sftp://"):]
-    slash = rest.find("/")
-    if slash == -1:
-        return rest, "/"
-    return rest[:slash], rest[slash:]
+    profile_id = parsed.netloc
+    remote_path = parsed.path or "/"
+    return scheme, profile_id, remote_path
 
 
 class RemoteConfigService:
@@ -41,7 +43,7 @@ class RemoteConfigService:
     ):
         self.backup = backup_manager
         self.profile_store = profile_store
-        self.provider_factory = provider_factory or (lambda profile: SftpProvider(profile))
+        self.provider_factory = provider_factory or create_remote_provider
 
     def load_server(self, profile: RemoteProfile) -> Optional[ServerConfig]:
         remote_path = profile.resolved_server_description_path()
@@ -98,7 +100,7 @@ class RemoteConfigService:
         if not remote_path:
             return False
 
-        source_uri = remote_source_uri(profile.profile_id, remote_path)
+        source_uri = remote_source_uri(profile.protocol, profile.profile_id, remote_path)
         latest = self.backup.latest_backup(category="remote_server_config", source_path=source_uri)
         if not latest:
             log.warning("No remote server config backups available for %s", source_uri)
@@ -172,7 +174,7 @@ class RemoteConfigService:
         if not remote_path:
             return False
 
-        source_uri = remote_source_uri(profile.profile_id, remote_path)
+        source_uri = remote_source_uri(profile.protocol, profile.profile_id, remote_path)
         latest = self.backup.latest_backup(category="remote_world_config", source_path=source_uri)
         if not latest:
             log.warning("No remote world config backups available for %s", source_uri)
@@ -181,7 +183,7 @@ class RemoteConfigService:
 
     def restore_backup_record(self, record: BackupRecord) -> bool:
         try:
-            profile_id, remote_path = parse_remote_source_uri(record.source_path)
+            _protocol, profile_id, remote_path = parse_remote_source_uri(record.source_path)
         except ValueError:
             return False
 
@@ -219,7 +221,7 @@ class RemoteConfigService:
             log.warning("Could not back up remote file %s before save: %s", remote_path, exc)
             return
 
-        source_uri = remote_source_uri(profile.profile_id, remote_path)
+        source_uri = remote_source_uri(profile.protocol, profile.profile_id, remote_path)
         self.backup.backup_bytes(
             source_path=source_uri,
             filename=PurePosixPath(remote_path).name or "remote_config.json",

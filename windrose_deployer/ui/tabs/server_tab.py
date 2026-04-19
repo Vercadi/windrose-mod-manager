@@ -21,7 +21,13 @@ from ...core.live_mod_inventory import (
 from ...core.remote_deployer import plan_remote_deployment
 from ...models.deployment_record import DeploymentRecord
 from ...models.mod_install import expand_target_values
-from ...models.remote_profile import RemoteProfile
+from ...models.remote_profile import (
+    RemoteProfile,
+    SUPPORTED_REMOTE_PROTOCOLS,
+    default_port_for_protocol,
+    normalize_remote_endpoint,
+    normalize_remote_protocol,
+)
 from ...models.server_config import ServerConfig
 from ...models.world_config import (
     BOOL_PARAM_SPEC,
@@ -44,7 +50,7 @@ _CD_FROM_DISPLAY = {v: k for k, v in _CD_DISPLAY.items()}
 
 
 class ServerTab(ctk.CTkFrame):
-    def __init__(self, master, app: AppWindow, **kwargs):
+    def __init__(self, master, app: AppWindow, *, defer_initial_refresh: bool = False, **kwargs):
         super().__init__(master, **kwargs)
         self.app = app
         self._config: Optional[ServerConfig] = None
@@ -60,6 +66,8 @@ class ServerTab(ctk.CTkFrame):
         self._status_boxes: list[ctk.CTkTextbox] = []
         self._hosted_dashboard_state = "Not configured"
         self._hosted_dashboard_profile_id: str | None = None
+        self._last_compare_summary = "No compare run yet"
+        self._last_compare_state = "not_run"
 
         self.grid_columnconfigure(0, weight=3)
         self.grid_columnconfigure(1, weight=2)
@@ -69,7 +77,7 @@ class ServerTab(ctk.CTkFrame):
         self._build_scrollable_body()
         self._build_actions()
         self.refresh_remote_profiles()
-        self._on_source_changed("dedicated_server")
+        self._on_source_changed("dedicated_server", refresh_inventory=not defer_initial_refresh)
 
     # ================================================================== layout
 
@@ -690,7 +698,7 @@ class ServerTab(ctk.CTkFrame):
         if "_dashboard_tab" in self.app.__dict__:
             self.app._dashboard_tab.refresh_view()
 
-    def _on_source_changed(self, value: str) -> None:
+    def _on_source_changed(self, value: str, *, refresh_inventory: bool = True) -> None:
         self._source_value = value
         self._source_var.set(value)
         is_hosted = value == "hosted"
@@ -741,7 +749,7 @@ class ServerTab(ctk.CTkFrame):
                 self._set_status_box(self._inventory_box, "Choose a hosted profile first.")
             else:
                 self._set_status_box(self._inventory_box, "Select Refresh Server Mods to load the hosted ~mods inventory.")
-        else:
+        elif refresh_inventory:
             self._refresh_server_inventory()
         self._refresh_dashboard()
 
@@ -817,17 +825,38 @@ class ServerTab(ctk.CTkFrame):
             "save_world_config",
             "save_remote_server_config",
             "save_remote_world_config",
-            "launch_game",
-            "launch_server",
-            "hosted_upload",
-            "hosted_remove",
-            "manual_backup",
         }
         for record in reversed(self.app.manifest.list_history()):
             if record.action in actions:
                 label = record.action.replace("_", " ")
                 return f"{label.title()} @ {record.timestamp[:19].replace('T', ' ')}"
-        return "No recent apply/launch actions"
+        return "No recent apply actions"
+
+    def _last_restart_text(self) -> str:
+        actions = {
+            "hosted_restart",
+            "launch_server",
+        }
+        for record in reversed(self.app.manifest.list_history()):
+            if record.action in actions:
+                label = record.action.replace("_", " ")
+                return f"{label.title()} @ {record.timestamp[:19].replace('T', ' ')}"
+        return "No restart or launch yet"
+
+    def dashboard_parity_state(self) -> tuple[str, str]:
+        return self._last_compare_state, self._last_compare_summary
+
+    def _remember_compare_report(self, report) -> None:
+        self._last_compare_summary = report.summary
+        self._last_compare_state = "clean" if report.review_needed == 0 and report.items else ("review" if report.review_needed else "not_run")
+        if "_dashboard_tab" in self.app.__dict__:
+            self.app._dashboard_tab.refresh_view()
+
+    def _remember_compare_error(self, message: str) -> None:
+        self._last_compare_state = "review"
+        self._last_compare_summary = message
+        if "_dashboard_tab" in self.app.__dict__:
+            self.app._dashboard_tab.refresh_view()
 
     @staticmethod
     def _world_display_name(config: WorldConfig | None) -> str:
@@ -955,11 +984,13 @@ class ServerTab(ctk.CTkFrame):
         if self._source_var.get() == "hosted":
             profile = self._selected_remote_profile()
             if profile is None:
-                text = "Mode: Hosted Server\nProfile: (not selected)\nServer Folder: (not set)"
+                text = "Mode: Hosted Server\nProfile: (not selected)\nProtocol: (not set)\nServer Folder: (not set)"
             else:
+                protocol = normalize_remote_protocol(profile.protocol).upper()
                 text = (
                     f"Mode: Hosted Server\n"
                     f"Profile: {profile.name}\n"
+                    f"Protocol: {protocol}\n"
                     f"Host: {profile.host}:{profile.port}\n"
                     f"Server Folder: {profile.remote_root_dir or '(not set)'}"
                 )
@@ -984,8 +1015,10 @@ class ServerTab(ctk.CTkFrame):
         ]
         if self._source_var.get() == "hosted":
             profile = self._selected_remote_profile()
-            if profile and profile.restart_command:
+            if profile and profile.supports_remote_execute() and profile.restart_command:
                 lines.append("Restart: hosted command is configured.")
+            elif profile and not profile.supports_remote_execute():
+                lines.append("Restart: unavailable for FTP profiles. FTP supports file access only.")
             else:
                 lines.append("Restart: hosted command is not configured.")
         else:
@@ -1233,15 +1266,24 @@ class ServerTab(ctk.CTkFrame):
                     remote_files = self.app.remote_deployer.list_remote_files(profile)
                     report = self.app.server_sync.compare_hosted(self.app.manifest.list_mods(), remote_files)
                     text = self._sync_report_text(report)
+                    def _show() -> None:
+                        if self.winfo_exists():
+                            self._set_status_box(self._sync_box, text)
+                            self._remember_compare_report(report)
                 except Exception as exc:
                     text = f"Hosted comparison failed:\n{exc}"
-                self.app.dispatch_to_ui(lambda: self.winfo_exists() and self._set_status_box(self._sync_box, text))
+                    def _show() -> None:
+                        if self.winfo_exists():
+                            self._set_status_box(self._sync_box, text)
+                            self._remember_compare_error("Hosted compare failed")
+                self.app.dispatch_to_ui(_show)
 
             threading.Thread(target=_work, daemon=True).start()
             return
 
         report = self.app.server_sync.compare_local(self.app.manifest.list_mods(), target=self._active_local_target())
         self._set_status_box(self._sync_box, self._sync_report_text(report))
+        self._remember_compare_report(report)
 
     @staticmethod
     def _sync_report_text(report) -> str:
@@ -1264,6 +1306,24 @@ class ServerTab(ctk.CTkFrame):
         if not profile_id:
             return None
         return self.app.remote_profiles.get_profile(profile_id)
+
+    @staticmethod
+    def _hosted_protocol_help(protocol: str) -> str:
+        if normalize_remote_protocol(protocol) == "ftp":
+            return (
+                "Host / IP = the FTP hostname or server IP from your provider panel. "
+                "Indifferent Broccoli uses FTP on port 21. Host Havoc may also expose FTP Info on some services."
+            )
+        return (
+            "Host / IP = the SFTP hostname or LAN IP from your provider panel. "
+            "Host Havoc may expose separate FTP Info and SFTP Info. Use the panel values exactly as shown."
+        )
+
+    @staticmethod
+    def _hosted_restart_help(protocol: str) -> str:
+        if normalize_remote_protocol(protocol) == "ftp":
+            return "Restart commands are unavailable for FTP profiles. FTP supports file access only."
+        return "Optional SFTP/SSH restart command to run after Apply and Restart."
 
     # ================================================================== Server handlers
 
@@ -1833,6 +1893,7 @@ class ServerTab(ctk.CTkFrame):
         current = self._selected_remote_profile() or RemoteProfile.new("Hosted Server")
         vars_map = {
             "name": ctk.StringVar(value=current.name),
+            "protocol": ctk.StringVar(value=normalize_remote_protocol(current.protocol)),
             "host": ctk.StringVar(value=current.host),
             "port": ctk.StringVar(value=str(current.port)),
             "username": ctk.StringVar(value=current.username),
@@ -1852,7 +1913,7 @@ class ServerTab(ctk.CTkFrame):
             body,
             text=(
                 "Start with the hosted server folder. The manager can derive the Windrose mods folder, "
-                "server settings file, and world saves folder from it. If your SFTP login already opens inside "
+                "server settings file, and world saves folder from it. If your login already opens inside "
                 "the Windrose server folder, you can enter '.' here or leave it blank and fill the overrides manually."
             ),
             justify="left",
@@ -1871,37 +1932,49 @@ class ServerTab(ctk.CTkFrame):
         ctk.CTkEntry(connection, textvariable=vars_map["name"]).grid(
             row=1, column=1, columnspan=3, sticky="ew", padx=8, pady=4
         )
-        ctk.CTkLabel(connection, text="Host:").grid(row=2, column=0, sticky="w", padx=12, pady=4)
-        ctk.CTkEntry(connection, textvariable=vars_map["host"]).grid(row=2, column=1, sticky="ew", padx=8, pady=4)
-        ctk.CTkLabel(connection, text="Port:").grid(row=2, column=2, sticky="w", padx=(8, 4), pady=4)
-        ctk.CTkEntry(connection, textvariable=vars_map["port"], width=86).grid(row=2, column=3, sticky="e", padx=(0, 12), pady=4)
-        ctk.CTkLabel(
+        ctk.CTkLabel(connection, text="Protocol:").grid(row=2, column=0, sticky="w", padx=12, pady=4)
+        protocol_menu = ctk.CTkOptionMenu(
             connection,
-            text="Host = your SSH/SFTP hostname or LAN IP. Port = the SSH/SFTP port, usually 22.",
+            variable=vars_map["protocol"],
+            values=list(SUPPORTED_REMOTE_PROTOCOLS),
+            width=120,
+        )
+        protocol_menu.grid(row=2, column=1, sticky="w", padx=8, pady=4)
+        ctk.CTkLabel(connection, text="Host / IP:").grid(row=3, column=0, sticky="w", padx=12, pady=4)
+        ctk.CTkEntry(connection, textvariable=vars_map["host"]).grid(row=3, column=1, sticky="ew", padx=8, pady=4)
+        ctk.CTkLabel(connection, text="Port:").grid(row=3, column=2, sticky="w", padx=(8, 4), pady=4)
+        ctk.CTkEntry(connection, textvariable=vars_map["port"], width=86).grid(row=3, column=3, sticky="e", padx=(0, 12), pady=4)
+        protocol_hint_label = ctk.CTkLabel(
+            connection,
+            text="",
             justify="left",
             wraplength=310,
             text_color="#95a5a6",
-        ).grid(row=3, column=1, columnspan=3, sticky="ew", padx=8, pady=(0, 4))
-        ctk.CTkEntry(connection, textvariable=vars_map["username"]).grid(
-            row=4, column=1, columnspan=3, sticky="ew", padx=8, pady=4
         )
-        ctk.CTkLabel(connection, text="Username:").grid(row=4, column=0, sticky="w", padx=12, pady=4)
-        ctk.CTkLabel(connection, text="Auth Mode:").grid(row=5, column=0, sticky="w", padx=12, pady=4)
+        protocol_hint_label.grid(row=4, column=1, columnspan=3, sticky="ew", padx=8, pady=(0, 4))
+        ctk.CTkEntry(connection, textvariable=vars_map["username"]).grid(
+            row=5, column=1, columnspan=3, sticky="ew", padx=8, pady=4
+        )
+        ctk.CTkLabel(connection, text="Username:").grid(row=5, column=0, sticky="w", padx=12, pady=4)
+        auth_mode_label = ctk.CTkLabel(connection, text="Auth Mode:")
+        auth_mode_label.grid(row=6, column=0, sticky="w", padx=12, pady=4)
         auth_menu = ctk.CTkOptionMenu(connection, variable=auth_var, values=["password", "key"], width=120)
-        auth_menu.grid(row=5, column=1, sticky="w", padx=8, pady=4)
-        ctk.CTkLabel(
+        auth_menu.grid(row=6, column=1, sticky="w", padx=8, pady=4)
+        auth_hint_label = ctk.CTkLabel(
             connection,
             text="Use password for hosting-panel accounts or a private key for OpenSSH/SFTP logins.",
             justify="left",
             wraplength=310,
             text_color="#95a5a6",
-        ).grid(row=5, column=2, columnspan=2, sticky="ew", padx=(8, 12), pady=4)
-        ctk.CTkLabel(connection, text="Password:").grid(row=6, column=0, sticky="w", padx=12, pady=4)
+        )
+        auth_hint_label.grid(row=6, column=2, columnspan=2, sticky="ew", padx=(8, 12), pady=4)
+        ctk.CTkLabel(connection, text="Password:").grid(row=7, column=0, sticky="w", padx=12, pady=4)
         password_entry = ctk.CTkEntry(connection, textvariable=vars_map["password"], show="*")
-        password_entry.grid(row=6, column=1, columnspan=3, sticky="ew", padx=8, pady=4)
-        ctk.CTkLabel(connection, text="Private Key:").grid(row=7, column=0, sticky="w", padx=12, pady=4)
+        password_entry.grid(row=7, column=1, columnspan=3, sticky="ew", padx=8, pady=4)
+        key_label = ctk.CTkLabel(connection, text="Private Key:")
+        key_label.grid(row=8, column=0, sticky="w", padx=12, pady=4)
         key_row = ctk.CTkFrame(connection, fg_color="transparent")
-        key_row.grid(row=7, column=1, columnspan=3, sticky="ew", padx=8, pady=4)
+        key_row.grid(row=8, column=1, columnspan=3, sticky="ew", padx=8, pady=4)
         key_row.grid_columnconfigure(0, weight=1)
         key_entry = ctk.CTkEntry(key_row, textvariable=vars_map["key"])
         key_entry.grid(row=0, column=0, sticky="ew", padx=(0, 6))
@@ -1947,65 +2020,137 @@ class ServerTab(ctk.CTkFrame):
             ("Mods Folder Override", "mods"),
             ("Server Settings File Override", "server_desc"),
             ("World Saves Folder Override", "save_root"),
-            ("Restart Command", "restart"),
         ]
         for row, (label, key) in enumerate(advanced_fields, start=2):
             ctk.CTkLabel(overrides, text=label + ":").grid(row=row, column=0, sticky="w", padx=12, pady=4)
             ctk.CTkEntry(overrides, textvariable=vars_map[key]).grid(row=row, column=1, sticky="ew", padx=8, pady=4)
+        restart_label = ctk.CTkLabel(overrides, text="Restart Command:")
+        restart_label.grid(row=5, column=0, sticky="w", padx=12, pady=4)
+        restart_entry = ctk.CTkEntry(overrides, textvariable=vars_map["restart"])
+        restart_entry.grid(row=5, column=1, sticky="ew", padx=8, pady=4)
+        restart_hint_label = ctk.CTkLabel(
+            overrides,
+            text="",
+            justify="left",
+            wraplength=520,
+            text_color="#95a5a6",
+        )
+        restart_hint_label.grid(row=6, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
 
         status = ctk.CTkLabel(body, text="", text_color="#95a5a6", justify="left", wraplength=520)
         status.grid(row=5, column=0, sticky="ew", padx=8, pady=(4, 8))
 
         def _build_profile() -> RemoteProfile:
+            host, port, resolved_protocol = normalize_remote_endpoint(
+                vars_map["host"].get().strip(),
+                vars_map["port"].get().strip(),
+                protocol=vars_map["protocol"].get(),
+            )
             profile = RemoteProfile(
                 profile_id=current.profile_id,
                 name=vars_map["name"].get().strip() or "Hosted Server",
-                host=vars_map["host"].get().strip(),
-                port=int(vars_map["port"].get().strip() or 22),
+                protocol=resolved_protocol,
+                host=host,
+                port=port,
                 username=vars_map["username"].get().strip(),
-                auth_mode=auth_var.get(),
+                auth_mode=auth_var.get() if resolved_protocol == "sftp" else "password",
                 password=vars_map["password"].get(),
-                private_key_path=vars_map["key"].get().strip(),
+                private_key_path=vars_map["key"].get().strip() if resolved_protocol == "sftp" else "",
                 remote_root_dir=vars_map["root"].get().strip(),
                 remote_mods_dir=vars_map["mods"].get().strip(),
                 remote_server_description_path=vars_map["server_desc"].get().strip(),
                 remote_save_root=vars_map["save_root"].get().strip(),
-                restart_command=vars_map["restart"].get().strip(),
+                restart_command=vars_map["restart"].get().strip() if resolved_protocol == "sftp" else "",
             )
             profile.apply_root_defaults(overwrite=False)
             return profile
+
+        def _apply_profile_fields(profile: RemoteProfile) -> None:
+            vars_map["protocol"].set(normalize_remote_protocol(profile.protocol))
+            vars_map["host"].set(profile.host)
+            vars_map["port"].set(str(profile.port))
+            vars_map["root"].set(profile.remote_root_dir)
+            vars_map["mods"].set(profile.remote_mods_dir)
+            vars_map["server_desc"].set(profile.remote_server_description_path)
+            vars_map["save_root"].set(profile.remote_save_root)
+            vars_map["restart"].set(profile.restart_command)
+            if profile.supports_key_auth():
+                auth_var.set(profile.auth_mode or "password")
+                vars_map["key"].set(profile.private_key_path)
+            else:
+                auth_var.set("password")
+                vars_map["key"].set("")
 
         def _apply_root_defaults(overwrite: bool = True) -> None:
             try:
                 profile = _build_profile()
             except ValueError:
-                messagebox.showerror("Invalid Port", "Port must be a whole number.")
+                messagebox.showerror("Invalid Endpoint", "Host / IP and port must be valid.")
                 return
             if not profile.remote_root_dir.strip():
                 status.configure(text="Enter the hosted server folder first.", text_color="#c0392b")
                 return
             profile.apply_root_defaults(overwrite=overwrite)
-            vars_map["root"].set(profile.remote_root_dir)
-            vars_map["mods"].set(profile.remote_mods_dir)
-            vars_map["server_desc"].set(profile.remote_server_description_path)
-            vars_map["save_root"].set(profile.remote_save_root)
+            _apply_profile_fields(profile)
             status.configure(
                 text="Derived Windrose hosted paths from the server folder. Review them before saving.",
                 text_color="#2d8a4e",
             )
 
+        sync_state = {"last_protocol": normalize_remote_protocol(vars_map["protocol"].get())}
+
         def _sync_auth_fields(*_args) -> None:
-            is_key = auth_var.get() == "key"
-            password_entry.configure(state="disabled" if is_key else "normal")
-            key_entry.configure(state="normal" if is_key else "disabled")
-            key_browse_btn.configure(state="normal" if is_key else "disabled")
+            protocol = normalize_remote_protocol(vars_map["protocol"].get())
+            is_ftp = protocol == "ftp"
+            is_key = auth_var.get() == "key" and not is_ftp
+            protocol_hint_label.configure(text=self._hosted_protocol_help(protocol))
+            restart_hint_label.configure(text=self._hosted_restart_help(protocol))
+            previous_protocol = sync_state["last_protocol"]
+            previous_default = str(default_port_for_protocol(previous_protocol))
+            if (not vars_map["port"].get().strip()) or vars_map["port"].get().strip() == previous_default:
+                vars_map["port"].set(str(default_port_for_protocol(protocol)))
+            sync_state["last_protocol"] = protocol
+
+            if is_ftp:
+                if auth_var.get() != "password":
+                    auth_var.set("password")
+                if auth_mode_label.winfo_manager():
+                    auth_mode_label.grid_remove()
+                if auth_menu.winfo_manager():
+                    auth_menu.grid_remove()
+                if auth_hint_label.winfo_manager():
+                    auth_hint_label.grid_remove()
+                if key_label.winfo_manager():
+                    key_label.grid_remove()
+                if key_row.winfo_manager():
+                    key_row.grid_remove()
+                password_entry.configure(state="normal")
+                key_entry.configure(state="disabled")
+                key_browse_btn.configure(state="disabled")
+                restart_entry.configure(state="disabled")
+            else:
+                if not auth_mode_label.winfo_manager():
+                    auth_mode_label.grid()
+                if not auth_menu.winfo_manager():
+                    auth_menu.grid()
+                if not auth_hint_label.winfo_manager():
+                    auth_hint_label.grid()
+                if not key_label.winfo_manager():
+                    key_label.grid()
+                if not key_row.winfo_manager():
+                    key_row.grid()
+                password_entry.configure(state="disabled" if is_key else "normal")
+                key_entry.configure(state="normal" if is_key else "disabled")
+                key_browse_btn.configure(state="normal" if is_key else "disabled")
+                restart_entry.configure(state="normal")
 
         def _save() -> None:
             try:
                 profile = _build_profile()
             except ValueError:
-                messagebox.showerror("Invalid Port", "Port must be a whole number.")
+                messagebox.showerror("Invalid Endpoint", "Host / IP and port must be valid.")
                 return
+            _apply_profile_fields(profile)
             self.app.remote_profiles.upsert(profile)
             self.refresh_remote_profiles()
             for label, profile_id in self._remote_profile_labels.items():
@@ -2020,8 +2165,9 @@ class ServerTab(ctk.CTkFrame):
             try:
                 profile = _build_profile()
             except ValueError:
-                messagebox.showerror("Invalid Port", "Port must be a whole number.")
+                messagebox.showerror("Invalid Endpoint", "Host / IP and port must be valid.")
                 return
+            _apply_profile_fields(profile)
             status.configure(text="Testing hosted connection...", text_color="#95a5a6")
 
             def _work() -> None:
@@ -2048,6 +2194,7 @@ class ServerTab(ctk.CTkFrame):
         ctk.CTkButton(buttons, text="Test Connection", width=120, command=_test).pack(side="left", padx=6)
         ctk.CTkButton(buttons, text="Save Profile", width=110, fg_color="#2d8a4e", hover_color="#236b3d", command=_save).pack(side="left", padx=6)
         ctk.CTkButton(buttons, text="Close", width=100, fg_color="#444444", hover_color="#555555", command=dialog.destroy).pack(side="right")
+        vars_map["protocol"].trace_add("write", _sync_auth_fields)
         auth_var.trace_add("write", _sync_auth_fields)
         _sync_auth_fields()
 

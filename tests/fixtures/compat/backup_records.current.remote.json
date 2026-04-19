@@ -1,0 +1,20 @@
+{
+  "records": [
+    {
+      "backup_id": "remote_server_config_20260416_071621_ServerDescription.json",
+      "timestamp": "2026-04-16T07:16:21.602755",
+      "category": "remote_server_config",
+      "source_path": "sftp://profile-hosted-b/C:/Servers/WindroseRemoteTest/R5/ServerDescription.json",
+      "backup_path": "H:\\Windrose\\Windrose Mod Deployer\\backups\\server_config\\20260416_071621_ServerDescription.json",
+      "description": "Pre-save backup of remote ServerDescription.json"
+    },
+    {
+      "backup_id": "remote_world_config_20260416_071624_WorldDescription.json",
+      "timestamp": "2026-04-16T07:16:24.144628",
+      "category": "remote_world_config",
+      "source_path": "sftp://profile-hosted-b/C:/Servers/WindroseRemoteTest/R5/Saved/SaveProfiles/profileA/RocksDB/v1/Worlds/worldA/WorldDescription.json",
+      "backup_path": "H:\\Windrose\\Windrose Mod Deployer\\backups\\server_config\\20260416_071624_WorldDescription.json",
+      "description": "Pre-save backup of remote WorldDescription.json (Remote Test World)"
+    }
+  ]
+}

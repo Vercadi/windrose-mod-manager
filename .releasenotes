@@ -1,48 +1,46 @@
-## Windrose Mod Manager v0.4.0
+## Windrose Mod Manager v0.5.1
 
-Windrose Mod Manager v0.4.0 is a major workflow update focused on install target clarity, cleaner applied/archive visibility, better local/dedicated/hosted separation, and safer multi-target mod management.
+Windrose Mod Manager v0.5.1 focuses on faster startup, a more useful operations-first Dashboard, and broader hosted-server support for the providers people are actually asking about.
 
 ### Highlights
 
-- Replaced vague target wording with clearer names: `Client`, `Local Server`, `Dedicated Server`, and `Hosted Server`
-- Replaced `Both` with explicit install presets such as `Client + Local Server` and `Client + Dedicated Server`
-- Reworked the Mods workspace around clearer `Applied Mods` and `Archives` sections
-- Added target scope filters directly in Mods: `All`, `Client`, `Local Server`, `Dedicated Server`, and `Hosted Server`
-- Archives now default to `Available Archives`, so already-applied source archives are hidden from the main archive list until uninstalled
-- Added inline archive install menus and reduced extra install popups
-- Added multi-select install and uninstall actions in the Mods workspace
-- Added real live `~mods` folder scanning for client, local server, dedicated server, and hosted server targets
-- Hosted server mods can now be selected and uninstalled from the Mods screen
-- Older combined client/local installs are normalized into separate records automatically when possible
+- Faster startup with lighter boot refresh behavior and lazy first-open loading for non-visible tabs
+- Rebuilt Dashboard into a real operations home with status, current setup, parity summary, and quick actions
+- Added hosted support for both `SFTP` and `FTP`
+- Better support for real provider setups such as Host Havoc and Indifferent Broccoli
+- Hosted setup now has clearer protocol selection, `Host / IP` wording, preserved explicit ports, and better mismatch feedback
+- Dashboard parity checks now update in place, with a separate `Open Full Compare` action for the detailed Server view
+- Activity / Backups gained lazy raw-backup loading plus `Delete Selected` and `Delete All` cleanup actions
 
-### Workflow and Safety Improvements
+### Hosted Server Support
 
-- Combined multi-target install presets are transactional and roll back completed targets if a later target fails
-- `Client + Local Server` and `Client + Dedicated Server` installs now create separate target records instead of one ambiguous combined record
-- Added `Install To...` on applied rows so existing installs can be extended to additional targets later
-- Added direct folder-opening actions from archive, applied, and live-item menus
-- Live unmanaged UE5 bundles now group `.pak`, `.utoc`, and `.ucas` companion files together as one item
-- Unmanaged live content now uses the normal applied-mod uninstall workflow instead of a special-case removal UI
-- Recovery, sync, and target summaries now use the updated target terminology throughout the app
+- Existing `SFTP` hosted workflows remain supported
+- Existing hosted profiles without a protocol field still load as `SFTP`
+- FTP support is file-transfer only in `v0.5.1`
+- FTP supports hosted inventory, upload, delete, and file-based config access where supported
+- FTP does not provide restart-command automation in this release
 
-### UX Improvements
+### Dashboard and Workflow Improvements
 
-- Increased the default app window size for a better fit
-- The large Mods details tray is now hidden by default and can be opened only when needed
-- Welcome dialog now only auto-shows on first run and has a `Don't show this again` option
-- Remaining dialogs now open centered over the app window
-- Continued density and readability cleanup across the app
+- Dashboard now shows:
+  - Windrose running / not running
+  - Local Server configured / running / not configured
+  - Dedicated Server configured / running / not configured
+  - Hosted connected / offline / not configured
+- Current setup summary includes active source, world, hosted profile, recent backup state, and real apply/save history
+- Quick actions now expose launch, folder-open, backup, and compare flows from one place
 
-### Packaging Note
+### Activity and Recovery Improvements
 
-- UPX remains disabled in the PyInstaller spec to reduce heuristic antivirus false positives on unsigned Windows builds
-- Some antivirus engines may still produce low-confidence static-ML false positives on bundled Python runtime modules; the source code and release hashes are public for verification
+- Raw backup copies are no longer rebuilt on every Activity refresh when the advanced browser is hidden
+- Raw backup cleanup is easier with bulk delete actions
+- Older hosted backup/recovery records using `sftp://...` source identity remain compatible
 
 ### Validation
 
-- `python -m py_compile ...` on the touched `0.4.0` release files
-- `python -m pytest tests/test_safety.py tests/test_ui_preferences.py tests/test_live_mod_inventory.py tests/test_target_labels.py --basetemp ... -o cache_dir=...` -> 49 passed
+- `python -m py_compile windrose_deployer\\core\\remote_deployer.py windrose_deployer\\core\\remote_config_service.py windrose_deployer\\core\\ftp_provider.py windrose_deployer\\core\\remote_provider_factory.py windrose_deployer\\models\\remote_profile.py windrose_deployer\\ui\\app_window.py windrose_deployer\\ui\\tabs\\backups_tab.py windrose_deployer\\ui\\tabs\\dashboard_tab.py windrose_deployer\\ui\\tabs\\server_tab.py`
+- `python -m pytest -q --basetemp "H:\\Moddding\\Windrose\\Windrose Mod Deployer\\.pytest_tmp_v051_finish" -o cache_dir="H:\\Moddding\\Windrose\\Windrose Mod Deployer\\.pytest_cache_v051_finish"` -> `164 passed`
 
 ### Full Changelog
 
-https://github.com/Vercadi/windrose-mod-manager/commits/v0.4.0
+https://github.com/Vercadi/windrose-mod-manager/commits/v0.5.1

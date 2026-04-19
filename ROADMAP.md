@@ -143,6 +143,14 @@ High-level direction:
 - [ ] Framework/dependency awareness
 - [ ] Narrow, preview-first Profiles
 
+### v0.5.2 follow-up polish
+- [ ] Dashboard `Run Compare` should run/update parity in place and only jump to `Server` for the full detailed report
+- [ ] Dashboard should let the user change the active compare/source target directly instead of depending on whatever is currently selected in `Server`
+- [ ] Activity / Backups should support clearer cleanup actions:
+  - delete all raw backup copies
+  - delete selected backup copies
+- [ ] Activity tab performance pass so large timelines/raw backup lists feel lighter to open and refresh
+
 ---
 
 ## v1.0 - Framework Extraction (future)

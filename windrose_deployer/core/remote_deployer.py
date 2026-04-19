@@ -7,11 +7,11 @@ from pathlib import Path, PurePosixPath
 from typing import Callable, Optional
 
 from ..models.archive_info import ArchiveEntry, ArchiveInfo
-from ..models.remote_profile import RemoteProfile
+from ..models.remote_profile import RemoteProfile, normalize_remote_protocol
 from .archive_handler import open_archive
 from .installer import _is_safe_relative_path
 from .remote_provider import RemoteProvider
-from .sftp_provider import SftpProvider
+from .remote_provider_factory import create_remote_provider
 from .target_resolver import strip_archive_prefix
 
 log = logging.getLogger(__name__)
@@ -154,7 +154,7 @@ def _join_remote(root: str, rel: str) -> str:
 
 class RemoteDeploymentService:
     def __init__(self, provider_factory: Callable[[RemoteProfile], RemoteProvider] | None = None):
-        self.provider_factory = provider_factory or (lambda profile: SftpProvider(profile))
+        self.provider_factory = provider_factory or create_remote_provider
 
     def test_connection(self, profile: RemoteProfile) -> tuple[bool, str]:
         provider: RemoteProvider | None = None
@@ -197,7 +197,7 @@ class RemoteDeploymentService:
                 "or leave it blank and fill the overrides manually."
             )
         except Exception as exc:
-            message = str(exc)
+            message = self._friendly_connection_error(profile, exc)
             if "paramiko is required" in message.lower():
                 message += " Run 'python -m pip install -r requirements.txt' when testing from source."
             return False, message
@@ -266,6 +266,8 @@ class RemoteDeploymentService:
         return deleted, failed
 
     def restart_remote(self, profile: RemoteProfile) -> tuple[bool, str]:
+        if not profile.supports_remote_execute():
+            return False, "Restart commands are only available for SFTP/SSH profiles. FTP supports file access only."
         if not profile.restart_command.strip():
             return False, "No restart command is configured for this profile."
 
@@ -274,3 +276,36 @@ class RemoteDeploymentService:
             return provider.execute(profile.restart_command.strip())
         finally:
             provider.close()
+
+    @staticmethod
+    def _friendly_connection_error(profile: RemoteProfile, exc: Exception) -> str:
+        protocol = normalize_remote_protocol(profile.protocol)
+        message = str(exc).strip() or exc.__class__.__name__
+        lowered = message.lower()
+
+        if protocol == "sftp":
+            if "error reading ssh protocol banner" in lowered or "banner timeout" in lowered:
+                return (
+                    "Connection failed. The selected protocol is SFTP, but the host did not respond like an SFTP/SSH service. "
+                    "The selected protocol likely does not match the host. Use the provider's FTP Info or SFTP Info exactly as shown."
+                )
+            if "authentication failed" in lowered:
+                return "Connection failed. The SFTP username, password, or private key was rejected."
+            return message
+
+        if protocol == "ftp":
+            if "timed out" in lowered or "connection reset" in lowered or "connection refused" in lowered:
+                return (
+                    "Connection failed. The selected protocol is FTP, but the host did not respond like an FTP service. "
+                    "Check that the provider really gave FTP credentials, the port is correct, and the selected protocol matches the host."
+                )
+            if "530" in lowered or "login incorrect" in lowered or "not logged in" in lowered:
+                return "Connection failed. The FTP username or password was rejected."
+            if "502" in lowered or "500" in lowered or "unknown command" in lowered:
+                return (
+                    "Connection failed. The selected protocol is FTP, but the host response suggests the protocol may not match. "
+                    "If the provider offers SFTP Info instead, switch the profile to SFTP."
+                )
+            return message
+
+        return message

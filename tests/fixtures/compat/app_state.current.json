@@ -1,0 +1,42 @@
+{
+  "schema_version": 2,
+  "mods": [
+    {
+      "mod_id": "777977aab113410d99e8b6f6827f535c",
+      "display_name": "More Stacks 100x",
+      "source_archive": "G:\\Downloads\\MoreStacks 100x-28-1-0-1-1776195732.7z",
+      "archive_hash": "99a1a2ef81308471d743a5bf4b9884167226c24e90e8ed7e4da2521571063502",
+      "install_type": "pak_only",
+      "selected_variant": null,
+      "targets": [
+        "client"
+      ],
+      "installed_files": [
+        "F:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Content\\Paks\\~mods\\MoreStacks_100x_P.pak"
+      ],
+      "backed_up_files": [],
+      "backup_map": {},
+      "install_time": "2026-04-18T21:48:36.554297",
+      "enabled": true
+    }
+  ],
+  "history": [
+    {
+      "mod_id": "777977aab113410d99e8b6f6827f535c",
+      "timestamp": "2026-04-18T21:48:36.554297",
+      "target": "client",
+      "action": "install",
+      "display_name": "More Stacks 100x",
+      "source_archive": "G:\\Downloads\\MoreStacks 100x-28-1-0-1-1776195732.7z",
+      "notes": "Installed 1 file",
+      "files": [
+        {
+          "source_archive_path": "MoreStacks_100x_P.pak",
+          "dest_path": "F:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Content\\Paks\\~mods\\MoreStacks_100x_P.pak",
+          "backup_path": null,
+          "was_overwrite": false
+        }
+      ]
+    }
+  ]
+}

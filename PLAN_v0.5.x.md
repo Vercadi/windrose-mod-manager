@@ -286,6 +286,19 @@ This is the right place for follow-up polish after the larger v0.5.0 workflow ch
 - smarter framework/dependency hints
 - profile export/import polish
 
+### v0.5.2 polish items
+
+- Dashboard parity card should run compare in place and update the summary without forcing a tab jump
+- Add a secondary `Open Full Compare` action when the detailed report in `Server` is needed
+- Dashboard should allow changing the active compare/source target directly so parity checks are not tied to whatever was last selected in `Server`
+- Activity / Backups should support bulk cleanup:
+  - delete all raw backup copies
+  - delete selected raw backup copies
+- Activity tab performance pass:
+  - faster timeline refresh
+  - avoid rebuilding large raw backup lists unnecessarily
+  - keep the advanced raw-backup browser lazy where possible
+
 ## Defer For Later
 
 These are valid ideas, but should not be part of the first v0.5.x planning pass:

@@ -1,6 +1,6 @@
 # Windrose Mod Manager
 
-A Windows desktop app for modding **Windrose** safely across the client, the local dedicated server, and hosted servers with SFTP/SSH access.
+A Windows desktop app for modding **Windrose** safely across the client, the local dedicated server, and hosted servers with SFTP or FTP file access.
 
 **[Nexus Mods Page](https://www.nexusmods.com/windrose/mods/29)** | **[GitHub](https://github.com/Vercadi/windrose-mod-manager)**
 
@@ -28,7 +28,7 @@ This is not a generic mod organizer. It is a Windrose-specific client + server c
   - client
   - local server
   - both
-  - hosted server over SFTP
+  - hosted server over SFTP or FTP
 - Variant chooser for archives with multiple pak options
 - Drag-and-drop and multi-file archive import
 - Repair / verify support for managed installs
@@ -61,7 +61,7 @@ Grab the latest release from [Nexus Mods](https://www.nexusmods.com/windrose/mod
 
 ## Hosted Server Notes
 
-Hosted support is built for providers that give you **SFTP/SSH access** to the server files.
+Hosted support is built for providers that give you **SFTP or FTP access** to the server files.
 
 You will usually need:
 
@@ -71,7 +71,7 @@ You will usually need:
 - password or private key
 - the server folder path on the remote machine
 
-If your host does not expose SFTP/SSH file access, the hosted workflow in the app will not work.
+If your host does not expose SFTP or FTP file access, the hosted workflow in the app will not work.
 
 For local server management, the app supports the standalone Steam **Windrose Dedicated Server** install and uses its `R5` folder for settings and world saves.
 

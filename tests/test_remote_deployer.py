@@ -247,3 +247,43 @@ def test_test_connection_guides_blank_root_and_manual_overrides() -> None:
     assert ok
     assert "server folder" in message.lower()
     assert "overrides manually" in message.lower()
+
+
+def test_restart_remote_is_honest_for_ftp_profiles() -> None:
+    profile = _make_profile()
+    profile.protocol = "ftp"
+    profile.restart_command = "restart-now"
+    service = RemoteDeploymentService(provider_factory=lambda _profile: FakeRemoteProvider([]))
+
+    ok, message = service.restart_remote(profile)
+
+    assert not ok
+    assert "ftp supports file access only" in message.lower()
+
+
+def test_test_connection_reports_protocol_mismatch_for_sftp_banner_errors() -> None:
+    profile = _make_profile()
+    service = RemoteDeploymentService(
+        provider_factory=lambda _profile: (_ for _ in ()).throw(RuntimeError("Error reading SSH protocol banner")),
+    )
+
+    ok, message = service.test_connection(profile)
+
+    assert not ok
+    assert "selected protocol is sftp" in message.lower()
+    assert "likely does not match the host" in message.lower()
+
+
+def test_test_connection_reports_protocol_mismatch_for_ftp_timeouts() -> None:
+    profile = _make_profile()
+    profile.protocol = "ftp"
+    profile.port = 21
+    service = RemoteDeploymentService(
+        provider_factory=lambda _profile: (_ for _ in ()).throw(TimeoutError("timed out while waiting for welcome banner")),
+    )
+
+    ok, message = service.test_connection(profile)
+
+    assert not ok
+    assert "selected protocol is ftp" in message.lower()
+    assert "check that the provider really gave ftp credentials" in message.lower()

@@ -76,6 +76,7 @@ class AppWindow(ctk.CTk):
     """Root application window with optional drag-and-drop support."""
 
     def __init__(self):
+        self._startup_started_at = time.perf_counter()
         ctk.set_appearance_mode("dark")
         ctk.set_default_color_theme("blue")
         self._first_run = not SETTINGS_FILE.is_file()
@@ -100,10 +101,28 @@ class AppWindow(ctk.CTk):
 
         self._set_icon()
 
+        stage_started = time.perf_counter()
         self._init_services()
+        self._log_startup_timing("_init_services", stage_started)
+        stage_started = time.perf_counter()
         self._init_ui_preferences()
+        self._log_startup_timing("_init_ui_preferences", stage_started)
+        stage_started = time.perf_counter()
         self._build_ui()
+        self._log_startup_timing("_build_ui", stage_started)
+        stage_started = time.perf_counter()
         self._initial_load()
+        self._log_startup_timing("_initial_load", stage_started)
+        self.after_idle(self._log_startup_ready)
+
+    def _log_startup_timing(self, stage: str, started_at: float) -> None:
+        elapsed_ms = (time.perf_counter() - started_at) * 1000.0
+        total_ms = (time.perf_counter() - self._startup_started_at) * 1000.0
+        log.info("Startup timing | %s: %.1f ms (total %.1f ms)", stage, elapsed_ms, total_ms)
+
+    def _log_startup_ready(self) -> None:
+        total_ms = (time.perf_counter() - self._startup_started_at) * 1000.0
+        log.info("Startup timing | window_ready: %.1f ms total", total_ms)
 
     def _set_icon(self) -> None:
         """Set the window/taskbar icon from assets/.
@@ -142,18 +161,24 @@ class AppWindow(ctk.CTk):
     # ---------------------------------------------------------- services
 
     def _init_services(self) -> None:
+        stage_started = time.perf_counter()
         ensure_dir(DEFAULT_DATA_DIR)
         ensure_dir(DEFAULT_BACKUP_DIR)
 
         setup_logging(log_dir=DEFAULT_DATA_DIR)
+        self._log_startup_timing("_init_services.setup_logging", stage_started)
 
+        stage_started = time.perf_counter()
         self.paths = self._load_settings()
+        self._log_startup_timing("_init_services.load_settings", stage_started)
 
         if self.paths.data_dir is None:
             self.paths.data_dir = DEFAULT_DATA_DIR
         if self.paths.backup_dir is None:
             self.paths.backup_dir = DEFAULT_BACKUP_DIR
+        stage_started = time.perf_counter()
         reconciled_paths, changed = reconcile_paths(self.paths)
+        self._log_startup_timing("_init_services.reconcile_paths", stage_started)
         if changed:
             old_server_root = self.paths.server_root
             old_dedicated_server_root = self.paths.dedicated_server_root
@@ -172,7 +197,10 @@ class AppWindow(ctk.CTk):
         else:
             self.paths = reconciled_paths
 
+        stage_started = time.perf_counter()
         self._rebind_backup_services()
+        self._log_startup_timing("_init_services.rebind_backup_services", stage_started)
+        stage_started = time.perf_counter()
         self.manifest = ManifestStore(self.paths.data_dir)
         self.remote_profiles = RemoteProfileStore(self.paths.data_dir)
         self.profiles = ProfileStore(self.paths.data_dir)
@@ -181,6 +209,7 @@ class AppWindow(ctk.CTk):
         self.remote_config_svc = RemoteConfigService(self.backup, self.remote_profiles)
         self.recovery = RecoveryService(self.manifest, self.backup)
         self.server_sync = ServerSyncService()
+        self._log_startup_timing("_init_services.service_wiring", stage_started)
 
         log.info("Services initialized")
 
@@ -370,6 +399,7 @@ class AppWindow(ctk.CTk):
         self.grid_rowconfigure(1, weight=1)
         self._recovery_window = None
         self._recovery_tab = None
+        self._loaded_tabs: set[str] = set()
 
         self._build_update_banner()
 
@@ -378,7 +408,7 @@ class AppWindow(ctk.CTk):
         self._main_host.grid_columnconfigure(0, weight=1)
         self._main_host.grid_rowconfigure(0, weight=1)
 
-        self._tabview = ctk.CTkTabview(self._main_host)
+        self._tabview = ctk.CTkTabview(self._main_host, command=self._on_tab_changed)
         self._tabview.grid(row=0, column=0, sticky="nsew", pady=(0, 4))
 
         tab_dashboard = self._tabview.add("Dashboard")
@@ -402,7 +432,7 @@ class AppWindow(ctk.CTk):
         self._mods_tab = ModsTab(tab_mods, app=self)
         self._mods_tab.grid(row=0, column=0, sticky="nsew")
 
-        self._server_tab = ServerTab(tab_server, app=self)
+        self._server_tab = ServerTab(tab_server, app=self, defer_initial_refresh=True)
         self._server_tab.grid(row=0, column=0, sticky="nsew")
 
         self._dashboard_tab = DashboardTab(tab_dashboard, app=self)
@@ -414,7 +444,7 @@ class AppWindow(ctk.CTk):
         activity_host.grid(row=0, column=0, sticky="nsew", pady=(0, 6))
         activity_host.grid_columnconfigure(0, weight=1)
         activity_host.grid_rowconfigure(0, weight=1)
-        self._recovery_tab = BackupsTab(activity_host, app=self)
+        self._recovery_tab = BackupsTab(activity_host, app=self, auto_refresh=False)
         self._recovery_tab.grid(row=0, column=0, sticky="nsew")
 
         status_host = ctk.CTkFrame(tab_activity, fg_color="transparent")
@@ -440,6 +470,26 @@ class AppWindow(ctk.CTk):
         self._tabview.set("Dashboard")
         self._bind_shortcuts()
         self.refresh_ui_preferences()
+
+    def _on_tab_changed(self, tab_name: str) -> None:
+        if tab_name not in self._loaded_tabs:
+            self._refresh_tab(tab_name)
+            self._loaded_tabs.add(tab_name)
+
+    def _refresh_tab(self, tab_name: str) -> None:
+        if tab_name == "Dashboard":
+            self._dashboard_tab.refresh_view()
+        elif tab_name == "Mods":
+            self._mods_tab.refresh_view()
+        elif tab_name == "Server":
+            self._server_tab.refresh_view()
+        elif tab_name == "Activity":
+            if self._recovery_tab is not None:
+                self._recovery_tab.refresh()
+        elif tab_name == "Settings":
+            self._settings_tab.refresh_view()
+        elif tab_name == "Help":
+            self._about_tab.refresh_view()
 
     def dispatch_to_ui(self, callback) -> None:
         self._ui_call_queue.put(callback)
@@ -675,7 +725,9 @@ class AppWindow(ctk.CTk):
         """Run first-time discovery if no game or server path is configured."""
         if not self.paths.client_root and not self.paths.server_root and not self.paths.dedicated_server_root:
             log.info("No client or server roots configured — running auto-detection...")
+            stage_started = time.perf_counter()
             detected = discover_all()
+            self._log_startup_timing("_initial_load.discover_all", stage_started)
             if detected.client_root:
                 self.paths.client_root = detected.client_root
                 log.info("Auto-detected client: %s", detected.client_root)
@@ -691,16 +743,19 @@ class AppWindow(ctk.CTk):
                 self.paths.local_save_root = detected.local_save_root
             self.save_settings()
 
-        self._mods_tab.refresh_view()
-        self._server_tab.refresh_view()
+        stage_started = time.perf_counter()
+        self._update_mod_badge()
         if "_dashboard_tab" in self.__dict__:
             self._dashboard_tab.refresh_view()
-        self._about_tab.refresh_view()
-        if self._recovery_tab is not None:
-            self._recovery_tab.refresh()
-        self._warn_on_manifest_drift()
+            self._loaded_tabs.add("Dashboard")
+        self._log_startup_timing("_initial_load.refresh_initial_tab", stage_started)
+        stage_started = time.perf_counter()
+        self.after(400, self._warn_on_manifest_drift)
+        self._log_startup_timing("_initial_load.defer_manifest_drift_scan", stage_started)
 
+        stage_started = time.perf_counter()
         check_for_update(__version__, self._show_update_banner)
+        self._log_startup_timing("_initial_load.schedule_update_check", stage_started)
         self.after(300, self._maybe_show_welcome)
 
     # ---------------------------------------------------------- cross-tab helpers
@@ -735,8 +790,7 @@ class AppWindow(ctk.CTk):
 
     def open_recovery_center(self) -> None:
         self._tabview.set("Activity")
-        if self._recovery_tab is not None:
-            self._recovery_tab.refresh()
+        self._on_tab_changed("Activity")
 
     def open_remote_deploy(self, archive_path: str | Path | None = None) -> None:
         self._server_tab.open_hosted_install_dialog(archive_path)
@@ -767,19 +821,8 @@ class AppWindow(ctk.CTk):
 
     def _refresh_active_view(self) -> None:
         current = self._tabview.get()
-        if current == "Dashboard":
-            self._dashboard_tab.refresh_view()
-        elif current == "Mods":
-            self._mods_tab.refresh_view()
-        elif current == "Server":
-            self._server_tab.refresh_view()
-        elif current == "Activity":
-            if self._recovery_tab is not None:
-                self._recovery_tab.refresh()
-        elif current == "Settings":
-            self._settings_tab.refresh_view()
-        elif current == "Help":
-            self._about_tab.refresh_view()
+        self._refresh_tab(current)
+        self._loaded_tabs.add(current)
 
     def _maybe_show_welcome(self) -> None:
         should_show = self._first_run and self.preferences.show_welcome

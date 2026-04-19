@@ -5,6 +5,7 @@ import ctypes
 import logging
 import os
 import string
+import time
 from pathlib import Path
 from typing import Optional
 
@@ -147,19 +148,22 @@ def discover_local_save_root(
 
 def discover_all(known_client: Optional[Path] = None) -> AppPaths:
     """Run full discovery and return an AppPaths with all found paths."""
+    started_at = time.perf_counter()
     client = known_client if known_client and _validate_client_root(known_client) else discover_client_root()
     bundled_server = discover_bundled_server_root(client)
     dedicated_server = discover_dedicated_server_root()
     local_config = discover_local_config()
     local_save = discover_local_save_root(dedicated_server, bundled_server)
 
-    return AppPaths(
+    paths = AppPaths(
         client_root=client,
         server_root=bundled_server,
         dedicated_server_root=dedicated_server,
         local_config=local_config,
         local_save_root=local_save,
     )
+    log.info("Path discovery timing | discover_all: %.1f ms", (time.perf_counter() - started_at) * 1000.0)
+    return paths
 
 
 def legacy_server_root(client_root: Path) -> Path:
@@ -199,6 +203,7 @@ def reconcile_paths(paths: AppPaths) -> tuple[AppPaths, bool]:
     collapsed into one setting. Split those safely, then fill in any missing
     paths from discovery.
     """
+    started_at = time.perf_counter()
     current = AppPaths(
         client_root=paths.client_root,
         server_root=paths.server_root,
@@ -212,7 +217,33 @@ def reconcile_paths(paths: AppPaths) -> tuple[AppPaths, bool]:
 
     current, migrated = _split_legacy_server_settings(current)
     changed = changed or migrated
-    detected = discover_all(known_client=current.client_root)
+    detected = AppPaths()
+
+    needs_discovery = migrated
+    needs_discovery = needs_discovery or current.client_root is None or not _validate_client_root(current.client_root)
+    needs_discovery = needs_discovery or current.server_root is None or not _validate_server_root(current.server_root)
+    needs_discovery = needs_discovery or current.dedicated_server_root is None or not _validate_server_root(current.dedicated_server_root)
+    needs_discovery = needs_discovery or current.local_config is None or not current.local_config.is_dir()
+    needs_discovery = needs_discovery or current.local_save_root is None
+    needs_discovery = needs_discovery or (
+        current.local_save_root is not None
+        and not current.local_save_root.exists()
+        and not current.local_save_root.parent.exists()
+    )
+    needs_discovery = needs_discovery or (
+        current.local_save_root is not None
+        and current.local_save_root == default_local_save_root()
+    )
+
+    if needs_discovery:
+        detection_started_at = time.perf_counter()
+        detected = discover_all(known_client=current.client_root)
+        log.info(
+            "Path discovery timing | reconcile_paths.detect: %.1f ms",
+            (time.perf_counter() - detection_started_at) * 1000.0,
+        )
+    else:
+        log.info("Path discovery timing | reconcile_paths.detect: skipped (saved paths already valid)")
 
     if detected.client_root and (
         current.client_root is None or not _validate_client_root(current.client_root)
@@ -267,6 +298,11 @@ def reconcile_paths(paths: AppPaths) -> tuple[AppPaths, bool]:
             current.local_save_root = detected.local_save_root
             changed = True
 
+    log.info(
+        "Path discovery timing | reconcile_paths.total: %.1f ms (changed=%s)",
+        (time.perf_counter() - started_at) * 1000.0,
+        changed,
+    )
     return current, changed
 
 

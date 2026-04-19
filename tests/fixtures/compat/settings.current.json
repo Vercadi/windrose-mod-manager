@@ -1,0 +1,15 @@
+{
+  "paths": {
+    "client_root": "F:\\SteamLibrary\\steamapps\\common\\Windrose",
+    "server_root": "F:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Builds\\WindowsServer",
+    "dedicated_server_root": "H:\\SteamLibrary\\steamapps\\common\\Windrose Dedicated Server",
+    "local_config": "C:\\Users\\TestUser\\AppData\\Local\\R5\\Saved\\Config\\Windows",
+    "local_save_root": "H:\\SteamLibrary\\steamapps\\common\\Windrose Dedicated Server\\R5\\Saved",
+    "backup_dir": "H:\\Windrose\\Windrose Mod Deployer\\backups",
+    "data_dir": "H:\\Windrose\\Windrose Mod Deployer\\data"
+  },
+  "preferences": {
+    "ui_size": "default",
+    "confirmation_mode": "reduced"
+  }
+}

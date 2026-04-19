@@ -89,3 +89,35 @@ def test_server_description_property_uses_dedicated_server_root(tmp_path):
     paths = AppPaths(dedicated_server_root=dedicated_root)
 
     assert paths.server_description_json == dedicated_root / "R5" / "ServerDescription.json"
+
+
+def test_reconcile_paths_skips_broad_discovery_when_saved_paths_are_valid(monkeypatch, tmp_path):
+    client_root = _make_client_root(tmp_path / "Windrose")
+    bundled = _make_server_root(client_root / "R5" / "Builds" / "WindowsServer")
+    standalone = _make_server_root(tmp_path / "Windrose Dedicated Server")
+    local_config = tmp_path / "Config" / "Windows"
+    local_config.mkdir(parents=True)
+    local_save_root = standalone / "R5" / "Saved"
+    local_save_root.mkdir(parents=True)
+
+    called = {"discover": False}
+
+    def _unexpected_discover_all(*args, **kwargs):
+        called["discover"] = True
+        raise AssertionError("discover_all should not run when saved paths are already valid")
+
+    monkeypatch.setattr(discovery, "discover_all", _unexpected_discover_all)
+
+    reconciled, changed = discovery.reconcile_paths(
+        AppPaths(
+            client_root=client_root,
+            server_root=bundled,
+            dedicated_server_root=standalone,
+            local_config=local_config,
+            local_save_root=local_save_root,
+        )
+    )
+
+    assert not called["discover"]
+    assert not changed
+    assert reconciled.client_root == client_root

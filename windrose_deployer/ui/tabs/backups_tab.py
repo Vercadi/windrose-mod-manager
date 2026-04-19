@@ -19,11 +19,13 @@ log = logging.getLogger(__name__)
 
 
 class BackupsTab(ctk.CTkFrame):
-    def __init__(self, master, app: "AppWindow", **kwargs):
+    def __init__(self, master, app: "AppWindow", *, auto_refresh: bool = True, **kwargs):
         super().__init__(master, **kwargs)
         self.app = app
         self._selected_item = None
         self._selected_backup: Optional[BackupRecord] = None
+        self._selected_backup_ids: set[str] = set()
+        self._all_backups: list[BackupRecord] = []
         self._timeline_rows: list[ctk.CTkFrame] = []
         self._backup_rows: list[ctk.CTkFrame] = []
         self._action_buttons: list[ctk.CTkButton] = []
@@ -36,7 +38,8 @@ class BackupsTab(ctk.CTkFrame):
 
         self._build_header()
         self._build_main()
-        self.refresh()
+        if auto_refresh:
+            self.refresh()
 
     def _build_header(self) -> None:
         frame = ctk.CTkFrame(self, fg_color="transparent")
@@ -161,11 +164,13 @@ class BackupsTab(ctk.CTkFrame):
         raw_actions.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 12))
         self._restore_raw_btn = ctk.CTkButton(raw_actions, text="Restore Previous Version", width=170, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=self._on_restore_raw)
         self._restore_raw_btn.pack(side="left", padx=(0, 6))
-        self._delete_raw_btn = ctk.CTkButton(raw_actions, text="Remove Backup Copy", width=150, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#c0392b", hover_color="#962d22", command=self._on_delete_raw)
+        self._delete_raw_btn = ctk.CTkButton(raw_actions, text="Delete Selected", width=138, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#c0392b", hover_color="#962d22", command=self._on_delete_raw)
         self._delete_raw_btn.pack(side="left", padx=6)
+        self._delete_all_raw_btn = ctk.CTkButton(raw_actions, text="Delete All", width=112, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#962d22", hover_color="#7d241b", command=self._on_delete_all_raw)
+        self._delete_all_raw_btn.pack(side="left", padx=6)
         self._open_folder_btn = ctk.CTkButton(raw_actions, text="Open Backup Folder", width=140, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=self._on_open_folder)
         self._open_folder_btn.pack(side="left", padx=6)
-        self._action_buttons.extend([self._restore_raw_btn, self._delete_raw_btn, self._open_folder_btn])
+        self._action_buttons.extend([self._restore_raw_btn, self._delete_raw_btn, self._delete_all_raw_btn, self._open_folder_btn])
         self._advanced_frame.grid_remove()
 
     def refresh(self) -> None:
@@ -186,11 +191,12 @@ class BackupsTab(ctk.CTkFrame):
         for index, item in enumerate(items):
             self._add_timeline_row(item, index)
 
-        backups = sorted(self.app.backup.list_backups(), key=lambda item: item.timestamp, reverse=True)
-        for index, record in enumerate(backups):
-            self._add_backup_row(record, index)
+        self._all_backups = sorted(self.app.backup.list_backups(), key=lambda item: item.timestamp, reverse=True)
+        self._selected_backup_ids.intersection_update({record.backup_id for record in self._all_backups})
+        if self._advanced_visible:
+            self._render_backup_rows()
 
-        self._summary_label.configure(text=f"{len(items)} recovery items | {len(backups)} raw backups")
+        self._summary_label.configure(text=f"{len(items)} recovery items | {len(self._all_backups)} raw backups")
 
     def _matches_filter(self, item) -> bool:
         selected = self._filter_var.get()
@@ -224,20 +230,38 @@ class BackupsTab(ctk.CTkFrame):
             widget.bind("<Button-1>", lambda _event, value=item: self._select_item(value))
         self._timeline_rows.append(row)
 
+    def _render_backup_rows(self) -> None:
+        for widget in self._backup_rows:
+            widget.destroy()
+        self._backup_rows.clear()
+        for index, record in enumerate(self._all_backups):
+            self._add_backup_row(record, index)
+
     def _add_backup_row(self, record: BackupRecord, index: int) -> None:
         row = ctk.CTkFrame(self._backup_list, cursor="hand2")
         row.grid(row=index, column=0, sticky="ew", pady=2)
-        row.grid_columnconfigure(0, weight=1)
+        row.grid_columnconfigure(1, weight=1)
+        selected_var = tk.BooleanVar(value=record.backup_id in self._selected_backup_ids)
+        checkbox = ctk.CTkCheckBox(
+            row,
+            text="",
+            variable=selected_var,
+            width=20,
+            command=lambda value=record, var=selected_var: self._toggle_backup_checked(value, var.get()),
+        )
+        checkbox.grid(row=0, column=0, rowspan=3, sticky="n", padx=(10, 2), pady=(10, 8))
         ctk.CTkLabel(row, text=record.category.replace("_", " ").title(), anchor="w", font=self.app.ui_font("small")).grid(
-            row=0, column=0, sticky="ew", padx=10, pady=(8, 2)
+            row=0, column=1, sticky="ew", padx=10, pady=(8, 2)
         )
         ctk.CTkLabel(row, text=record.description or Path(record.backup_path).name, anchor="w", text_color="#c1c7cd", wraplength=self.app.ui_tokens.panel_wrap, font=self.app.ui_font("body")).grid(
-            row=1, column=0, sticky="ew", padx=10, pady=(0, 2)
+            row=1, column=1, sticky="ew", padx=10, pady=(0, 2)
         )
         ctk.CTkLabel(row, text=record.timestamp[:19].replace("T", " "), anchor="w", text_color="#6f7a81", font=self.app.ui_font("tiny")).grid(
-            row=2, column=0, sticky="ew", padx=10, pady=(0, 8)
+            row=2, column=1, sticky="ew", padx=10, pady=(0, 8)
         )
         for widget in row.winfo_children() + [row]:
+            if widget is checkbox:
+                continue
             widget.bind("<Button-1>", lambda _event, value=record: self._select_backup(value))
         self._backup_rows.append(row)
 
@@ -249,6 +273,16 @@ class BackupsTab(ctk.CTkFrame):
 
     def _select_backup(self, record: BackupRecord) -> None:
         self._selected_backup = record
+        self._selected_backup_ids.add(record.backup_id)
+
+    def _toggle_backup_checked(self, record: BackupRecord, selected: bool) -> None:
+        if selected:
+            self._selected_backup_ids.add(record.backup_id)
+            self._selected_backup = record
+        else:
+            self._selected_backup_ids.discard(record.backup_id)
+            if self._selected_backup and self._selected_backup.backup_id == record.backup_id:
+                self._selected_backup = None
 
     def _set_result(self, text: str, *, level: str = "info") -> None:
         colors = {
@@ -280,9 +314,13 @@ class BackupsTab(ctk.CTkFrame):
         if self._advanced_visible:
             self._advanced_frame.grid()
             self._advanced_btn.configure(text="Hide Raw Backup Copies")
+            self._render_backup_rows()
         else:
             self._advanced_frame.grid_remove()
             self._advanced_btn.configure(text="Show Raw Backup Copies")
+            for widget in self._backup_rows:
+                widget.destroy()
+            self._backup_rows.clear()
 
     def _on_restore(self) -> None:
         item = self._selected_item
@@ -344,10 +382,11 @@ class BackupsTab(ctk.CTkFrame):
             os.startfile(str(path))
 
     def _on_restore_raw(self) -> None:
-        if not self._selected_backup:
-            self._set_result("Select a raw backup copy first.", level="info")
+        selected = self._selected_backups()
+        if len(selected) != 1:
+            self._set_result("Select exactly one raw backup copy to restore.", level="info")
             return
-        self._restore_backup_record(self._selected_backup)
+        self._restore_backup_record(selected[0])
 
     def _restore_backup_record(self, record: BackupRecord) -> None:
         if not self.app.confirm_action(
@@ -368,20 +407,45 @@ class BackupsTab(ctk.CTkFrame):
             messagebox.showerror("Restore Failed", "Could not restore that backup.")
 
     def _on_delete_raw(self) -> None:
-        if not self._selected_backup:
-            self._set_result("Select a raw backup copy first.", level="info")
+        selected = self._selected_backups()
+        if not selected:
+            self._set_result("Select one or more raw backup copies first.", level="info")
             return
         if not self.app.confirm_action(
             "destructive",
-            "Remove Backup Copy",
-            f"Delete this backup copy?\n\n{self._selected_backup.backup_path}",
+            "Delete Selected Backup Copies",
+            f"Delete {len(selected)} selected backup copie(s)?",
         ):
             return
-        if self.app.backup.delete_backup(self._selected_backup, delete_file=True):
-            self.refresh()
-            self._set_result("Removed the selected backup copy.", level="success")
+        removed = 0
+        for record in selected:
+            if self.app.backup.delete_backup(record, delete_file=True):
+                removed += 1
+        self.refresh()
+        if removed:
+            self._set_result(f"Removed {removed} selected backup copie(s).", level="success")
         else:
             messagebox.showerror("Delete Failed", "Could not delete that backup copy.")
+
+    def _on_delete_all_raw(self) -> None:
+        if not self._all_backups:
+            self._set_result("There are no raw backup copies to delete.", level="info")
+            return
+        if not self.app.confirm_action(
+            "destructive",
+            "Delete All Backup Copies",
+            f"Delete all {len(self._all_backups)} raw backup copie(s)?",
+        ):
+            return
+        removed = 0
+        for record in list(self._all_backups):
+            if self.app.backup.delete_backup(record, delete_file=True):
+                removed += 1
+        self.refresh()
+        if removed:
+            self._set_result(f"Removed {removed} raw backup copie(s).", level="success")
+        else:
+            messagebox.showerror("Delete Failed", "Could not delete the raw backup copies.")
 
     def _on_open_folder(self) -> None:
         folder = self.app.backup.backup_root
@@ -402,6 +466,12 @@ class BackupsTab(ctk.CTkFrame):
             self._set_result(f"Removed {removed} old backup(s).", level="success")
         else:
             self._set_result("No old backups needed cleanup.", level="info")
+
+    def _selected_backups(self) -> list[BackupRecord]:
+        selected_ids = set(self._selected_backup_ids)
+        if self._selected_backup is not None:
+            selected_ids.add(self._selected_backup.backup_id)
+        return [record for record in self._all_backups if record.backup_id in selected_ids]
 
     @staticmethod
     def _set_box(box: ctk.CTkTextbox, text: str) -> None:

@@ -1,0 +1,47 @@
+{
+  "mods": [
+    {
+      "mod_id": "windroseno-hud-no-effectsfix-v.0.4-1-0-4-1776179187",
+      "display_name": "WINDROSENo-HUD-No-EffectsFix-v.0.4-1-0-4-1776179187",
+      "source_archive": "G:\\Downloads\\WINDROSENo-HUD-No-EffectsFix-v.0.4-1-0-4-1776179187.zip",
+      "archive_hash": "e82416128c998cc117fd081b97221b3d62973ecdff3c467f8f1f2e70ac79c734",
+      "install_type": "loose_files",
+      "selected_variant": null,
+      "targets": [
+        "client"
+      ],
+      "installed_files": [
+        "F:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\dxgi.dll",
+        "F:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ShaderToggler.addon64"
+      ],
+      "backed_up_files": [],
+      "install_time": "2026-04-14T20:09:50.656698",
+      "enabled": true
+    }
+  ],
+  "history": [
+    {
+      "mod_id": "windroseno-hud-no-effectsfix-v.0.4-1-0-4-1776179187",
+      "timestamp": "2026-04-14T15:25:52.897899",
+      "target": "client",
+      "action": "install",
+      "display_name": "",
+      "source_archive": "",
+      "notes": "Installed 2 files",
+      "files": [
+        {
+          "source_archive_path": "R5/Binaries/Win64/dxgi.dll",
+          "dest_path": "F:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\dxgi.dll",
+          "backup_path": null,
+          "was_overwrite": false
+        },
+        {
+          "source_archive_path": "R5/Binaries/Win64/ShaderToggler.addon64",
+          "dest_path": "F:\\SteamLibrary\\steamapps\\common\\Windrose\\R5\\Binaries\\Win64\\ShaderToggler.addon64",
+          "backup_path": null,
+          "was_overwrite": false
+        }
+      ]
+    }
+  ]
+}
