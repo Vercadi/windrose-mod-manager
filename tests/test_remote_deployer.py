@@ -189,8 +189,9 @@ def test_test_connection_rejects_missing_explicit_mods_override() -> None:
     ok, message = service.test_connection(profile)
 
     assert not ok
-    assert "mods dir was not found" in message
+    assert "mods folder was not found" in message
     assert "/srv/windrose/R5/Content/Paks/~mods" in message
+    assert "Server Folder to '.'" in message
 
 
 def test_list_remote_files_returns_empty_when_mods_dir_is_missing() -> None:
@@ -227,8 +228,30 @@ def test_list_remote_files_raises_when_explicit_mods_override_is_missing() -> No
         service.list_remote_files(profile)
     except FileNotFoundError as exc:
         assert "/srv/windrose/R5/Content/Paks/~mods" in str(exc)
+        assert "Server Folder to '.'" in str(exc)
     else:
         raise AssertionError("Expected FileNotFoundError for missing explicit mods dir override")
+
+
+def test_test_connection_ftp_missing_mods_override_explains_ftp_root_paths() -> None:
+    uploads: list[str] = []
+    existing_paths = {
+        "/srv/windrose",
+        "/srv/windrose/R5/ServerDescription.json",
+        "/srv/windrose/R5/Saved",
+    }
+    profile = _make_profile()
+    profile.protocol = "ftp"
+    service = RemoteDeploymentService(
+        provider_factory=lambda _profile: FakeRemoteProvider(uploads, existing_paths)
+    )
+
+    ok, message = service.test_connection(profile)
+
+    assert not ok
+    assert "FTP hosts such as Nitrado" in message
+    assert "relative to the FTP login root" in message
+    assert "R5/Content/Paks/~mods" in message
 
 
 def test_test_connection_guides_blank_root_and_manual_overrides() -> None:

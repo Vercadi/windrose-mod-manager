@@ -1,6 +1,6 @@
 # Windrose Mod Manager - Roadmap
 
-## v0.2.0 - Trust Baseline (current)
+## v0.2.0 - Trust Baseline
 
 The first public build people will keep using. Safety invariants and identity must be correct before persistent user data exists in the wild.
 
@@ -144,12 +144,206 @@ High-level direction:
 - [ ] Narrow, preview-first Profiles
 
 ### v0.5.2 follow-up polish
-- [ ] Dashboard `Run Compare` should run/update parity in place and only jump to `Server` for the full detailed report
-- [ ] Dashboard should let the user change the active compare/source target directly instead of depending on whatever is currently selected in `Server`
-- [ ] Activity / Backups should support clearer cleanup actions:
-  - delete all raw backup copies
-  - delete selected backup copies
-- [ ] Activity tab performance pass so large timelines/raw backup lists feel lighter to open and refresh
+- [x] Dashboard should let the user change the active compare/source target directly instead of depending on whatever is currently selected in `Server`
+- [x] Dashboard parity should offer guided sync actions after compare, not a blind one-click sync:
+  - install missing client mods to Local Server
+  - install missing client mods to Dedicated Server
+  - upload missing client mods to Hosted Server
+  - review server-only removals separately
+  - require preview and confirmation before any writes
+- [x] Manifest drift should be surfaced in the main UI, not only the technical log
+- [x] Copy should align with the current `Activity` information architecture instead of stale `Recovery` wording
+- [x] Activity tab performance pass so large timelines/raw backup lists feel lighter to open and refresh
+- [x] Startup performance pass before the next major UI expansion:
+  - v0.5.2 only reduced refresh fan-out and Activity render cost; true lazy tab construction is deferred
+  - true lazy construction for non-default heavy tabs should be done as a separate focused pass after cross-tab dependencies are loosened
+  - first candidates: Activity and Help, then Settings, then the heavier Mods/Server tabs
+  - keep first window paint fast and measurable
+  - preserve startup timing diagnostics
+- [ ] Light UI decomposition before UE4SS/load-order work:
+  - extract reusable Mods/Server helpers where it lowers future risk
+  - avoid a broad visual rewrite in this release
+- [x] Hosted setup should gain provider-specific QoL for Host Havoc / Indifferent Broccoli paths
+- [x] FTP diagnostics should be clearer for mismatch, auth, timeout, listing failures, and FTP-root-relative path confusion
+- [ ] Metadata/setup groundwork for future per-mod version notifications:
+  - make optional mod source/version metadata easier to view and maintain
+  - improve `possible update available` hints where metadata exists
+  - do **not** promise full automatic mod update checks yet
+
+### v0.5.2 shipped notes
+
+- Guided sync is intentionally conservative: it only offers additive client-to-server install/upload actions when the source archive is still available and no variant/component/conflict ambiguity is detected.
+- Server-only and hosted-only removals are intentionally review-only in this release.
+- Nitrado-specific support is handled through clearer FTP-root path diagnostics, not a provider-specific integration layer.
+- True construction-lazy tabs and broader UI decomposition remain deferred to a focused `v0.5.3` / early `v0.6` prep pass.
+
+### Deferred startup refactor note
+
+Do not treat true lazy tab construction as complete just because v0.5.2 improved startup behavior. Dashboard, Mods, and Server still call into each other directly in several places, so making those tabs construction-lazy should happen only after a small coordinator/helper extraction. The safe target is `v0.5.3` or early `v0.6` prep, before adding UE4SS/load-order UI to the already-heavy tabs.
+
+---
+
+## v0.6 - UE4SS, Framework Support, and Server-Admin Foundations
+
+Detailed implementation plan lives in `IMPLEMENTATION_v0.6.0.md`.
+
+The next larger release should make UE4SS a first-class, safe, target-aware workflow while carrying forward the most important trust and metadata groundwork.
+
+### Primary UE4SS scope
+- [ ] Detect UE4SS runtime state per target:
+  - Client
+  - Local Server
+  - Dedicated Server
+  - Hosted Server
+- [ ] Install user-supplied UE4SS runtime archives to the correct `R5\Binaries\Win64` target
+- [ ] Install UE4SS mods to the correct `R5\Binaries\Win64\ue4ss\Mods` target
+- [ ] Show target-aware warnings when a UE4SS mod likely needs a missing UE4SS runtime
+- [ ] Track UE4SS runtime/mod installs in the normal managed lifecycle:
+  - backup
+  - uninstall
+  - repair/reinstall
+  - activity/history
+- [ ] Support hosted UE4SS file deployment over existing SFTP/FTP provider plumbing where safe
+- [ ] Do not bundle/re-upload UE4SS unless explicit permission is granted
+
+### RCON preparation
+- [ ] Detect likely RCON UE4SS mods such as Windrose Source RCON Protocol
+- [ ] Detect/read/write known RCON `settings.ini` files where safe
+- [ ] Add optional RCON configuration state without storing secrets in profiles
+- [ ] Prepare a Dashboard RCON status slot
+- [ ] Defer live admin commands if the protocol/client work is not reliable enough for v0.6.0
+
+### WindrosePlus integration path
+- [ ] Treat WindrosePlus as a supported server-side integration target, not something to clone
+- [ ] Detect WindrosePlus when installed under UE4SS mods
+- [ ] Support installing/updating WindrosePlus from a user-supplied archive or explicit release workflow if licensing/permission is clear
+- [ ] Back up and edit common WindrosePlus config files where safe:
+  - `windrose_plus.json`
+  - `windrose_plus.ini`
+  - related advanced `.ini` files
+- [ ] For local/dedicated servers, optionally run the WindrosePlus build step before launch when configured
+- [ ] For hosted servers, support file upload/config editing but be honest that rebuild/restart depends on host shell/panel support
+
+### Trust and metadata carry-forward
+- [ ] Surface manifest drift more deeply and consistently in the UI
+- [ ] Continue optional metadata/version notification groundwork
+- [ ] Keep version notifications notification-only at first:
+  - `update available`
+  - `not configured`
+  - `check failed`
+- [ ] Do **not** turn version checking into auto-download/update in the first pass
+
+### Configurable overhaul groundwork
+- [ ] Keep `IMPLEMENTATION_configurable_overhaul.md` as the source of truth for the tweak-builder lane
+- [ ] Create/maintain a supported tweak research catalog
+- [ ] Add only safe model/toolchain foundations unless the manual proof and patch-engine gates pass
+- [ ] Do not ship asset patching/build UI until the feasibility gates are proven in-game
+
+---
+
+## v0.7 - Deep Mod Understanding & Load Order
+
+Detailed implementation plan lives in `IMPLEMENTATION_v0.7.0.md`.
+
+This release line should make the app better at understanding what mods actually touch, without editing other authors' mods.
+
+### Retoc-powered inspection
+- [ ] Add optional `retoc` tool setup:
+  - user-supplied path first
+  - optional bundled copy later only if license/packaging notices are handled
+- [ ] Use `retoc` for deep inspection where possible:
+  - list files/assets inside `.pak`
+  - list files/assets inside `.utoc/.ucas`
+  - cache asset-path manifests per archive/hash
+- [ ] Keep basic install/uninstall usable without `retoc`
+- [ ] Surface `retoc` failures as inspection limitations, not install blockers unless the action requires deep inspection
+
+### Asset-level conflict awareness
+- [ ] Move beyond filename-only conflict guesses where deep inspection data exists
+- [ ] Show when multiple mods touch the same asset path
+- [ ] Group conflicts by:
+  - target
+  - asset path
+  - installed/archive source
+- [ ] Keep wording careful:
+  - `same asset touched`
+  - `load order may decide winner`
+  - `review recommended`
+
+### Load order management, not patching
+- [ ] Do not patch or mutate third-party pak contents in place
+- [ ] Expose load order as a simple managed priority, not manual filename editing
+- [ ] Support explicit load order for managed pak/io-store groups by controlling deployed file name prefixes where Windrose/UE load behavior allows it
+- [ ] Map priority to backend-managed prefixes, for example:
+  - `010_`
+  - `050_`
+  - `090_`
+- [ ] Preserve the original filename after the managed prefix by default
+- [ ] Do not special-case `_P` removal in the normal workflow
+- [ ] Keep original archive files unchanged
+- [ ] Rename companion files together:
+  - `.pak`
+  - `.utoc`
+  - `.ucas`
+- [ ] Store original filename, deployed filename, priority, target, and companion group in manifest/history
+- [ ] Preview load-order changes before applying
+- [ ] Back up and track any deployed-file rename/redeploy operation in manifest/history
+- [ ] Preserve recovery path so users can return to the previous deployed order
+- [ ] Keep any advanced filename override out of the default UI unless real compatibility cases prove it is needed
+
+### UI refresh tied to real data
+- [ ] Rework the Mods workspace around clearer data states:
+  - Installed / Applied
+  - Available Archives
+  - Conflicts
+  - Load Order
+- [ ] Avoid a purely visual redesign before the load-order/conflict model exists
+- [ ] Make large mod lists easier to scan:
+  - denser rows
+  - clearer badges
+  - stronger selected/active state
+  - conflict count and dependency warnings visible without opening logs
+- [ ] Keep technical logs secondary and expandable, not dominant in the main workspace
+
+---
+
+## v0.8 - Nexus Updates & Download Integration
+
+This should be a staged Nexus integration, not a silent auto-update system.
+
+### Update available checks
+- [ ] Use stored Nexus metadata to check for newer files:
+  - game domain
+  - mod ID
+  - file ID
+  - installed/downloaded version
+  - last checked timestamp
+- [ ] Show clear states:
+  - `update available`
+  - `up to date`
+  - `not configured`
+  - `check failed`
+- [ ] Cache results and respect rate limits
+- [ ] Do not scrape Nexus pages when API metadata is missing
+
+### Nexus account/API compliance
+- [ ] Register the app with Nexus before public API-based download features
+- [ ] Do not rely on personal API keys for public users except development/testing
+- [ ] Send proper Nexus API request headers:
+  - application name
+  - application version
+- [ ] Store tokens/keys securely before enabling broad Nexus download support
+
+### User-authorized downloads
+- [ ] Add one-click/manual-confirmed update download where Nexus API support and user account permissions allow it
+- [ ] Keep downloads user-initiated:
+  - no silent background mod replacement
+  - no automatic install without preview
+- [ ] After download, route through the existing archive review/install workflow
+- [ ] Support fallback flow:
+  - open Nexus page
+  - user downloads manually
+  - user imports archive into manager
 
 ---
 

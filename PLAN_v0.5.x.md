@@ -288,16 +288,55 @@ This is the right place for follow-up polish after the larger v0.5.0 workflow ch
 
 ### v0.5.2 polish items
 
-- Dashboard parity card should run compare in place and update the summary without forcing a tab jump
-- Add a secondary `Open Full Compare` action when the detailed report in `Server` is needed
 - Dashboard should allow changing the active compare/source target directly so parity checks are not tied to whatever was last selected in `Server`
-- Activity / Backups should support bulk cleanup:
-  - delete all raw backup copies
-  - delete selected raw backup copies
+- Dashboard parity should add `Review Sync Actions` after compare:
+  - install missing client mods to Local Server
+  - install missing client mods to Dedicated Server
+  - upload missing client mods to Hosted Server
+  - keep server-only removal actions separate and unchecked by default
+  - preview every action before writing
+- Manifest drift should surface in the main UI instead of living only in the technical log
+- Copy should align with the current `Activity` IA instead of telling users to go to a missing `Recovery` tab
 - Activity tab performance pass:
   - faster timeline refresh
-  - avoid rebuilding large raw backup lists unnecessarily
-  - keep the advanced raw-backup browser lazy where possible
+  - reduce unnecessary full timeline rebuilds
+  - keep the advanced raw-backup browser lazy
+- Startup performance note:
+  - v0.5.2 should reduce refresh fan-out and Activity render cost where safe
+  - true construction-lazy tabs are deferred because Dashboard, Mods, and Server still have direct cross-tab dependencies
+  - handle true lazy construction in a separate `v0.5.3` / early `v0.6` prep pass after extracting small cross-tab coordinator/helper seams
+- Hosted setup should gain compact provider-specific QoL for:
+  - Host Havoc
+  - Indifferent Broccoli
+- FTP diagnostics should get clearer mismatch/auth/timeout/listing messages
+- Metadata/setup groundwork for future mod version notifications:
+  - make metadata easier to review/edit
+  - improve `possible update available` hints
+  - keep this metadata-first, not a full upstream checker yet
+
+### v0.5.2 release result
+
+Shipped in `v0.5.2`:
+
+- Dashboard compare target selector for Local Server, Dedicated Server, and Hosted Server
+- preview-first `Review Sync Actions`
+- safe additive client-to-local/dedicated installs via the existing install/backup/history path
+- safe additive client-to-hosted uploads via the existing hosted deployment path
+- server-only and hosted-only removals listed for review only
+- Dashboard manifest drift visibility
+- Activity / Backups copy cleanup
+- Activity refresh/render cost reduction
+- safer discovery when old saved Steam paths point to inaccessible drives
+- FTP path-existence fallback when `SIZE` is unavailable
+- clearer hosted path diagnostics for FTP-root-relative paths, including Nitrado-style setups
+- provider shortcuts for Host Havoc and Indifferent Broccoli
+
+Deferred from this pass:
+
+- true construction-lazy tab creation
+- broad Mods/Server tab decomposition
+- richer metadata/version editing
+- automatic per-mod update checks/downloads
 
 ## Defer For Later
 
@@ -311,6 +350,7 @@ These are valid ideas, but should not be part of the first v0.5.x planning pass:
 - multi-game framework extraction
 - deep SteamCMD/server installer ownership
 - code-signing workflow as an in-app feature
+- full automatic per-mod update checking/downloading
 
 ## UX Rules For v0.5.x
 
@@ -355,6 +395,20 @@ The strongest realistic update-check path is:
 - leave full automatic download/update flows for later
 
 This is much more achievable than trying to jump straight to full Nexus-driven update automation.
+
+### Future version notifications
+
+A good later step is:
+
+- notify when a newer mod version appears to exist upstream
+- only when enough metadata exists to make that check credible
+- keep the first release notification-only
+
+That means:
+
+- no auto-download
+- no auto-install
+- no pretending certainty when metadata is incomplete
 
 ### Framework/runtime support
 

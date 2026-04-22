@@ -1,0 +1,20 @@
+{
+  "profiles": [
+    {
+      "profile_id": "profile-hosted-ftp-a",
+      "name": "Indifferent Broccoli FTP",
+      "protocol": "ftp",
+      "host": "ftp.example-host.test",
+      "port": 21,
+      "username": "test-user",
+      "auth_mode": "password",
+      "password": "redacted",
+      "private_key_path": "",
+      "remote_root_dir": "/home/container",
+      "remote_mods_dir": "/home/container/R5/Content/Paks/~mods",
+      "remote_server_description_path": "/home/container/R5/ServerDescription.json",
+      "remote_save_root": "/home/container/R5/Saved",
+      "restart_command": ""
+    }
+  ]
+}

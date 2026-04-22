@@ -1,46 +1,42 @@
-## Windrose Mod Manager v0.5.1
+## Windrose Mod Manager v0.5.2
 
-Windrose Mod Manager v0.5.1 focuses on faster startup, a more useful operations-first Dashboard, and broader hosted-server support for the providers people are actually asking about.
+Windrose Mod Manager v0.5.2 is a polish and trust update on top of v0.5.1. It keeps the new Dashboard/FTP work and tightens the daily workflow around compare, sync review, hosted path diagnostics, and startup reliability.
 
 ### Highlights
 
-- Faster startup with lighter boot refresh behavior and lazy first-open loading for non-visible tabs
-- Rebuilt Dashboard into a real operations home with status, current setup, parity summary, and quick actions
-- Added hosted support for both `SFTP` and `FTP`
-- Better support for real provider setups such as Host Havoc and Indifferent Broccoli
-- Hosted setup now has clearer protocol selection, `Host / IP` wording, preserved explicit ports, and better mismatch feedback
-- Dashboard parity checks now update in place, with a separate `Open Full Compare` action for the detailed Server view
-- Activity / Backups gained lazy raw-backup loading plus `Delete Selected` and `Delete All` cleanup actions
+- Dashboard compare now has its own target selector for Local Server, Dedicated Server, and Hosted Server.
+- Dashboard `Run Compare` updates the parity card for the selected target without forcing a tab jump.
+- Added `Review Sync Actions` after compare for safe, preview-first client-to-server fixes.
+- Local and Dedicated sync actions install missing client mods through the existing backup/history install path.
+- Hosted sync actions upload missing client mods through the existing hosted deployment path.
+- Server-only / hosted-only removals are shown for review, but are not auto-deleted.
+- Manifest drift is now surfaced on the Dashboard instead of only being logged.
+- Activity / Backups wording is aligned across the app instead of referring to the old Recovery tab name.
+- Activity refresh is lighter for large histories, and non-visible Activity refreshes are avoided where safe.
+- Startup/discovery is safer when an old saved Steam path points to a missing or inaccessible drive.
+- FTP path checks now handle servers that do not support `SIZE` by falling back to parent-directory listing.
+- Hosted path errors now explain FTP-root-relative paths, including Nitrado-style setups.
+- Hosted setup retains provider QoL for Host Havoc and Indifferent Broccoli.
 
-### Hosted Server Support
+### Safety Fixes
 
-- Existing `SFTP` hosted workflows remain supported
-- Existing hosted profiles without a protocol field still load as `SFTP`
-- FTP support is file-transfer only in `v0.5.1`
-- FTP supports hosted inventory, upload, delete, and file-based config access where supported
-- FTP does not provide restart-command automation in this release
+- Failed hosted Dashboard sync no longer records a successful hosted upload in Activity.
+- Dashboard status coloring no longer treats `Not running` as a healthy/running state.
+- Missing remote root, mods folder, save root, or ServerDescription paths now produce clearer path guidance.
 
-### Dashboard and Workflow Improvements
+### Compatibility
 
-- Dashboard now shows:
-  - Windrose running / not running
-  - Local Server configured / running / not configured
-  - Dedicated Server configured / running / not configured
-  - Hosted connected / offline / not configured
-- Current setup summary includes active source, world, hosted profile, recent backup state, and real apply/save history
-- Quick actions now expose launch, folder-open, backup, and compare flows from one place
-
-### Activity and Recovery Improvements
-
-- Raw backup copies are no longer rebuilt on every Activity refresh when the advanced browser is hidden
-- Raw backup cleanup is easier with bulk delete actions
-- Older hosted backup/recovery records using `sftp://...` source identity remain compatible
+- Existing v0.5.1 hosted FTP/SFTP profiles remain compatible.
+- Existing older SFTP hosted profiles without a protocol field still default to SFTP.
+- Existing hosted backup/recovery records using old `sftp://...` identity remain compatible.
+- FTP remains file-transfer only; restart-command automation still requires SFTP/SSH-style command access.
 
 ### Validation
 
-- `python -m py_compile windrose_deployer\\core\\remote_deployer.py windrose_deployer\\core\\remote_config_service.py windrose_deployer\\core\\ftp_provider.py windrose_deployer\\core\\remote_provider_factory.py windrose_deployer\\models\\remote_profile.py windrose_deployer\\ui\\app_window.py windrose_deployer\\ui\\tabs\\backups_tab.py windrose_deployer\\ui\\tabs\\dashboard_tab.py windrose_deployer\\ui\\tabs\\server_tab.py`
-- `python -m pytest -q --basetemp "H:\\Moddding\\Windrose\\Windrose Mod Deployer\\.pytest_tmp_v051_finish" -o cache_dir="H:\\Moddding\\Windrose\\Windrose Mod Deployer\\.pytest_cache_v051_finish"` -> `164 passed`
+- `python -m compileall windrose_deployer`
+- `python -m pytest -q --basetemp .pytest_tmp_full_052_release -o cache_dir=.pytest_cache_full_052_release` -> `171 passed`
+- `git diff --check` -> clean except normal CRLF warnings
 
 ### Full Changelog
 
-https://github.com/Vercadi/windrose-mod-manager/commits/v0.5.1
+https://github.com/Vercadi/windrose-mod-manager/compare/v0.5.1...v0.5.2

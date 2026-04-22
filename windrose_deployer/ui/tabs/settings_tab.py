@@ -279,13 +279,13 @@ class SettingsTab(ctk.CTkFrame):
         self._hosted_list.grid_columnconfigure(0, weight=1)
 
     def _build_backups_tab(self) -> None:
-        card = self._section_card(self._tab_backups, 0, "Backups and Recovery")
+        card = self._section_card(self._tab_backups, 0, "Backups and Activity")
         self._add_path_row(card, 1, "backup_dir", "Backup Storage Folder")
         self._backups_hint = ctk.CTkLabel(
             card,
             text=(
                 "Backup copies are created before managed installs and before config writes. "
-                "Use Recovery to restore previous versions or clean up old backups."
+                "Use Activity & Backups to restore previous versions, undo supported actions, or clean up old backups."
             ),
             anchor="w",
             justify="left",
@@ -305,8 +305,8 @@ class SettingsTab(ctk.CTkFrame):
         self._action_buttons.append(open_backups_btn)
         open_recovery_btn = ctk.CTkButton(
             actions,
-            text="Open Recovery",
-            width=118,
+            text="Open Activity",
+            width=124,
             fg_color="#555555",
             hover_color="#666666",
             command=self.app.open_recovery_center,

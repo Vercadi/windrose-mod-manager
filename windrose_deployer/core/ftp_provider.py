@@ -42,7 +42,7 @@ class FtpProvider:
         try:
             return self._ftp.size(normalized) is not None
         except all_errors:
-            return False
+            return self._path_is_listed(normalized)
 
     def list_files(self, remote_dir: str) -> list[str]:
         return [entry.path for entry in self.list_entries(remote_dir)]
@@ -129,6 +129,23 @@ class FtpProvider:
         finally:
             if current is not None:
                 self._safe_cwd(current)
+
+    def _path_is_listed(self, remote_path: str) -> bool:
+        candidates = [remote_path]
+        if remote_path and not remote_path.startswith("/"):
+            candidates.append("/" + remote_path)
+
+        for candidate in candidates:
+            parent = posixpath.dirname(candidate)
+            name = posixpath.basename(candidate)
+            if not name:
+                continue
+            try:
+                if any(entry.name == name for entry in self.list_entries(parent or ".")):
+                    return True
+            except all_errors:
+                continue
+        return False
 
     def _safe_pwd(self) -> str | None:
         try:

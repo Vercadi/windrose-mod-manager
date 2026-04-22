@@ -168,25 +168,30 @@ class RemoteDeploymentService:
 
             if root_dir:
                 if not provider.path_exists(root_dir):
-                    return False, f"Connected, but remote root was not found: {root_dir}"
+                    return False, self._missing_remote_path_message(profile, "remote root", root_dir)
                 notes.append(f"root OK: {root_dir}")
 
             if mods_dir:
                 if not provider.path_exists(mods_dir):
                     if profile.has_explicit_mods_dir():
-                        return False, f"Connected, but mods dir was not found: {mods_dir}"
+                        return False, self._missing_remote_path_message(profile, "mods folder", mods_dir)
                     notes.append(f"mods dir missing (will be created on first install): {mods_dir}")
                 else:
                     notes.append(f"mods dir OK: {mods_dir}")
 
             if server_desc:
                 if not provider.path_exists(server_desc):
-                    return False, f"Connected, but ServerDescription.json was not found: {server_desc}"
+                    return False, (
+                        "Connected, but ServerDescription.json was not found at "
+                        f"{server_desc}. Check Server Folder, or paste the exact file path into "
+                        "Server Settings File Override."
+                        + self._remote_path_hint(profile)
+                    )
                 notes.append(f"server config OK: {server_desc}")
 
             if save_root:
                 if not provider.path_exists(save_root):
-                    return False, f"Connected, but save root was not found: {save_root}"
+                    return False, self._missing_remote_path_message(profile, "save root", save_root)
                 notes.append(f"save root OK: {save_root}")
 
             if notes:
@@ -213,7 +218,7 @@ class RemoteDeploymentService:
         try:
             if not provider.path_exists(target_dir):
                 if remote_dir is not None or profile.has_explicit_mods_dir():
-                    raise FileNotFoundError(target_dir)
+                    raise FileNotFoundError(self._missing_remote_path_message(profile, "mods folder", target_dir))
                 return []
             return provider.list_files(target_dir)
         finally:
@@ -309,3 +314,21 @@ class RemoteDeploymentService:
             return message
 
         return message
+
+    @staticmethod
+    def _missing_remote_path_message(profile: RemoteProfile, label: str, remote_path: str) -> str:
+        return f"Connected, but {label} was not found: {remote_path}.{RemoteDeploymentService._remote_path_hint(profile)}"
+
+    @staticmethod
+    def _remote_path_hint(profile: RemoteProfile) -> str:
+        if normalize_remote_protocol(profile.protocol) == "ftp":
+            return (
+                " For FTP hosts such as Nitrado, paths are relative to the FTP login root, not the web-panel "
+                "or operating-system path. Use the path exactly as it appears in an FTP client. If FTP opens "
+                "inside the Windrose server folder, set Server Folder to '.' and leave Mods Folder Override "
+                "blank, or set Mods Folder Override to R5/Content/Paks/~mods."
+            )
+        return (
+            " If your login opens directly inside the Windrose server folder, set Server Folder to '.' and "
+            "leave Mods Folder Override blank, or set Mods Folder Override to R5/Content/Paks/~mods."
+        )

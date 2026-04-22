@@ -84,6 +84,7 @@ class AppWindow(ctk.CTk):
         self._ui_call_queue: queue.Queue = queue.Queue()
         self._process_names_cache: set[str] = set()
         self._process_names_cache_at = 0.0
+        self._manifest_drift_warnings: list[str] = []
 
         # Inject tkdnd so all widgets get drop_target_register / dnd_bind
         self._dnd_enabled = False
@@ -768,12 +769,12 @@ class AppWindow(ctk.CTk):
             self._server_tab.refresh_view()
         else:
             self._server_tab.refresh_remote_profiles()
-        if self._recovery_tab is not None:
+        if self._recovery_tab is not None and ("Activity" in self._loaded_tabs or self._tabview.get() == "Activity"):
             self._recovery_tab.refresh()
         self._update_mod_badge()
 
     def refresh_backups_tab(self) -> None:
-        if self._recovery_tab is not None:
+        if self._recovery_tab is not None and ("Activity" in self._loaded_tabs or self._tabview.get() == "Activity"):
             self._recovery_tab.refresh()
         if "_dashboard_tab" in self.__dict__:
             self._dashboard_tab.refresh_view()
@@ -791,6 +792,9 @@ class AppWindow(ctk.CTk):
     def open_recovery_center(self) -> None:
         self._tabview.set("Activity")
         self._on_tab_changed("Activity")
+
+    def manifest_drift_warnings(self) -> list[str]:
+        return list(self._manifest_drift_warnings)
 
     def open_remote_deploy(self, archive_path: str | Path | None = None) -> None:
         self._server_tab.open_hosted_install_dialog(archive_path)
@@ -810,6 +814,11 @@ class AppWindow(ctk.CTk):
             drift_warnings = self.integrity.scan_manifest_drift(self.manifest.list_mods())
             for warning in drift_warnings:
                 log.warning("Managed mod drift detected: %s", warning)
+            def _show() -> None:
+                self._manifest_drift_warnings = list(drift_warnings)
+                if "_dashboard_tab" in self.__dict__:
+                    self._dashboard_tab.refresh_view()
+            self.dispatch_to_ui(_show)
 
         threading.Thread(target=_work, daemon=True).start()
 
@@ -851,7 +860,7 @@ class AppWindow(ctk.CTk):
             body,
             text=(
                 "Use Mods for archives and applied installs, Server for local, dedicated, or hosted settings, "
-                "and Recovery when you need to undo or restore changes."
+                "and Activity & Backups when you need to undo or restore changes."
             ),
             justify="left",
             wraplength=460,

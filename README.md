@@ -24,10 +24,16 @@ This is not a generic mod organizer. It is a Windrose-specific client + server c
   - applied mods grouped by target
   - right-click install, reinstall, uninstall, and repair actions
   - hosted live inventory view
+- **Dashboard** operations home with:
+  - client/server/hosted status
+  - target-aware compare summary
+  - guided sync review for safe client-to-server installs/uploads
+  - quick actions for launch, folder access, and backups
 - Installs mods to:
   - client
   - local server
-  - both
+  - client + local server
+  - client + dedicated server
   - hosted server over SFTP or FTP
 - Variant chooser for archives with multiple pak options
 - Drag-and-drop and multi-file archive import
@@ -43,9 +49,9 @@ This is not a generic mod organizer. It is a Windrose-specific client + server c
   - saved profiles
   - connection test
   - server-folder based path auto-detect
-  - support for `.` when SFTP opens directly inside the server folder
+  - support for `.` when FTP/SFTP opens directly inside the server folder
   - password or SSH private-key auth
-- **Recovery Center** with:
+- **Activity & Backups** with:
   - action-based recovery timeline
   - restore previous version
   - undo for supported actions
@@ -181,7 +187,7 @@ windrose-mod-manager/
 | Archive library | `./data/archive_library.json` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
 | Remote profiles | `./data/remote_profiles.json` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
 | Backups | `./backups/` | `%LOCALAPPDATA%/WindroseModDeployer/backups/` |
-| Logs | `./data/windrose_deployer.log` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
+| Logs | `./data/deployer.log` | `%LOCALAPPDATA%/WindroseModDeployer/data/deployer.log` |
 
 ## Building The Executable
 
@@ -197,7 +203,7 @@ When packaged, the app stores its working data under `%LOCALAPPDATA%/WindroseMod
 
 - No automatic per-mod update tracking
 - Conflict detection is still warning-only; there is no load-order system
-- Hosted support requires working SFTP/SSH access to the server
+- Hosted support requires working SFTP/SSH or FTP file access to the server
 - Windows only
 - No Nexus API integration or automatic Nexus downloads
 - No save editing, pak creation, or UE asset unpacking

@@ -121,3 +121,60 @@ def test_reconcile_paths_skips_broad_discovery_when_saved_paths_are_valid(monkey
     assert not called["discover"]
     assert not changed
     assert reconciled.client_root == client_root
+
+
+def test_discover_client_root_ignores_inaccessible_steam_path(monkeypatch, tmp_path):
+    common_dir = tmp_path / "steamapps" / "common"
+    client_root = _make_client_root(common_dir / "Windrose")
+    broken_common = Path("D:/SteamLibrary/steamapps/common")
+    original_is_dir = Path.is_dir
+
+    def _is_dir(path: Path) -> bool:
+        if str(path).startswith(str(broken_common)):
+            raise OSError("The device path does not exist")
+        return original_is_dir(path)
+
+    monkeypatch.setattr(discovery, "STEAM_COMMON_DIRS", [str(broken_common), str(common_dir)])
+    monkeypatch.setattr(Path, "is_dir", _is_dir)
+
+    discovered = discovery.discover_client_root()
+
+    assert discovered == client_root
+
+
+def test_reconcile_paths_handles_inaccessible_saved_paths(monkeypatch, tmp_path):
+    common_dir = tmp_path / "steamapps" / "common"
+    client_root = _make_client_root(common_dir / "Windrose")
+    bundled = _make_server_root(client_root / "R5" / "Builds" / "WindowsServer")
+    standalone = _make_server_root(common_dir / "Windrose Dedicated Server")
+    (standalone / "R5" / "Saved").mkdir(parents=True)
+    broken_root = Path("D:/SteamLibrary/steamapps/common/Windrose")
+    original_is_dir = Path.is_dir
+    original_exists = Path.exists
+
+    def _is_dir(path: Path) -> bool:
+        if str(path).startswith(str(broken_root)):
+            raise OSError("The device path does not exist")
+        return original_is_dir(path)
+
+    def _exists(path: Path) -> bool:
+        if str(path).startswith(str(broken_root)):
+            raise OSError("The device path does not exist")
+        return original_exists(path)
+
+    monkeypatch.setattr(discovery, "STEAM_COMMON_DIRS", [str(common_dir)])
+    monkeypatch.setattr(Path, "is_dir", _is_dir)
+    monkeypatch.setattr(Path, "exists", _exists)
+
+    reconciled, changed = discovery.reconcile_paths(
+        AppPaths(
+            client_root=broken_root,
+            server_root=broken_root / "R5" / "Builds" / "WindowsServer",
+            local_save_root=broken_root / "R5" / "Saved",
+        )
+    )
+
+    assert changed
+    assert reconciled.client_root == client_root
+    assert reconciled.server_root == bundled
+    assert reconciled.dedicated_server_root == standalone

@@ -85,6 +85,88 @@ class ServerSyncService:
 
         return SyncReport(items=items)
 
+    def client_mods_missing_from_local(self, mods: list[ModInstall], *, target: str) -> list[ModInstall]:
+        """Return client installs that have no matching local/dedicated server install.
+
+        Version mismatches are intentionally excluded so automated sync previews only
+        offer additive installs for clearly missing server-side mods.
+        """
+        client_groups = self._mods_by_name(mods, target="client")
+        server_groups = self._mods_by_name(mods, target=target)
+        missing: list[ModInstall] = []
+
+        for key in sorted(set(client_groups) | set(server_groups)):
+            client_bucket = list(client_groups.get(key, []))
+            remaining_servers = list(server_groups.get(key, []))
+            unmatched_clients: list[ModInstall] = []
+
+            for client in client_bucket:
+                match_index = next(
+                    (
+                        index
+                        for index, server in enumerate(remaining_servers)
+                        if self._same_mod_revision(client, server)
+                    ),
+                    None,
+                )
+                if match_index is None:
+                    unmatched_clients.append(client)
+                    continue
+                remaining_servers.pop(match_index)
+
+            version_mismatch_pairs = min(len(unmatched_clients), len(remaining_servers))
+            missing.extend(unmatched_clients[version_mismatch_pairs:])
+
+        return sorted(missing, key=self._sort_key)
+
+    def server_mods_missing_from_client(self, mods: list[ModInstall], *, target: str) -> list[ModInstall]:
+        """Return local/dedicated server installs with no matching client install."""
+        client_groups = self._mods_by_name(mods, target="client")
+        server_groups = self._mods_by_name(mods, target=target)
+        missing: list[ModInstall] = []
+
+        for key in sorted(set(client_groups) | set(server_groups)):
+            client_bucket = list(client_groups.get(key, []))
+            remaining_servers = list(server_groups.get(key, []))
+            unmatched_clients: list[ModInstall] = []
+
+            for client in client_bucket:
+                match_index = next(
+                    (
+                        index
+                        for index, server in enumerate(remaining_servers)
+                        if self._same_mod_revision(client, server)
+                    ),
+                    None,
+                )
+                if match_index is None:
+                    unmatched_clients.append(client)
+                    continue
+                remaining_servers.pop(match_index)
+
+            version_mismatch_pairs = min(len(unmatched_clients), len(remaining_servers))
+            missing.extend(remaining_servers[version_mismatch_pairs:])
+
+        return sorted(missing, key=self._sort_key)
+
+    def client_mods_missing_from_hosted(self, mods: list[ModInstall], remote_files: list[str]) -> list[ModInstall]:
+        """Return client installs whose expected files are absent from hosted inventory."""
+        remote_names = {Path(path).name for path in remote_files}
+        missing: list[ModInstall] = []
+        for mod in self._mods_for_target(mods, target="client"):
+            expected = self._expected_server_file_names(mod)
+            if expected and not expected.intersection(remote_names):
+                missing.append(mod)
+        return sorted(missing, key=self._sort_key)
+
+    def hosted_files_missing_from_client(self, mods: list[ModInstall], remote_files: list[str]) -> list[str]:
+        """Return hosted files that do not map to expected client-managed files."""
+        expected_names: set[str] = set()
+        for mod in self._mods_for_target(mods, target="client"):
+            expected_names.update(self._expected_server_file_names(mod))
+        remote_names = {Path(path).name for path in remote_files}
+        return sorted(remote_names - expected_names)
+
     def _compare_mod_groups(
         self,
         client_groups: dict[str, list[ModInstall]],

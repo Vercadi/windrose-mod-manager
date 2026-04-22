@@ -812,6 +812,69 @@ class TestServerSyncDuplicateNames:
         assert len(report.items) == 2
         assert statuses == ["matched", "missing_on_server"]
 
+    def test_missing_client_mods_for_local_excludes_version_mismatches(self):
+        same_client = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="SameName",
+            source_archive="A.zip",
+            archive_hash="hash-a",
+            targets=["client"],
+            installed_files=["C:/client/A.pak"],
+        )
+        mismatched_client = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="SameName",
+            source_archive="B.zip",
+            archive_hash="hash-b",
+            targets=["client"],
+            installed_files=["C:/client/B.pak"],
+        )
+        server_mismatch = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="SameName",
+            source_archive="C.zip",
+            archive_hash="hash-c",
+            targets=["server"],
+            installed_files=["C:/server/C.pak"],
+        )
+
+        missing = ServerSyncService().client_mods_missing_from_local(
+            [same_client, mismatched_client, server_mismatch],
+            target="server",
+        )
+
+        assert [mod.mod_id for mod in missing] == [mismatched_client.mod_id]
+
+    def test_missing_client_mods_for_hosted_ignores_partial_matches(self):
+        complete = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="Complete",
+            source_archive="Complete.zip",
+            targets=["client"],
+            installed_files=["C:/client/Complete_P.pak"],
+        )
+        partial = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="Partial",
+            source_archive="Partial.zip",
+            targets=["client"],
+            installed_files=["C:/client/Partial_P.pak", "C:/client/Partial_P.utoc"],
+        )
+        missing = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="Missing",
+            source_archive="Missing.zip",
+            targets=["client"],
+            installed_files=["C:/client/Missing_P.pak"],
+        )
+
+        result = ServerSyncService().client_mods_missing_from_hosted(
+            [complete, partial, missing],
+            ["Complete_P.pak", "Partial_P.pak"],
+        )
+
+        assert [mod.mod_id for mod in result] == [missing.mod_id]
+
 
 class TestRecoveryTimelineDedupe:
     def test_config_save_history_suppresses_duplicate_backup_entry(self, tmp_path):

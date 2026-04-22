@@ -252,7 +252,7 @@ class AboutTab(ctk.CTkFrame):
                 [
                     "Start in Mods to inspect an archive before installing it.",
                     "Use Server to compare local or hosted server state before applying changes.",
-                    "Use Recovery to undo installs or restore previous config versions.",
+                    "Use Activity & Backups to undo installs or restore previous config versions.",
                     "If hosted connection tests fail, verify the SSH account, auth mode, and server folder.",
                     "If installs look wrong, compare with the Technical Log before rebuilding the executable.",
                 ]

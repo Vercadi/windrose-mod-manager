@@ -112,7 +112,7 @@ def discover_local_config() -> Optional[Path]:
     if local is None:
         return None
     candidate = local / "R5" / "Saved" / "Config" / "Windows"
-    if candidate.is_dir():
+    if _safe_is_dir(candidate):
         log.info("Discovered local config: %s", candidate)
         return candidate
     log.warning("Local config directory not found: %s", candidate)
@@ -132,14 +132,14 @@ def discover_local_save_root(
     active_server_root = dedicated_server_root or server_root
     if active_server_root is not None:
         candidate = server_save_root(active_server_root)
-        if candidate.parent.is_dir():
+        if _safe_is_dir(candidate.parent):
             log.info("Discovered local server save root: %s", candidate)
             return candidate
 
     candidate = default_local_save_root()
     if candidate is None:
         return None
-    if candidate.is_dir():
+    if _safe_is_dir(candidate):
         log.info("Discovered local appdata save root: %s", candidate)
         return candidate
     log.warning("Local save root not found: %s", candidate)
@@ -223,12 +223,12 @@ def reconcile_paths(paths: AppPaths) -> tuple[AppPaths, bool]:
     needs_discovery = needs_discovery or current.client_root is None or not _validate_client_root(current.client_root)
     needs_discovery = needs_discovery or current.server_root is None or not _validate_server_root(current.server_root)
     needs_discovery = needs_discovery or current.dedicated_server_root is None or not _validate_server_root(current.dedicated_server_root)
-    needs_discovery = needs_discovery or current.local_config is None or not current.local_config.is_dir()
+    needs_discovery = needs_discovery or current.local_config is None or not _safe_is_dir(current.local_config)
     needs_discovery = needs_discovery or current.local_save_root is None
     needs_discovery = needs_discovery or (
         current.local_save_root is not None
-        and not current.local_save_root.exists()
-        and not current.local_save_root.parent.exists()
+        and not _safe_exists(current.local_save_root)
+        and not _safe_exists(current.local_save_root.parent)
     )
     needs_discovery = needs_discovery or (
         current.local_save_root is not None
@@ -265,7 +265,7 @@ def reconcile_paths(paths: AppPaths) -> tuple[AppPaths, bool]:
         current.dedicated_server_root = detected.dedicated_server_root
         changed = True
 
-    if detected.local_config and (current.local_config is None or not current.local_config.is_dir()):
+    if detected.local_config and (current.local_config is None or not _safe_is_dir(current.local_config)):
         current.local_config = detected.local_config
         changed = True
 
@@ -273,7 +273,7 @@ def reconcile_paths(paths: AppPaths) -> tuple[AppPaths, bool]:
         should_update_save_root = False
         if current.local_save_root is None:
             should_update_save_root = True
-        elif not current.local_save_root.exists() and not current.local_save_root.parent.exists():
+        elif not _safe_exists(current.local_save_root) and not _safe_exists(current.local_save_root.parent):
             should_update_save_root = True
         elif (
             current.local_save_root != detected.local_save_root
@@ -327,18 +327,18 @@ def _split_legacy_server_settings(paths: AppPaths) -> tuple[AppPaths, bool]:
 
 
 def _validate_client_root(path: Path) -> bool:
-    if not path.is_dir():
+    if not _safe_is_dir(path):
         return False
-    has_exe = (path / CLIENT_EXE).is_file()
-    has_r5 = (path / "R5").is_dir()
+    has_exe = _safe_is_file(path / CLIENT_EXE)
+    has_r5 = _safe_is_dir(path / "R5")
     return has_exe and has_r5
 
 
 def _validate_server_root(path: Path) -> bool:
-    if not path.is_dir():
+    if not _safe_is_dir(path):
         return False
-    has_exe = (path / SERVER_EXE).is_file()
-    has_runtime = (path / SERVER_RUNTIME_SUBPATH).is_dir()
+    has_exe = _safe_is_file(path / SERVER_EXE)
+    has_runtime = _safe_is_dir(path / SERVER_RUNTIME_SUBPATH)
     return has_exe and has_runtime
 
 
@@ -347,3 +347,27 @@ def _local_appdata() -> Optional[Path]:
     if val:
         return Path(val)
     return None
+
+
+def _safe_exists(path: Path) -> bool:
+    try:
+        return path.exists()
+    except (OSError, ValueError) as exc:
+        log.debug("Ignoring inaccessible path during discovery: %s (%s)", path, exc)
+        return False
+
+
+def _safe_is_dir(path: Path) -> bool:
+    try:
+        return path.is_dir()
+    except (OSError, ValueError) as exc:
+        log.debug("Ignoring inaccessible directory during discovery: %s (%s)", path, exc)
+        return False
+
+
+def _safe_is_file(path: Path) -> bool:
+    try:
+        return path.is_file()
+    except (OSError, ValueError) as exc:
+        log.debug("Ignoring inaccessible file during discovery: %s (%s)", path, exc)
+        return False

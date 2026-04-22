@@ -1,4 +1,4 @@
-"""Recovery screen with action timeline and advanced raw backup browser."""
+"""Activity screen with recovery actions and advanced raw backup browser."""
 from __future__ import annotations
 
 import logging
@@ -16,6 +16,8 @@ if TYPE_CHECKING:
     from ..app_window import AppWindow
 
 log = logging.getLogger(__name__)
+
+_TIMELINE_RENDER_LIMIT = 250
 
 
 class BackupsTab(ctk.CTkFrame):
@@ -133,7 +135,7 @@ class BackupsTab(ctk.CTkFrame):
         right.pack(fill="both", expand=True)
         right.grid_columnconfigure(0, weight=1)
 
-        self._detail_title = ctk.CTkLabel(right, text="Select a recovery item", font=self.app.ui_font("detail_title"))
+        self._detail_title = ctk.CTkLabel(right, text="Select an activity item", font=self.app.ui_font("detail_title"))
         self._detail_title.grid(row=0, column=0, sticky="w", padx=12, pady=(12, 4))
         self._detail_meta = ctk.CTkLabel(right, text="", justify="left", text_color="#95a5a6", font=self.app.ui_font("small"))
         self._detail_meta.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
@@ -182,13 +184,14 @@ class BackupsTab(ctk.CTkFrame):
         self._backup_rows.clear()
         self._selected_item = None
         self._selected_backup = None
-        self._detail_title.configure(text="Select a recovery item")
+        self._detail_title.configure(text="Select an activity item")
         self._detail_meta.configure(text="")
         self._set_box(self._detail_box, "")
 
         items = self.app.recovery.build_timeline()
         items = [item for item in items if self._matches_filter(item)]
-        for index, item in enumerate(items):
+        visible_items = items[:_TIMELINE_RENDER_LIMIT]
+        for index, item in enumerate(visible_items):
             self._add_timeline_row(item, index)
 
         self._all_backups = sorted(self.app.backup.list_backups(), key=lambda item: item.timestamp, reverse=True)
@@ -196,7 +199,8 @@ class BackupsTab(ctk.CTkFrame):
         if self._advanced_visible:
             self._render_backup_rows()
 
-        self._summary_label.configure(text=f"{len(items)} recovery items | {len(self._all_backups)} raw backups")
+        shown_text = f"{len(visible_items)} shown / " if len(items) > len(visible_items) else ""
+        self._summary_label.configure(text=f"{shown_text}{len(items)} activity items | {len(self._all_backups)} raw backups")
 
     def _matches_filter(self, item) -> bool:
         selected = self._filter_var.get()
@@ -325,7 +329,7 @@ class BackupsTab(ctk.CTkFrame):
     def _on_restore(self) -> None:
         item = self._selected_item
         if item is None:
-            self._set_result("Select a recovery item first.", level="info")
+            self._set_result("Select an activity item first.", level="info")
             return
         if item.backup_record is not None:
             self._restore_backup_record(item.backup_record)
@@ -342,12 +346,12 @@ class BackupsTab(ctk.CTkFrame):
             self.refresh()
             self._set_result(f"Restored by uninstalling {item.title.lower()}.", level="success")
             return
-        self._set_result("Use a raw backup copy for this type of recovery.", level="info")
+        self._set_result("Use a raw backup copy for this type of restore.", level="info")
 
     def _on_undo(self) -> None:
         item = self._selected_item
         if item is None or item.deployment_record is None:
-            self._set_result("Select an install-related recovery item first.", level="info")
+            self._set_result("Select an install-related activity item first.", level="info")
             return
         record = item.deployment_record
         mod = self.app.manifest.get_mod(record.mod_id)
@@ -362,11 +366,11 @@ class BackupsTab(ctk.CTkFrame):
             self.app.installer.disable(mod)
             self.app.manifest.update_mod(mod)
         else:
-            self._set_result("That recovery item cannot be undone automatically.", level="info")
+            self._set_result("That activity item cannot be undone automatically.", level="info")
             return
         self.app.refresh_mods_tab()
         self.refresh()
-        self._set_result("Undid the selected recovery action.", level="success")
+        self._set_result("Undid the selected activity action.", level="success")
 
     def _on_open_files(self) -> None:
         item = self._selected_item

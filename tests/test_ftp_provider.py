@@ -15,6 +15,7 @@ class FakeFTP:
         self.connected = None
         self.logged_in = None
         self.supports_mlsd = True
+        self.supports_size = True
 
     def connect(self, host, port, timeout=10):
         self.connected = (host, port, timeout)
@@ -38,6 +39,8 @@ class FakeFTP:
         self.cwd_path = normalized
 
     def size(self, path):
+        if not self.supports_size:
+            raise ftp_provider.error_perm("500 SIZE unsupported")
         normalized = self._normalize(path)
         if normalized not in self.files:
             raise ftp_provider.error_perm("550 missing file")
@@ -142,3 +145,17 @@ def test_ftp_provider_falls_back_when_mlsd_is_unavailable(monkeypatch):
 
     assert {entry.name for entry in entries} == {"existing.pak", "folder"}
     assert any(entry.is_dir for entry in entries if entry.name == "folder")
+
+
+def test_ftp_provider_path_exists_falls_back_to_parent_listing_when_size_unavailable(monkeypatch):
+    fake = FakeFTP()
+    fake.supports_size = False
+    fake.files["/R5/ServerDescription.json"] = b"{}"
+    fake.directories.add("/R5")
+    monkeypatch.setattr(ftp_provider, "FTP", lambda: fake)
+
+    provider = ftp_provider.FtpProvider(_make_profile())
+
+    assert provider.path_exists("/R5/ServerDescription.json")
+    assert provider.path_exists("R5/ServerDescription.json")
+    assert not provider.path_exists("/R5/Missing.json")

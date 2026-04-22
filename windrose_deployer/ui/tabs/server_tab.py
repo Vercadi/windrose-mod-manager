@@ -68,6 +68,8 @@ class ServerTab(ctk.CTkFrame):
         self._hosted_dashboard_profile_id: str | None = None
         self._last_compare_summary = "No compare run yet"
         self._last_compare_state = "not_run"
+        self._last_compare_target = "dedicated_server"
+        self._last_compare_report = None
 
         self.grid_columnconfigure(0, weight=3)
         self.grid_columnconfigure(1, weight=2)
@@ -600,7 +602,7 @@ class ServerTab(ctk.CTkFrame):
         recovery_card = ctk.CTkFrame(frame)
         recovery_card.grid(row=5, column=0, sticky="ew", pady=(0, 6))
         recovery_card.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(recovery_card, text="Recovery Shortcut", font=self.app.ui_font("card_title")).grid(
+        ctk.CTkLabel(recovery_card, text="Activity Shortcut", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 4)
         )
         self._restore_server_btn = ctk.CTkButton(
@@ -623,7 +625,7 @@ class ServerTab(ctk.CTkFrame):
         self._restore_world_btn.grid(row=2, column=0, sticky="w", padx=10, pady=(0, 5))
         self._open_recovery_btn = ctk.CTkButton(
             recovery_card,
-            text="Open Recovery Center",
+            text="Open Activity & Backups",
             width=180,
             height=self.app.ui_tokens.compact_button_height,
             font=self.app.ui_font("body"),
@@ -762,6 +764,29 @@ class ServerTab(ctk.CTkFrame):
         }.get(source, source)
         self._on_source_changed(mapped)
 
+    def set_source_for_compare(self, source: str, *, refresh_inventory: bool = False) -> None:
+        """Select the server source used by Dashboard/Server compare actions."""
+        normalized = {
+            "local_server": "server",
+            "server": "server",
+            "dedicated": "dedicated_server",
+            "dedicated_server": "dedicated_server",
+            "hosted_server": "hosted",
+            "hosted": "hosted",
+        }.get(source, source)
+        label = {
+            "server": "Local Server",
+            "dedicated_server": "Dedicated Server",
+            "hosted": "Hosted Server",
+        }.get(normalized)
+        if label:
+            self._source_switch.set(label)
+        if self._source_var.get() == normalized:
+            if refresh_inventory:
+                self._refresh_server_inventory()
+            return
+        self._on_source_changed(normalized, refresh_inventory=refresh_inventory)
+
     def refresh_view(self) -> None:
         self.refresh_remote_profiles()
         self._update_source_summary()
@@ -846,15 +871,34 @@ class ServerTab(ctk.CTkFrame):
     def dashboard_parity_state(self) -> tuple[str, str]:
         return self._last_compare_state, self._last_compare_summary
 
-    def _remember_compare_report(self, report) -> None:
-        self._last_compare_summary = report.summary
+    def last_compare_target(self) -> str:
+        return self._last_compare_target
+
+    def last_compare_report(self):
+        return self._last_compare_report
+
+    def _compare_target_label(self, target: str | None = None) -> str:
+        source = target or self._source_var.get()
+        if source == "hosted":
+            return "Hosted Server"
+        if source == "server":
+            return "Local Server"
+        return "Dedicated Server"
+
+    def _remember_compare_report(self, report, target: str | None = None) -> None:
+        target_key = target or self._source_var.get()
+        self._last_compare_target = target_key
+        self._last_compare_report = report
+        self._last_compare_summary = f"Client vs {self._compare_target_label(target_key)}: {report.summary}"
         self._last_compare_state = "clean" if report.review_needed == 0 and report.items else ("review" if report.review_needed else "not_run")
         if "_dashboard_tab" in self.app.__dict__:
             self.app._dashboard_tab.refresh_view()
 
-    def _remember_compare_error(self, message: str) -> None:
+    def _remember_compare_error(self, message: str, target: str | None = None) -> None:
+        self._last_compare_target = target or self._source_var.get()
+        self._last_compare_report = None
         self._last_compare_state = "review"
-        self._last_compare_summary = message
+        self._last_compare_summary = f"Client vs {self._compare_target_label(self._last_compare_target)}: {message}"
         if "_dashboard_tab" in self.app.__dict__:
             self.app._dashboard_tab.refresh_view()
 
@@ -1260,6 +1304,7 @@ class ServerTab(ctk.CTkFrame):
                 self._set_status_box(self._sync_box, "Choose a hosted profile first.")
                 return
             self._set_status_box(self._sync_box, "Comparing client mods with hosted server files...")
+            compare_target = self._source_var.get()
 
             def _work() -> None:
                 try:
@@ -1269,21 +1314,22 @@ class ServerTab(ctk.CTkFrame):
                     def _show() -> None:
                         if self.winfo_exists():
                             self._set_status_box(self._sync_box, text)
-                            self._remember_compare_report(report)
+                            self._remember_compare_report(report, compare_target)
                 except Exception as exc:
                     text = f"Hosted comparison failed:\n{exc}"
                     def _show() -> None:
                         if self.winfo_exists():
                             self._set_status_box(self._sync_box, text)
-                            self._remember_compare_error("Hosted compare failed")
+                            self._remember_compare_error("Hosted compare failed", compare_target)
                 self.app.dispatch_to_ui(_show)
 
             threading.Thread(target=_work, daemon=True).start()
             return
 
-        report = self.app.server_sync.compare_local(self.app.manifest.list_mods(), target=self._active_local_target())
+        compare_target = self._active_local_target()
+        report = self.app.server_sync.compare_local(self.app.manifest.list_mods(), target=compare_target)
         self._set_status_box(self._sync_box, self._sync_report_text(report))
-        self._remember_compare_report(report)
+        self._remember_compare_report(report, compare_target)
 
     @staticmethod
     def _sync_report_text(report) -> str:
@@ -2040,6 +2086,25 @@ class ServerTab(ctk.CTkFrame):
         status = ctk.CTkLabel(body, text="", text_color="#95a5a6", justify="left", wraplength=520)
         status.grid(row=5, column=0, sticky="ew", padx=8, pady=(4, 8))
 
+        provider_card = ctk.CTkFrame(body)
+        provider_card.grid(row=6, column=0, sticky="ew", padx=8, pady=(0, 8))
+        provider_card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(provider_card, text="Provider Shortcuts", font=ctk.CTkFont(size=14, weight="bold")).grid(
+            row=0, column=0, sticky="w", padx=12, pady=(12, 4)
+        )
+        ctk.CTkLabel(
+            provider_card,
+            text=(
+                "These only set the protocol and normal default port. Use the host, username, password, "
+                "and server folder exactly as shown in your provider panel."
+            ),
+            justify="left",
+            wraplength=520,
+            text_color="#95a5a6",
+        ).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
+        preset_buttons = ctk.CTkFrame(provider_card, fg_color="transparent")
+        preset_buttons.grid(row=2, column=0, sticky="w", padx=12, pady=(0, 12))
+
         def _build_profile() -> RemoteProfile:
             host, port, resolved_protocol = normalize_remote_endpoint(
                 vars_map["host"].get().strip(),
@@ -2094,6 +2159,20 @@ class ServerTab(ctk.CTkFrame):
             _apply_profile_fields(profile)
             status.configure(
                 text="Derived Windrose hosted paths from the server folder. Review them before saving.",
+                text_color="#2d8a4e",
+            )
+
+        def _apply_provider_preset(protocol: str, port: int, label: str) -> None:
+            previous_port = vars_map["port"].get().strip()
+            default_ports = {"", str(default_port_for_protocol("sftp")), str(default_port_for_protocol("ftp"))}
+            vars_map["protocol"].set(protocol)
+            if previous_port in default_ports:
+                vars_map["port"].set(str(port))
+                port_note = f"port {port}"
+            else:
+                port_note = f"kept explicit port {previous_port}"
+            status.configure(
+                text=f"{label} preset applied ({protocol.upper()}, {port_note}). Fill in the provider host and credentials from your panel.",
                 text_color="#2d8a4e",
             )
 
@@ -2181,8 +2260,33 @@ class ServerTab(ctk.CTkFrame):
 
             threading.Thread(target=_work, daemon=True).start()
 
+        ctk.CTkButton(
+            preset_buttons,
+            text="Host Havoc SFTP",
+            width=132,
+            fg_color="#555555",
+            hover_color="#666666",
+            command=lambda: _apply_provider_preset("sftp", 22, "Host Havoc SFTP"),
+        ).pack(side="left", padx=(0, 6))
+        ctk.CTkButton(
+            preset_buttons,
+            text="Host Havoc FTP",
+            width=126,
+            fg_color="#555555",
+            hover_color="#666666",
+            command=lambda: _apply_provider_preset("ftp", 21, "Host Havoc FTP"),
+        ).pack(side="left", padx=6)
+        ctk.CTkButton(
+            preset_buttons,
+            text="Indifferent Broccoli FTP",
+            width=180,
+            fg_color="#555555",
+            hover_color="#666666",
+            command=lambda: _apply_provider_preset("ftp", 21, "Indifferent Broccoli FTP"),
+        ).pack(side="left", padx=6)
+
         buttons = ctk.CTkFrame(body, fg_color="transparent")
-        buttons.grid(row=6, column=0, sticky="ew", padx=8, pady=(4, 8))
+        buttons.grid(row=7, column=0, sticky="ew", padx=8, pady=(4, 8))
         ctk.CTkButton(
             buttons,
             text="Auto-Detect Paths",
