@@ -19,7 +19,7 @@ from ...core.live_mod_inventory import (
     snapshot_live_mods_folder,
 )
 from ...core.remote_deployer import plan_remote_deployment
-from ...models.deployment_record import DeploymentRecord
+from ...models.deployment_record import DeployedFile, DeploymentRecord
 from ...models.mod_install import expand_target_values
 from ...models.remote_profile import (
     RemoteProfile,
@@ -65,6 +65,7 @@ class ServerTab(ctk.CTkFrame):
         self._field_inputs: list[object] = []
         self._status_boxes: list[ctk.CTkTextbox] = []
         self._hosted_dashboard_state = "Not configured"
+        self._hosted_framework_summary = "Unknown"
         self._hosted_dashboard_profile_id: str | None = None
         self._last_compare_summary = "No compare run yet"
         self._last_compare_state = "not_run"
@@ -656,9 +657,11 @@ class ServerTab(ctk.CTkFrame):
         selected = self._selected_remote_profile()
         if selected is None:
             self._hosted_dashboard_state = "Not configured"
+            self._hosted_framework_summary = "Unknown"
             self._hosted_dashboard_profile_id = None
         elif selected.profile_id != previous_profile_id or self._hosted_dashboard_state == "Checking connection...":
             self._hosted_dashboard_state = "Configured"
+            self._hosted_framework_summary = "Unknown"
             self._hosted_dashboard_profile_id = selected.profile_id
         self._update_source_summary()
 
@@ -678,9 +681,11 @@ class ServerTab(ctk.CTkFrame):
         profile = self._selected_remote_profile()
         if profile is None:
             self._hosted_dashboard_state = "Not configured"
+            self._hosted_framework_summary = "Unknown"
             self._hosted_dashboard_profile_id = None
         else:
             self._hosted_dashboard_state = "Configured"
+            self._hosted_framework_summary = "Unknown"
             self._hosted_dashboard_profile_id = profile.profile_id
         self._update_source_summary()
         self._update_sync_placeholder(force=True)
@@ -933,6 +938,7 @@ class ServerTab(ctk.CTkFrame):
             f"Windrose client: {client_state}",
             server_line,
             f"Hosted profile: {hosted_state}",
+            f"Frameworks: {self._active_framework_summary()}",
             f"Active world: {active_world}",
             f"Last backup: {self._last_backup_text()}",
             f"Last action: {self._last_apply_text()}",
@@ -951,12 +957,20 @@ class ServerTab(ctk.CTkFrame):
         profile = self._selected_remote_profile()
         if profile is None:
             self._hosted_dashboard_state = "Not configured"
+            self._hosted_framework_summary = "Unknown"
             self._hosted_dashboard_profile_id = None
             self._refresh_dashboard()
             return
         self._hosted_dashboard_state = "Configured"
+        self._hosted_framework_summary = "Unknown"
         self._hosted_dashboard_profile_id = profile.profile_id
         self._refresh_dashboard()
+
+    def _active_framework_summary(self) -> str:
+        if self._source_var.get() == "hosted":
+            return self._hosted_framework_summary
+        state = self.app.framework_state.local_state(self._active_local_root())
+        return state.summary
 
     def _open_active_server_folder(self) -> None:
         root = self._active_local_root()
@@ -1105,9 +1119,13 @@ class ServerTab(ctk.CTkFrame):
                 try:
                     remote_files = self.app.remote_deployer.list_remote_files(profile)
                     text = self._hosted_server_inventory_text(remote_files)
+                    framework_state = self.app.framework_state.remote_state(profile)
+                    framework_text = framework_state.summary if framework_state.checked else f"Unknown ({framework_state.warning})"
+                    text = f"{text}\n\nFrameworks:\n  {framework_text}"
                     state = "Connected"
                 except Exception as exc:
                     text = f"Could not load hosted mod inventory:\n{exc}"
+                    framework_text = "Unknown"
                     state = "Offline"
 
                 def _show() -> None:
@@ -1116,6 +1134,7 @@ class ServerTab(ctk.CTkFrame):
                     self._inventory_btn.configure(state="normal", text="Refresh Server Mods")
                     self._set_status_box(self._inventory_box, text)
                     self._hosted_dashboard_state = state
+                    self._hosted_framework_summary = framework_text
                     self._hosted_dashboard_profile_id = profile.profile_id
                     self._refresh_dashboard()
 
@@ -1136,7 +1155,9 @@ class ServerTab(ctk.CTkFrame):
             server_mods,
             target=self._active_local_target(),
         )
-        self._set_status_box(self._inventory_box, self._local_server_inventory_text(server_mods, label, snapshot))
+        text = self._local_server_inventory_text(server_mods, label, snapshot)
+        text = f"{text}\n\nFrameworks:\n  {self.app.framework_state.local_state(self._active_local_root()).summary}"
+        self._set_status_box(self._inventory_box, text)
 
     @staticmethod
     def _effective_targets(mod) -> set[str]:
@@ -1282,6 +1303,10 @@ class ServerTab(ctk.CTkFrame):
 
         def _work() -> None:
             ok, message = self.app.remote_deployer.test_connection(profile)
+            framework_text = "Unknown"
+            if ok:
+                framework_state = self.app.framework_state.remote_state(profile)
+                framework_text = framework_state.summary if framework_state.checked else f"Unknown ({framework_state.warning})"
             log.info("Hosted connection result for %s: %s", profile.name, message)
 
             def _show() -> None:
@@ -1290,6 +1315,7 @@ class ServerTab(ctk.CTkFrame):
                 self._test_btn.configure(state="normal", text="Test Connection")
                 self._status_label.configure(text=message, text_color="#2d8a4e" if ok else "#c0392b")
                 self._hosted_dashboard_state = "Connected" if ok else "Offline"
+                self._hosted_framework_summary = framework_text
                 self._hosted_dashboard_profile_id = profile.profile_id
                 self._refresh_dashboard()
 
@@ -1420,6 +1446,7 @@ class ServerTab(ctk.CTkFrame):
             self._clear_world_fields()
             self._status_label.configure(text=f"Failed to load hosted settings from {profile_name}", text_color="#c0392b")
             self._hosted_dashboard_state = "Offline"
+            self._hosted_framework_summary = "Unknown"
             messagebox.showerror(
                 "Hosted Load Failed",
                 "Failed to load hosted server settings.\n"
@@ -1433,6 +1460,11 @@ class ServerTab(ctk.CTkFrame):
         self._status_label.configure(text=f"Hosted server settings loaded from {profile_name}", text_color="#2d8a4e")
         self._hosted_dashboard_state = "Connected"
         profile = self._selected_remote_profile()
+        try:
+            framework_state = self.app.framework_state.remote_state(profile) if profile else None
+            self._hosted_framework_summary = framework_state.summary if framework_state and framework_state.checked else "Unknown"
+        except Exception:
+            self._hosted_framework_summary = "Unknown"
         self._hosted_dashboard_profile_id = profile.profile_id if profile else None
 
         if config.world_island_id:
@@ -1923,7 +1955,32 @@ class ServerTab(ctk.CTkFrame):
                 display_name="Server Settings",
             )
         )
-        self.app.refresh_backups_tab()
+        self.app.dispatch_to_ui(lambda: self.app.refresh_backups_tab())
+
+    def _record_hosted_upload(self, *, archive_path, display_name: str, profile: RemoteProfile, plan, result, notes: str) -> None:
+        uploaded_paths = set(getattr(result, "uploaded", []) or [])
+        files = [
+            DeployedFile(source_archive_path=item.archive_entry_path, dest_path=item.remote_path)
+            for item in getattr(plan, "files", [])
+            if not uploaded_paths or item.remote_path in uploaded_paths
+        ]
+        if not files:
+            files = [DeployedFile(source_archive_path="", dest_path=path) for path in uploaded_paths]
+        archive_text = str(archive_path or "")
+        archive_stem = Path(archive_text).stem if archive_text else (display_name or "Hosted Upload")
+        self.app.manifest.add_record(
+            DeploymentRecord(
+                mod_id=f"hosted:{profile.profile_id}:{archive_stem}",
+                action="hosted_upload",
+                target="hosted",
+                display_name=display_name or archive_stem,
+                source_archive=archive_text,
+                install_kind=getattr(plan, "install_kind", "standard_mod"),
+                files=files,
+                notes=notes,
+            )
+        )
+        self.app.dispatch_to_ui(lambda: self.app.refresh_backups_tab())
 
     def open_hosted_setup(self) -> None:
         dialog = ctk.CTkToplevel(self)
@@ -2345,7 +2402,19 @@ class ServerTab(ctk.CTkFrame):
         variant_menu.grid(row=3, column=1, sticky="ew", padx=8, pady=4)
         preview = ctk.CTkTextbox(body, height=220, font=ctk.CTkFont(family="Consolas", size=11))
         preview.grid(row=4, column=0, columnspan=2, sticky="nsew", padx=8, pady=(8, 8))
-        preview.insert("1.0", f"Archive: {selected_path.name}\nType: {info.archive_type.value}\nFiles: {info.total_files}\n")
+        preview_lines = [
+            f"Archive: {selected_path.name}",
+            f"Type: {info.archive_type.value}",
+            f"Install kind: {info.install_kind.replace('_', ' ')}",
+            f"Files: {info.total_files}",
+        ]
+        if info.likely_destinations:
+            preview_lines.append(f"Destination: {', '.join(info.likely_destinations)}")
+        if info.warnings or info.dependency_warnings:
+            preview_lines.append("")
+            preview_lines.extend(info.warnings)
+            preview_lines.extend(info.dependency_warnings)
+        preview.insert("1.0", "\n".join(preview_lines) + "\n")
         preview.configure(state="disabled")
         status = ctk.CTkLabel(body, text="", text_color="#95a5a6", justify="left", wraplength=470)
         status.grid(row=5, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 8))
@@ -2383,9 +2452,12 @@ class ServerTab(ctk.CTkFrame):
                         chosen_profile.name,
                         result.summary,
                     )
-                    self._record_action(
-                        action="hosted_upload",
-                        target="hosted",
+                    self._record_hosted_upload(
+                        archive_path=selected_path,
+                        display_name=selected_path.stem,
+                        profile=chosen_profile,
+                        plan=plan,
+                        result=result,
                         notes=f"Uploaded {selected_path.name} to hosted server {chosen_profile.name} ({result.summary})",
                     )
                     message = result.summary

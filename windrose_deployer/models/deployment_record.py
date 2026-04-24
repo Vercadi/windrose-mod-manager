@@ -24,6 +24,7 @@ class DeploymentRecord:
     action: str = "install"  # "install" | "uninstall" | "disable" | "enable" | ...
     display_name: str = ""
     source_archive: str = ""
+    install_kind: str = "standard_mod"
     notes: str = ""
 
     def to_dict(self) -> dict:
@@ -34,6 +35,7 @@ class DeploymentRecord:
             "action": self.action,
             "display_name": self.display_name,
             "source_archive": self.source_archive,
+            "install_kind": self.install_kind,
             "notes": self.notes,
             "files": [
                 {
@@ -65,5 +67,6 @@ class DeploymentRecord:
             action=d.get("action", "install"),
             display_name=d.get("display_name", ""),
             source_archive=d.get("source_archive", ""),
+            install_kind=d.get("install_kind", "standard_mod"),
             notes=d.get("notes", ""),
         )

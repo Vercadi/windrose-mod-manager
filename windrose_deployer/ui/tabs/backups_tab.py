@@ -17,7 +17,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
-_TIMELINE_RENDER_LIMIT = 250
+_TIMELINE_INITIAL_LIMIT = 20
+_TIMELINE_PAGE_SIZE = 20
 
 
 class BackupsTab(ctk.CTkFrame):
@@ -31,6 +32,7 @@ class BackupsTab(ctk.CTkFrame):
         self._timeline_rows: list[ctk.CTkFrame] = []
         self._backup_rows: list[ctk.CTkFrame] = []
         self._action_buttons: list[ctk.CTkButton] = []
+        self._timeline_visible_limit = _TIMELINE_INITIAL_LIMIT
 
         self.grid_columnconfigure(0, weight=1)
         self.grid_rowconfigure(1, weight=1)
@@ -57,7 +59,7 @@ class BackupsTab(ctk.CTkFrame):
             values=["all", "mods", "server", "hosted"],
             width=130,
             font=self.app.ui_font("body"),
-            command=lambda _value: self.refresh(),
+            command=lambda _value: self._on_filter_changed(),
         )
         self._filter_menu.grid(row=0, column=1, sticky="w")
         self._summary_label = ctk.CTkLabel(frame, text="", anchor="w", text_color="#95a5a6", font=self.app.ui_font("small"))
@@ -190,9 +192,11 @@ class BackupsTab(ctk.CTkFrame):
 
         items = self.app.recovery.build_timeline()
         items = [item for item in items if self._matches_filter(item)]
-        visible_items = items[:_TIMELINE_RENDER_LIMIT]
+        visible_items = items[:self._timeline_visible_limit]
         for index, item in enumerate(visible_items):
             self._add_timeline_row(item, index)
+        if len(items) > len(visible_items):
+            self._add_show_more_row(row_index=len(visible_items), shown=len(visible_items), total=len(items))
 
         self._all_backups = sorted(self.app.backup.list_backups(), key=lambda item: item.timestamp, reverse=True)
         self._selected_backup_ids.intersection_update({record.backup_id for record in self._all_backups})
@@ -201,6 +205,10 @@ class BackupsTab(ctk.CTkFrame):
 
         shown_text = f"{len(visible_items)} shown / " if len(items) > len(visible_items) else ""
         self._summary_label.configure(text=f"{shown_text}{len(items)} activity items | {len(self._all_backups)} raw backups")
+
+    def _on_filter_changed(self) -> None:
+        self._timeline_visible_limit = _TIMELINE_INITIAL_LIMIT
+        self.refresh()
 
     def _matches_filter(self, item) -> bool:
         selected = self._filter_var.get()
@@ -233,6 +241,35 @@ class BackupsTab(ctk.CTkFrame):
         for widget in row.winfo_children() + [row]:
             widget.bind("<Button-1>", lambda _event, value=item: self._select_item(value))
         self._timeline_rows.append(row)
+
+    def _add_show_more_row(self, *, row_index: int, shown: int, total: int) -> None:
+        row = ctk.CTkFrame(self._timeline, fg_color="transparent")
+        row.grid(row=row_index, column=0, sticky="ew", pady=(6, 2))
+        row.grid_columnconfigure(0, weight=1)
+        label = ctk.CTkLabel(
+            row,
+            text=f"Showing latest {shown} of {total}.",
+            anchor="w",
+            text_color="#95a5a6",
+            font=self.app.ui_font("small"),
+        )
+        label.grid(row=0, column=0, sticky="ew", padx=10, pady=8)
+        button = ctk.CTkButton(
+            row,
+            text="Show More",
+            width=108,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._show_more_timeline,
+        )
+        button.grid(row=0, column=1, sticky="e", padx=10, pady=8)
+        self._timeline_rows.append(row)
+
+    def _show_more_timeline(self) -> None:
+        self._timeline_visible_limit += _TIMELINE_PAGE_SIZE
+        self.refresh()
 
     def _render_backup_rows(self) -> None:
         for widget in self._backup_rows:

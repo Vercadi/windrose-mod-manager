@@ -183,7 +183,7 @@ Do not treat true lazy tab construction as complete just because v0.5.2 improved
 
 ---
 
-## v0.6 - UE4SS, Framework Support, and Server-Admin Foundations
+## v0.6 - UE4SS, Framework Support, and WindrosePlus Foundations
 
 Detailed implementation plan lives in `IMPLEMENTATION_v0.6.0.md`.
 
@@ -214,15 +214,22 @@ The next larger release should make UE4SS a first-class, safe, target-aware work
 - [ ] Defer live admin commands if the protocol/client work is not reliable enough for v0.6.0
 
 ### WindrosePlus integration path
-- [ ] Treat WindrosePlus as a supported server-side integration target, not something to clone
+- [ ] Treat WindrosePlus as a supported server-side capability layer, not something to clone
+- [ ] Keep WindrosePlus optional:
+  - normal pak/UE4SS workflows must still work without it
+  - do not turn the app into a WindrosePlus-only server panel
 - [ ] Detect WindrosePlus when installed under UE4SS mods
-- [ ] Support installing/updating WindrosePlus from a user-supplied archive or explicit release workflow if licensing/permission is clear
-- [ ] Back up and edit common WindrosePlus config files where safe:
-  - `windrose_plus.json`
-  - `windrose_plus.ini`
-  - related advanced `.ini` files
-- [ ] For local/dedicated servers, optionally run the WindrosePlus build step before launch when configured
-- [ ] For hosted servers, support file upload/config editing but be honest that rebuild/restart depends on host shell/panel support
+- [ ] Support installing/updating WindrosePlus from a user-supplied archive or explicit release workflow only if licensing/permission stays clear
+- [ ] First-pass WindrosePlus integration target is local Windows dedicated servers:
+  - detect install state
+  - show quick actions such as `Open WindrosePlus Folder` and `Open WindrosePlus Dashboard`
+  - back up and edit common configs where safe:
+    - `windrose_plus.json`
+    - `windrose_plus.ini`
+    - `windrose_plus.food.ini`
+- [ ] For local/dedicated Windows servers, optionally run the WindrosePlus rebuild step before launch when configured
+- [ ] For hosted servers, support file upload/config editing first and be honest that dashboard/rebuild/restart depends on host shell/panel support
+- [ ] Defer cloning WindrosePlus admin/RCON features into a native in-app panel until the install/config/status workflow is stable
 
 ### Trust and metadata carry-forward
 - [ ] Surface manifest drift more deeply and consistently in the UI

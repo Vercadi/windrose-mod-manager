@@ -71,6 +71,7 @@ class ArchiveInfo:
     dependency_warnings: list[str] = field(default_factory=list)
     suggested_target: Optional[str] = None
     content_category: str = "standard_mod"
+    install_kind: str = "standard_mod"
     framework_name: str = ""
     likely_destinations: list[str] = field(default_factory=list)
     root_prefix: str = ""
@@ -96,6 +97,7 @@ class ArchiveInfo:
             "dependency_warnings": self.dependency_warnings,
             "suggested_target": self.suggested_target,
             "content_category": self.content_category,
+            "install_kind": self.install_kind,
             "framework_name": self.framework_name,
             "likely_destinations": list(self.likely_destinations),
             "root_prefix": self.root_prefix,

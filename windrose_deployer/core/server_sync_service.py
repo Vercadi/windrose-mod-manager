@@ -6,6 +6,8 @@ from pathlib import Path
 
 from ..models.mod_install import ModInstall
 
+SERVER_ONLY_INSTALL_KINDS = {"rcon_mod", "windrose_plus"}
+
 
 @dataclass
 class SyncItem:
@@ -39,8 +41,8 @@ class ServerSyncService:
     """Produce user-facing parity reports for client/server mod state."""
 
     def compare_local(self, mods: list[ModInstall], *, target: str = "server") -> SyncReport:
-        client_groups = self._mods_by_name(mods, target="client")
-        server_groups = self._mods_by_name(mods, target=target)
+        client_groups = self._mods_by_name(mods, target="client", include_server_only_frameworks=False)
+        server_groups = self._mods_by_name(mods, target=target, include_server_only_frameworks=False)
         return self._compare_mod_groups(client_groups, server_groups, target=target)
 
     def compare_hosted(self, mods: list[ModInstall], remote_files: list[str]) -> SyncReport:
@@ -91,8 +93,8 @@ class ServerSyncService:
         Version mismatches are intentionally excluded so automated sync previews only
         offer additive installs for clearly missing server-side mods.
         """
-        client_groups = self._mods_by_name(mods, target="client")
-        server_groups = self._mods_by_name(mods, target=target)
+        client_groups = self._mods_by_name(mods, target="client", include_server_only_frameworks=False)
+        server_groups = self._mods_by_name(mods, target=target, include_server_only_frameworks=False)
         missing: list[ModInstall] = []
 
         for key in sorted(set(client_groups) | set(server_groups)):
@@ -121,8 +123,8 @@ class ServerSyncService:
 
     def server_mods_missing_from_client(self, mods: list[ModInstall], *, target: str) -> list[ModInstall]:
         """Return local/dedicated server installs with no matching client install."""
-        client_groups = self._mods_by_name(mods, target="client")
-        server_groups = self._mods_by_name(mods, target=target)
+        client_groups = self._mods_by_name(mods, target="client", include_server_only_frameworks=False)
+        server_groups = self._mods_by_name(mods, target=target, include_server_only_frameworks=False)
         missing: list[ModInstall] = []
 
         for key in sorted(set(client_groups) | set(server_groups)):
@@ -241,10 +243,17 @@ class ServerSyncService:
         return SyncReport(items=items)
 
     @staticmethod
-    def _mods_for_target(mods: list[ModInstall], *, target: str) -> list[ModInstall]:
+    def _mods_for_target(
+        mods: list[ModInstall],
+        *,
+        target: str,
+        include_server_only_frameworks: bool = True,
+    ) -> list[ModInstall]:
         filtered: list[ModInstall] = []
         for mod in mods:
             if not mod.enabled:
+                continue
+            if not include_server_only_frameworks and mod.install_kind in SERVER_ONLY_INSTALL_KINDS:
                 continue
             targets = ServerSyncService._expanded_targets(mod)
             if target not in targets:
@@ -253,9 +262,19 @@ class ServerSyncService:
         return sorted(filtered, key=ServerSyncService._sort_key)
 
     @classmethod
-    def _mods_by_name(cls, mods: list[ModInstall], *, target: str) -> dict[str, list[ModInstall]]:
+    def _mods_by_name(
+        cls,
+        mods: list[ModInstall],
+        *,
+        target: str,
+        include_server_only_frameworks: bool = True,
+    ) -> dict[str, list[ModInstall]]:
         grouped: dict[str, list[ModInstall]] = {}
-        for mod in cls._mods_for_target(mods, target=target):
+        for mod in cls._mods_for_target(
+            mods,
+            target=target,
+            include_server_only_frameworks=include_server_only_frameworks,
+        ):
             grouped.setdefault(mod.display_name.strip().lower(), []).append(mod)
         return grouped
 

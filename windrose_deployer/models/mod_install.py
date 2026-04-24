@@ -65,6 +65,7 @@ class ModInstall:
     source_archive: str
     archive_hash: Optional[str] = None
     install_type: str = "pak_only"
+    install_kind: str = "standard_mod"
     selected_variant: Optional[str] = None
     targets: list[str] = field(default_factory=list)
     installed_files: list[str] = field(default_factory=list)
@@ -86,6 +87,7 @@ class ModInstall:
             "source_archive": self.source_archive,
             "archive_hash": self.archive_hash,
             "install_type": self.install_type,
+            "install_kind": self.install_kind,
             "selected_variant": self.selected_variant,
             "targets": self.targets,
             "installed_files": self.installed_files,
@@ -105,6 +107,7 @@ class ModInstall:
             source_archive=d.get("source_archive", ""),
             archive_hash=d.get("archive_hash"),
             install_type=d.get("install_type", "pak_only"),
+            install_kind=d.get("install_kind", "standard_mod"),
             selected_variant=d.get("selected_variant"),
             targets=d.get("targets", []),
             installed_files=d.get("installed_files", []),

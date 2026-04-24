@@ -9,6 +9,11 @@ from typing import Optional
 from ..models.app_paths import AppPaths
 from ..models.archive_info import ArchiveEntry, ArchiveInfo, ArchiveType
 from ..models.mod_install import InstallTarget
+from .framework_deployment_planner import (
+    framework_entry_relative_path,
+    framework_install_root,
+    is_framework_install_kind,
+)
 from .target_resolver import resolve_pak_target, resolve_loose_target, strip_archive_prefix
 
 log = logging.getLogger(__name__)
@@ -29,6 +34,7 @@ class DeploymentPlan:
     archive_path: str
     target: InstallTarget
     install_type: str
+    install_kind: str = "standard_mod"
     selected_variant: Optional[str] = None
     files: list[PlannedFile] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
@@ -54,12 +60,21 @@ def plan_deployment(
         archive_path=info.archive_path,
         target=target,
         install_type=info.archive_type.value,
+        install_kind=info.install_kind,
         selected_variant=selected_variant,
     )
 
     if info.archive_type == ArchiveType.UNKNOWN:
         plan.valid = False
         plan.warnings.append("Cannot plan deployment for unknown archive type.")
+        return plan
+
+    if is_framework_install_kind(info.install_kind):
+        _plan_framework_files(info, plan, paths, target, selected_entries)
+        if plan.file_count == 0:
+            plan.valid = False
+            if not plan.warnings:
+                plan.warnings.append("No framework files could be mapped to this target.")
         return plan
 
     pak_targets = resolve_pak_target(paths, target)
@@ -121,6 +136,41 @@ def _plan_paks(
                 dest_path=tgt / filename,
                 is_pak=True,
             ))
+
+
+def _plan_framework_files(
+    info: ArchiveInfo,
+    plan: DeploymentPlan,
+    paths: AppPaths,
+    target: InstallTarget,
+    selected_entries: Optional[set[str]],
+) -> None:
+    root = framework_install_root(paths, target, info.install_kind)
+    if root is None:
+        plan.valid = False
+        plan.warnings.append("No valid framework target directory found.")
+        return
+
+    for entry in [entry for entry in info.entries if not entry.is_dir]:
+        if selected_entries and entry.path not in selected_entries:
+            continue
+        rel = framework_entry_relative_path(info, entry)
+        if rel is None:
+            continue
+        plan.files.append(
+            PlannedFile(
+                archive_entry_path=entry.path,
+                dest_path=root / Path(rel),
+                is_pak=entry.is_unreal_asset,
+            )
+        )
+
+    if info.install_kind == "ue4ss_runtime":
+        plan.warnings.append("UE4SS runtime files will be installed under R5\\Binaries\\Win64.")
+    elif info.install_kind == "windrose_plus":
+        plan.warnings.append(
+            "WindrosePlus package files will be installed to the server root. Run its documented installer/rebuild steps where required."
+        )
 
 
 def _plan_companions(

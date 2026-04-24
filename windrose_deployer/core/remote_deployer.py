@@ -9,6 +9,11 @@ from typing import Callable, Optional
 from ..models.archive_info import ArchiveEntry, ArchiveInfo
 from ..models.remote_profile import RemoteProfile, normalize_remote_protocol
 from .archive_handler import open_archive
+from .framework_deployment_planner import (
+    framework_entry_relative_path,
+    is_framework_install_kind,
+    remote_framework_install_root,
+)
 from .installer import _is_safe_relative_path
 from .remote_provider import RemoteProvider
 from .remote_provider_factory import create_remote_provider
@@ -30,6 +35,7 @@ class RemoteDeploymentPlan:
     mod_name: str
     archive_path: str
     selected_variant: Optional[str] = None
+    install_kind: str = "standard_mod"
     files: list[RemotePlannedFile] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     valid: bool = True
@@ -68,10 +74,42 @@ def plan_remote_deployment(
         mod_name=mod_name or Path(info.archive_path).stem,
         archive_path=info.archive_path,
         selected_variant=selected_variant,
+        install_kind=info.install_kind,
     )
 
     remote_mods_dir = profile.resolved_mods_dir()
     remote_root_dir = profile.normalized_root_dir()
+
+    if is_framework_install_kind(info.install_kind):
+        if not remote_root_dir:
+            plan.valid = False
+            plan.warnings.append(
+                "Hosted framework installs require Server Folder so the app can target R5/Binaries/Win64."
+            )
+            return plan
+        framework_root = remote_framework_install_root(remote_root_dir, info.install_kind)
+        for entry in [entry for entry in info.entries if not entry.is_dir]:
+            rel = framework_entry_relative_path(info, entry)
+            if rel is None:
+                continue
+            plan.files.append(
+                RemotePlannedFile(
+                    archive_entry_path=entry.path,
+                    remote_path=_join_remote(framework_root, rel),
+                    is_pak=entry.is_unreal_asset,
+                )
+            )
+        if info.install_kind == "ue4ss_runtime":
+            plan.warnings.append("Hosted UE4SS runtime files will be uploaded under R5/Binaries/Win64.")
+        elif info.install_kind == "windrose_plus":
+            plan.warnings.append(
+                "WindrosePlus hosted upload is file deployment only. Dashboard/rebuild/restart behavior depends on your host."
+            )
+        if not plan.files:
+            plan.valid = False
+            plan.warnings.append("No framework files could be mapped for hosted deployment.")
+        return plan
+
     if not remote_mods_dir:
         plan.valid = False
         plan.warnings.append(

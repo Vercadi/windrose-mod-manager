@@ -24,6 +24,7 @@ from .. import __app_name__, __version__
 from ..core.backup_manager import BackupManager
 from ..core.discovery import discover_all, reconcile_paths
 from ..core.integrity_service import IntegrityService
+from ..core.framework_state_service import FrameworkStateService
 from ..core.installer import Installer
 from ..core.logging_service import setup_logging
 from ..core.manifest_store import ManifestStore
@@ -31,6 +32,7 @@ from ..core.profile_store import ProfileStore
 from ..core.profile_service import ProfileService
 from ..core.recovery_service import RecoveryService
 from ..core.remote_deployer import RemoteDeploymentService
+from ..core.rcon_config_service import RconConfigService
 from ..core.remote_config_service import RemoteConfigService
 from ..core.remote_profile_store import RemoteProfileStore
 from ..core.server_config_service import ServerConfigService
@@ -207,6 +209,8 @@ class AppWindow(ctk.CTk):
         self.profiles = ProfileStore(self.paths.data_dir)
         self.profile_service = ProfileService()
         self.remote_deployer = RemoteDeploymentService()
+        self.framework_state = FrameworkStateService()
+        self.rcon_config_svc = RconConfigService(self.backup)
         self.remote_config_svc = RemoteConfigService(self.backup, self.remote_profiles)
         self.recovery = RecoveryService(self.manifest, self.backup)
         self.server_sync = ServerSyncService()
@@ -222,6 +226,7 @@ class AppWindow(ctk.CTk):
         self.installer = Installer(self.backup)
         self.server_config_svc = ServerConfigService(self.backup)
         self.world_config_svc = WorldConfigService(self.backup)
+        self.rcon_config_svc = RconConfigService(self.backup)
         self.integrity = IntegrityService(self.paths, self.backup)
         if "remote_profiles" in self.__dict__:
             self.remote_config_svc = RemoteConfigService(self.backup, self.remote_profiles)

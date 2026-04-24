@@ -40,6 +40,7 @@ Things **not** to copy:
 - their exact visual identity, logo feel, or page structure
 - a fully server-only mental model
 - a full SteamCMD/server-installer product unless that becomes an intentional scope
+- a built-in clone of WindrosePlus or another admin/dashboard framework
 
 Our advantage is still:
 
@@ -343,6 +344,11 @@ Deferred from this pass:
 These are valid ideas, but should not be part of the first v0.5.x planning pass:
 
 - FTP support
+- WindrosePlus support as an optional UE4SS-based capability layer:
+  - detect it
+  - install/configure it
+  - open its dashboard/launcher
+  - local Windows dedicated first
 - Nexus API integration / auto-download
 - automatic mod update tracking
 - share-code or cloud-backed parity sync

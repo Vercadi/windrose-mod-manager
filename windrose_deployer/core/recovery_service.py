@@ -57,12 +57,15 @@ class RecoveryService:
                 display_name=record.mod_id,
                 source_archive=record.source_archive,
             )).display_name
-            title = self._history_title(record.action, name, record.target)
+            title = self._history_title(record.action, name, record.target, record.install_kind)
             subtitle = self._target_label(record.target)
             details = [
                 f"Action: {record.action}",
                 f"Target: {subtitle}",
             ]
+            kind_label = self._install_kind_label(record.install_kind)
+            if kind_label:
+                details.append(f"Kind: {kind_label}")
             if record.notes:
                 details.append(f"Summary: {record.notes}")
             if record.source_archive:
@@ -128,7 +131,7 @@ class RecoveryService:
         return items
 
     @staticmethod
-    def _history_title(action: str, name: str, target: str) -> str:
+    def _history_title(action: str, name: str, target: str, install_kind: str = "standard_mod") -> str:
         verbs = {
             "install": "Installed",
             "uninstall": "Uninstalled",
@@ -150,9 +153,22 @@ class RecoveryService:
             verb = "Saved Local World Settings" if target == "server" else "Saved Dedicated World Settings"
         else:
             verb = verbs.get(action, action.replace("_", " ").title())
+        if action in {"install", "uninstall", "hosted_upload", "hosted_remove"}:
+            kind_label = RecoveryService._install_kind_label(install_kind)
+            if kind_label:
+                verb = f"{verb} {kind_label}"
         if action.startswith("save_") or action in {"hosted_restart", "launch_game", "launch_server", "manual_backup"}:
             return verb
         return f"{verb} {name}"
+
+    @staticmethod
+    def _install_kind_label(install_kind: str) -> str:
+        return {
+            "ue4ss_runtime": "UE4SS Runtime",
+            "ue4ss_mod": "UE4SS Mod",
+            "rcon_mod": "RCON Mod",
+            "windrose_plus": "WindrosePlus",
+        }.get(install_kind or "standard_mod", "")
 
     @staticmethod
     def _target_label(target: str) -> str:

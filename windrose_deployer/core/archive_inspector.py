@@ -183,11 +183,14 @@ def _suggest_target(info: ArchiveInfo) -> None:
 def _detect_frameworks(info: ArchiveInfo) -> None:
     analysis = analyze_archive_framework(info.entries)
     info.content_category = analysis.category
+    info.install_kind = analysis.install_kind
     info.framework_name = analysis.framework_name
     info.likely_destinations = list(analysis.likely_destinations)
     info.dependency_warnings.extend(analysis.dependency_warnings)
-    if analysis.category == "framework_runtime":
-        info.warnings.append("Likely framework/runtime package. Review the destination before installing.")
+    if analysis.install_kind == "ue4ss_runtime":
+        info.warnings.append("Likely UE4SS runtime package. Install it to R5\\Binaries\\Win64 for the chosen target.")
+    elif analysis.install_kind == "windrose_plus":
+        info.warnings.append("WindrosePlus package detected. Local Windows dedicated-server workflows are the safest first target.")
     elif analysis.category == "framework_mod" and analysis.framework_name:
         info.dependency_warnings.append(
             f"Review recommended: this archive may depend on {analysis.framework_name}."

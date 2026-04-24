@@ -845,6 +845,31 @@ class TestServerSyncDuplicateNames:
 
         assert [mod.mod_id for mod in missing] == [mismatched_client.mod_id]
 
+    def test_server_only_frameworks_do_not_trigger_client_parity_review(self):
+        windrose_plus = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="WindrosePlus",
+            source_archive="windrose-plus.zip",
+            install_kind="windrose_plus",
+            targets=["dedicated_server"],
+            installed_files=["D:/server/WindrosePlus/Scripts/main.lua"],
+        )
+        rcon = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="WindroseRCON",
+            source_archive="WindroseRCON.zip",
+            install_kind="rcon_mod",
+            targets=["dedicated_server"],
+            installed_files=["D:/server/R5/Binaries/Win64/ue4ss/Mods/WindroseRCON/dlls/main.dll"],
+        )
+
+        service = ServerSyncService()
+        report = service.compare_local([windrose_plus, rcon], target="dedicated_server")
+        missing = service.server_mods_missing_from_client([windrose_plus, rcon], target="dedicated_server")
+
+        assert report.items == []
+        assert missing == []
+
     def test_missing_client_mods_for_hosted_ignores_partial_matches(self):
         complete = ModInstall(
             mod_id=generate_mod_id(),

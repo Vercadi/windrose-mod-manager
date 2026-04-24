@@ -86,6 +86,42 @@ def test_remote_plan_uses_root_defaults_when_overrides_blank(tmp_path: Path) -> 
     assert plan.files[0].remote_path == "/srv/windrose/R5/Content/Paks/~mods/SomeMod.pak"
 
 
+def test_remote_plan_routes_ue4ss_mod_to_remote_mods_tree(tmp_path: Path) -> None:
+    archive = tmp_path / "toggle.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("ToggleSprint/enabled.txt", "1")
+        zf.writestr("ToggleSprint/Scripts/main.lua", "print('x')")
+
+    info = inspect_archive(archive)
+    profile = _make_profile()
+    plan = plan_remote_deployment(info, profile, mod_name="ToggleSprint")
+
+    assert plan.valid
+    assert plan.install_kind == "ue4ss_mod"
+    assert sorted(item.remote_path for item in plan.files) == [
+        "/srv/windrose/R5/Binaries/Win64/ue4ss/Mods/ToggleSprint/Scripts/main.lua",
+        "/srv/windrose/R5/Binaries/Win64/ue4ss/Mods/ToggleSprint/enabled.txt",
+    ]
+
+
+def test_remote_plan_routes_ue4ss_runtime_to_remote_win64(tmp_path: Path) -> None:
+    archive = tmp_path / "ue4ss.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("UE4SS/dwmapi.dll", "dll")
+        zf.writestr("UE4SS/ue4ss/UE4SS.dll", "dll")
+        zf.writestr("UE4SS/readme.txt", "skip")
+
+    info = inspect_archive(archive)
+    profile = _make_profile()
+    plan = plan_remote_deployment(info, profile, mod_name="UE4SS")
+
+    assert plan.valid
+    assert sorted(item.remote_path for item in plan.files) == [
+        "/srv/windrose/R5/Binaries/Win64/dwmapi.dll",
+        "/srv/windrose/R5/Binaries/Win64/ue4ss/UE4SS.dll",
+    ]
+
+
 def test_remote_deploy_uploads_only_selected_variant(tmp_path: Path) -> None:
     archive = tmp_path / "variants.zip"
     with zipfile.ZipFile(archive, "w") as zf:

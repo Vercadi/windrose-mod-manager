@@ -2,20 +2,20 @@
 
 ## Release Goal
 
-`v0.6.0` should make Windrose Mod Manager the safest practical way to install and manage UE4SS-based Windrose mods, while preparing the app for future server-admin and configurable-tweak workflows.
+`v0.6.0` should make Windrose Mod Manager the safest practical way to install and manage UE4SS-based Windrose mods, while adding a narrow server-framework foundation around RCON mods and WindrosePlus.
 
 Primary theme:
 
 - full UE4SS runtime support
 - full UE4SS mod support
+- WindrosePlus as an optional server capability layer
 - clearer framework/dependency visibility
 - safer server-operator foundations
 
 Secondary theme:
 
 - pull forward the most important unshipped `0.5.2` trust/polish items
-- prepare for WindrosePlus support as an integration target after UE4SS support is stable
-- keep the configurable overhaul/tweak-builder pipeline from `IMPLEMENTATION_configurable_overhaul.md` as a later fallback/advanced lane, not the center of `0.6.0`
+- support WindrosePlus through install/config/status integration after UE4SS support is stable
 - defer a future RCON admin panel unless a narrow detection/config-only slice is clearly safe
 
 ## Product Positioning
@@ -29,7 +29,6 @@ It should not become:
 - a bundled third-party runtime distributor without permission
 - a universal pak/asset editor
 - an automatic Nexus download/update manager
-- a full configurable overhaul builder unless the feasibility gates pass
 - a clone of WindrosePlus or any other server-side framework
 
 ## Current Repo Reality
@@ -42,7 +41,6 @@ The repo already has useful foundations:
 - basic UE4SS/framework detection in `framework_detector.py`
 - metadata/version hint foundations in `metadata.py` and `version_hints.py`
 - dashboard/activity/profiles foundations from `0.5.x`
-- generated tweak-builder planning in `IMPLEMENTATION_configurable_overhaul.md`
 
 The repo does not yet have:
 
@@ -53,7 +51,82 @@ The repo does not yet have:
 - UE4SS mod dependency warnings tied to actual target state
 - RCON config detection or editing
 - RCON client/admin panel
-- safe generated-mod source modeling for tweak-builder output
+
+## Observed Local Sample Layouts
+
+The current local sample folders are strong enough to drive first-pass `0.6.0` detection and path planning.
+
+### UE4SS runtime sample
+
+Observed under `H:\\Moddding\\Windrose\\Windrose mods\\ue4ss`:
+
+- `dwmapi.dll`
+- `ue4ss\\UE4SS.dll`
+- `ue4ss\\UE4SS-settings.ini`
+- `ue4ss\\Mods\\`
+
+This confirms:
+
+- the current sample uses `dwmapi.dll`
+- the archive/layout may include a wrapper folder
+- the runtime is not just one DLL; it is a small folder tree rooted under `R5\\Binaries\\Win64`
+
+### UE4SS mod samples
+
+Observed examples:
+
+- `ToggleSprint\\enabled.txt`
+- `ToggleSprint\\Scripts\\main.lua`
+- `ToggleWalk\\enabled.txt`
+- `ToggleWalk\\Scripts\\main.lua`
+- `WindroseRCON\\enabled.txt`
+- `WindroseRCON\\settings.ini`
+- `WindroseRCON\\dlls\\main.dll`
+
+This confirms:
+
+- a first-pass UE4SS mod detector should key off:
+  - `enabled.txt`
+  - `Scripts\\main.lua`
+  - `settings.ini`
+  - `dlls\\main.dll`
+- mod installs should be grouped by mod folder, not by loose child file
+
+### WindrosePlus sample
+
+Observed under `H:\\Moddding\\Windrose\\Windrose mods\\windrose+`:
+
+- root files:
+  - `install.ps1`
+  - `UE4SS-settings.ini`
+  - `README.md`
+- config templates:
+  - `config\\windrose_plus.default.ini`
+  - `config\\windrose_plus.food.default.ini`
+  - related default `.ini` files
+- build / helper tooling:
+  - `tools\\WindrosePlus-BuildPak.ps1`
+  - `tools\\inject-ue4ss.ps1`
+  - `tools\\bin\\retoc.exe`
+  - `tools\\bin\\repak.exe`
+- framework/server helpers:
+  - `server\\start_windrose_plus.bat`
+  - `server\\windrose_plus_server.ps1`
+  - `server\\web\\index.html`
+- mod payload:
+  - `WindrosePlus\\enabled.txt`
+  - `WindrosePlus\\Scripts\\main.lua`
+  - `WindrosePlus\\Mods\\example-welcome\\mod.json`
+
+This confirms:
+
+- WindrosePlus is not just a simple Lua mod folder
+- detection should recognize both the `WindrosePlus` UE4SS mod folder and its adjacent tool/config files
+- local Windows dedicated integration can reasonably support:
+  - config editing
+  - folder/dashboard launch helpers
+  - optional pre-launch rebuild hook
+- `0.6.0` should not try to fully "install everything everywhere" blindly for WindrosePlus on hosted targets
 
 ## External Context
 
@@ -63,11 +136,26 @@ Known Windrose UE4SS-related mods:
 - Windrose Source RCON Protocol: requires UE4SS and installs under `R5\Binaries\Win64\ue4ss\Mods`, with `settings.ini` for port/password
 - WindrosePlus: server-side UE4SS framework that already covers multipliers, advanced server settings, generated override PAK rebuilds, RCON/admin features, query/status, and server-side scripting
 
+Important current WindrosePlus behavior from its README:
+
+- install is local Windows dedicated-server oriented
+- `install.ps1` downloads UE4SS and sets up the framework
+- `StartWindrosePlusServer.bat` runs the rebuild step before launch when configs changed
+- the dashboard launcher is started separately via `windrose_plus\\start_dashboard.bat` after install
+- active runtime configs are:
+  - `windrose_plus.json`
+  - `windrose_plus.ini`
+  - `windrose_plus.food.ini`
+- the package itself ships `.default.ini` templates under `config\\`
+- some multiplier/override features still have client-parity caveats, so the manager must not overstate "server-only" safety for every knob
+
 Important permission rule:
 
 - do not bundle/re-upload UE4SS unless explicit permission is granted by the author/license
 - first implementation should support user-supplied UE4SS archives
 - do not copy WindrosePlus behavior into the manager; support installing, detecting, configuring, backing up, and launching its documented workflows where safe
+- if WindrosePlus install/update support is added, preserve its license and attribution requirements
+- keep UE4SS, `.usmap`, and toolchain files user-supplied in `0.6.0`
 
 ## v0.6.0 Must-Have Scope
 
@@ -246,6 +334,11 @@ Important warnings:
 - FTP does not support remote restart commands
 - Linux native servers may not support Windows UE4SS runtime layout
 - Wine/Proton hosted setups may work if the host exposes the correct files
+- public provider docs/pages do support file-access assumptions for first-pass deployment:
+  - Nitrado documents FTP access to server files
+  - Host Havoc documents full FTP access / file manager access for Windrose
+  - Indifferent Broccoli advertises full file access and remote restart controls
+- `0.6.0` should therefore implement hosted UE4SS as file deployment to the correct path, then explicitly ask for user/provider confirmation after release rather than blocking the whole feature on pre-release host coverage
 
 Acceptance:
 
@@ -283,11 +376,11 @@ Acceptance:
 
 - the app is ready for RCON admin without becoming a full server panel in `0.6.0`
 
-### 8. WindrosePlus Detection And Integration Groundwork
+### 8. WindrosePlus Detection And Integration
 
 Treat WindrosePlus as an external server-side framework that the manager can support.
 
-Must include if scope allows:
+Must include:
 
 - detect WindrosePlus under:
   - `R5\Binaries\Win64\ue4ss\Mods\WindrosePlus`
@@ -297,17 +390,37 @@ Must include if scope allows:
   - `Server Framework`
 - show that it requires UE4SS runtime on the target
 - avoid presenting WindrosePlus as a normal pak-only mod
+- add quick actions where applicable:
+  - `Open WindrosePlus Folder`
+  - `Open WindrosePlus Dashboard`
+
+First-pass scope should prefer local Windows dedicated servers:
+
+- install/update from a user-supplied archive only if the package layout is reliable enough
+- back up and edit common configs where they exist, and surface default templates from the package where useful:
+  - `windrose_plus.json`
+  - `windrose_plus.ini`
+  - `windrose_plus.food.ini`
+- optionally run the documented WindrosePlus rebuild step before launch when enabled
+
+Hosted first-pass scope should stay narrower:
+
+- detect whether WindrosePlus appears installed
+- upload/update files where safe
+- edit config files where safe
+- be explicit that dashboard launch, rebuild, and admin features depend on host shell/panel capabilities
 
 Should defer unless safe:
 
-- editing WindrosePlus configs
-- running the WindrosePlus PAK rebuild script
-- launching a WindrosePlus dashboard
-- any live RCON/admin commands
+- cloning the WindrosePlus dashboard in-app
+- cloning WindrosePlus RCON/admin features in-app
+- deep query/player-management UI inside the manager
+- automatic framework download/update without clear permission and versioning rules
 
 Acceptance:
 
 - the app can recognize WindrosePlus and guide the user without cloning or owning the framework
+- the first implementation makes local Windows dedicated-server workflows easier without pretending hosted/Linux parity is fully solved
 
 ## v0.6.0 Should-Have Scope
 
@@ -382,49 +495,20 @@ Acceptance:
 
 - hosted UE4SS setup has the same provider clarity as hosted pak installs
 
-## Configurable Overhaul Integration
+## Explicit Out Of Scope For v0.6.0
 
-`IMPLEMENTATION_configurable_overhaul.md` remains valid, but it should not be merged into the UE4SS work as one giant feature.
+The configurable overhaul / tweak-builder lane is intentionally out of scope for this release.
 
-For `v0.6.0`, include only the safe foundations if time allows:
+Do not include in `0.6.0`:
 
-### Configurable Overhaul Allowed In v0.6.0
+- tweak research/catalog UI
+- toolchain settings for `retoc` / `.usmap`
+- asset patch engine work
+- generated tweak mod build/install
+- bundled template workspaces
+- any user-facing "Build Tweaks" workflow
 
-- create a `Tweaks` research/catalog document
-- define model/store skeletons only if they do not affect install behavior:
-  - `TweakDefinition`
-  - `TweakConfig`
-  - `ToolchainSettings`
-- add Settings placeholder for external toolchain only if clearly marked experimental:
-  - `retoc path`
-  - `.usmap path`
-- add no end-user "Build & Install" button until manual proof and patch-engine spike pass
-
-### Configurable Overhaul Not In v0.6.0 Unless Gates Pass
-
-- no asset patch engine in production UI
-- no generated tweak mod build/install
-- no bundled template workspace in release build
-- no hosted generated tweak deployment
-- no UI that implies tweaks are ready before in-game proof exists
-- no third-party pak patching or mutation
-
-### Required Gates Before Shipping Tweak Builder
-
-These gates come from `IMPLEMENTATION_configurable_overhaul.md` and remain mandatory:
-
-1. manual combined mod proof:
-   - comfort
-   - inventory
-   - ship
-2. patch-engine spike:
-   - load one known converted template asset
-   - patch one primitive property
-   - repack with `retoc`
-   - verify in game
-3. packaged resource spike:
-   - packaged EXE can read tweak defs/templates
-   - output is generated in writable app data
+That work stays parked in `IMPLEMENTATION_configurable_overhaul.md` until it is deliberately scheduled as its own release line.
 
 ## Architecture Additions
 
@@ -462,12 +546,6 @@ Recommended:
   - detect/read/write known RCON `settings.ini`
 - `rcon_client.py`
   - only if live RCON test/admin commands are included
-
-Possible later configurable-overhaul services:
-
-- `tweak_definition_store.py`
-- `tweak_config_store.py`
-- `toolchain_store.py`
 
 ### UI Files Likely Affected
 
@@ -602,7 +680,28 @@ Acceptance:
 
 - users can see and manage UE4SS state without guessing folder paths
 
-### Slice 7 - RCON Preparation
+### Slice 7 - WindrosePlus Integration
+
+Goal:
+
+- support WindrosePlus as an optional capability layer after UE4SS support is working
+
+Tasks:
+
+- detect WindrosePlus installs and classify them distinctly
+- add quick actions to open the framework folder and dashboard launcher
+- read/write backed-up `windrose_plus.json` when it exists
+- if still safe and in scope, read/write `windrose_plus.ini` and `windrose_plus.food.ini` when those override files exist
+- surface the packaged `.default.ini` templates as reference/start points instead of pretending they are already active overrides
+- for local Windows dedicated servers, optionally run the documented rebuild step before launch when enabled
+- keep hosted support to file/config workflows only unless host capabilities are proven
+
+Acceptance:
+
+- local Windows dedicated users can manage WindrosePlus setup without manually hunting through files
+- the app still does not try to replace the WindrosePlus dashboard/admin console
+
+### Slice 8 - RCON Preparation
 
 Goal:
 
@@ -620,7 +719,7 @@ Acceptance:
 
 - RCON setup becomes visible and configurable, but live admin commands can still be deferred
 
-### Slice 8 - Trust / Metadata / Activity Polish
+### Slice 9 - Trust / Metadata / Activity Polish
 
 Goal:
 
@@ -637,22 +736,6 @@ Tasks:
 Acceptance:
 
 - 0.6 is not only a UE4SS release; it also improves trust and operations
-
-### Slice 9 - Configurable Overhaul Foundations
-
-Goal:
-
-- prepare the tweak-builder lane without shipping unproven asset patching
-
-Tasks:
-
-- add/update tweak research catalog
-- add experimental toolchain settings if useful
-- no production build/install UI until gates pass
-
-Acceptance:
-
-- the configurable overhaul plan is advanced safely without destabilizing mod management
 
 ## RCON Admin Panel Future Shape
 
@@ -684,7 +767,8 @@ Security rules:
 Recommended release placement:
 
 - `0.6.0`: detect/configure/test if reliable
-- `0.6.x`: player list/info
+- `0.6.x`: prefer `Open WindrosePlus Dashboard` and framework-backed setup over building a duplicate admin panel
+- `0.6.x`: player list/info only if the framework integration path proves stable and useful
 - `0.7.0`: kick/ban/admin actions if users request it
 
 ## Testing Plan
@@ -730,12 +814,6 @@ If RCON foundation ships:
 16. Test RCON connection where a server/plugin is available
 17. Confirm password is not exposed or exported accidentally
 
-If configurable-overhaul foundations ship:
-
-18. Toolchain settings save/load
-19. Tweak catalog loads
-20. No user-facing Build button appears unless feasibility gates pass
-
 ## Release Criteria
 
 Ship `v0.6.0` when:
@@ -765,8 +843,7 @@ Cut in this order if scope grows:
 2. RCON connection test
 3. hosted UE4SS runtime detection, while keeping hosted upload if safe
 4. metadata/version polish
-5. configurable-overhaul toolchain settings
-6. advanced dashboard polish
+5. advanced dashboard polish
 
 Do not cut:
 
@@ -792,4 +869,4 @@ Update:
 
 ## One-Sentence Summary
 
-`v0.6.0` should make UE4SS a first-class, safe, target-aware workflow in Windrose Mod Manager, while laying careful groundwork for future RCON admin tools and the configurable tweak-builder without turning the app into a generic server panel or asset editor.
+`v0.6.0` should make UE4SS a first-class, safe, target-aware workflow in Windrose Mod Manager, while laying careful groundwork for future RCON/admin and framework integration without turning the app into a generic server panel or asset editor.

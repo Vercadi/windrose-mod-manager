@@ -33,6 +33,7 @@ class DashboardTab(ctk.CTkFrame):
         self._status_values: dict[str, ctk.CTkLabel] = {}
         self._setup_values: dict[str, ctk.CTkLabel] = {}
         self._count_values: dict[str, ctk.CTkLabel] = {}
+        self._framework_values: dict[str, ctk.CTkLabel] = {}
         self._compare_target_var = ctk.StringVar(value="Dedicated Server")
         self._build()
 
@@ -57,17 +58,20 @@ class DashboardTab(ctk.CTkFrame):
 
         self._status_card = self._make_card(body, row=2, column=0, title="Status")
         self._current_card = self._make_card(body, row=2, column=1, title="Current Setup")
-        self._parity_card = self._make_card(body, row=3, column=0, title="Mod Parity")
-        self._actions_card = self._make_card(body, row=3, column=1, title="Quick Actions")
+        self._frameworks_card = self._make_card(body, row=3, column=0, title="Frameworks")
+        self._parity_card = self._make_card(body, row=3, column=1, title="Mod Parity")
+        self._actions_card = self._make_card(body, row=4, column=0, title="Quick Actions", columnspan=2)
 
         self._build_status_card()
         self._build_current_card()
+        self._build_frameworks_card()
         self._build_parity_card()
         self._build_actions_card()
 
-    def _make_card(self, body, *, row: int, column: int, title: str):
+    def _make_card(self, body, *, row: int, column: int, title: str, columnspan: int = 1):
         card = ctk.CTkFrame(body)
-        card.grid(row=row, column=column, sticky="nsew", padx=8 if column == 0 else (4, 8), pady=(0, 8))
+        padx = 8 if columnspan > 1 else (8 if column == 0 else (4, 8))
+        card.grid(row=row, column=column, columnspan=columnspan, sticky="nsew", padx=padx, pady=(0, 8))
         card.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(card, text=title, font=self.app.ui_font("card_title")).grid(
             row=0, column=0, columnspan=2, sticky="w", padx=14, pady=(14, 10)
@@ -91,6 +95,41 @@ class DashboardTab(ctk.CTkFrame):
             value = ctk.CTkLabel(self._status_card, text="", anchor="e", font=self.app.ui_font("body"))
             value.grid(row=index, column=1, sticky="e", padx=14, pady=4)
             self._status_values[key] = value
+
+    def _build_frameworks_card(self) -> None:
+        labels = [
+            ("ue4ss", "UE4SS Runtime"),
+            ("rcon", "RCON"),
+            ("windrose_plus", "WindrosePlus"),
+        ]
+        for index, (key, label) in enumerate(labels, start=1):
+            ctk.CTkLabel(
+                self._frameworks_card,
+                text=label,
+                font=self.app.ui_font("body"),
+                text_color="#aeb6bf",
+            ).grid(row=index, column=0, sticky="w", padx=14, pady=4)
+            value = ctk.CTkLabel(
+                self._frameworks_card,
+                text="",
+                anchor="w",
+                justify="left",
+                font=self.app.ui_font("body"),
+                wraplength=self.app.ui_tokens.detail_wrap,
+            )
+            value.grid(row=index, column=1, sticky="ew", padx=14, pady=4)
+            self._framework_values[key] = value
+
+        self._framework_note = ctk.CTkLabel(
+            self._frameworks_card,
+            text="WindrosePlus files are present; activation depends on its own install/start workflow.",
+            justify="left",
+            anchor="w",
+            text_color="#95a5a6",
+            font=self.app.ui_font("small"),
+            wraplength=self.app.ui_tokens.panel_wrap,
+        )
+        self._framework_note.grid(row=4, column=0, columnspan=2, sticky="ew", padx=14, pady=(6, 14))
 
     def _build_current_card(self) -> None:
         labels = [
@@ -166,13 +205,54 @@ class DashboardTab(ctk.CTkFrame):
         )
         self._drift_label.grid(row=4, column=0, columnspan=2, sticky="ew", padx=14, pady=(0, 8))
 
+        button_bar = ctk.CTkFrame(self._parity_card, fg_color="transparent")
+        button_bar.grid(row=5, column=0, columnspan=2, sticky="ew", padx=14, pady=(2, 8))
+        button_bar.grid_columnconfigure(0, weight=1)
+        button_bar.grid_columnconfigure(1, weight=1)
+
+        self._compare_btn = ctk.CTkButton(
+            button_bar,
+            text="Run Compare",
+            width=126,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=self._run_compare,
+        )
+        self._compare_btn.grid(row=0, column=0, sticky="ew", padx=(0, 4), pady=(0, 4))
+        self._action_buttons.append(self._compare_btn)
+        self._open_compare_btn = ctk.CTkButton(
+            button_bar,
+            text="Open Full Compare",
+            width=146,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._open_full_compare,
+        )
+        self._open_compare_btn.grid(row=0, column=1, sticky="ew", padx=(4, 0), pady=(0, 4))
+        self._action_buttons.append(self._open_compare_btn)
+        self._review_sync_btn = ctk.CTkButton(
+            button_bar,
+            text="Review Sync Actions",
+            width=170,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            state="disabled",
+            command=self._review_sync_actions,
+        )
+        self._review_sync_btn.grid(row=1, column=0, columnspan=2, sticky="ew", pady=(2, 0))
+        self._action_buttons.append(self._review_sync_btn)
+
         labels = [
             ("client", "Client"),
             ("server", "Local Server"),
             ("dedicated_server", "Dedicated Server"),
             ("hosted", "Hosted Server"),
         ]
-        for index, (key, label) in enumerate(labels, start=5):
+        for index, (key, label) in enumerate(labels, start=6):
             ctk.CTkLabel(
                 self._parity_card,
                 text=label,
@@ -183,46 +263,10 @@ class DashboardTab(ctk.CTkFrame):
             value.grid(row=index, column=1, sticky="e", padx=14, pady=4)
             self._count_values[key] = value
 
-        self._compare_btn = ctk.CTkButton(
-            self._parity_card,
-            text="Run Compare",
-            width=126,
-            height=self.app.ui_tokens.compact_button_height,
-            font=self.app.ui_font("body"),
-            command=self._run_compare,
-        )
-        self._compare_btn.grid(row=9, column=0, sticky="w", padx=(14, 6), pady=(10, 4))
-        self._action_buttons.append(self._compare_btn)
-        self._open_compare_btn = ctk.CTkButton(
-            self._parity_card,
-            text="Open Full Compare",
-            width=146,
-            height=self.app.ui_tokens.compact_button_height,
-            font=self.app.ui_font("body"),
-            fg_color="#555555",
-            hover_color="#666666",
-            command=self._open_full_compare,
-        )
-        self._open_compare_btn.grid(row=9, column=1, sticky="e", padx=(6, 14), pady=(10, 4))
-        self._action_buttons.append(self._open_compare_btn)
-        self._review_sync_btn = ctk.CTkButton(
-            self._parity_card,
-            text="Review Sync Actions",
-            width=170,
-            height=self.app.ui_tokens.compact_button_height,
-            font=self.app.ui_font("body"),
-            fg_color="#555555",
-            hover_color="#666666",
-            state="disabled",
-            command=self._review_sync_actions,
-        )
-        self._review_sync_btn.grid(row=10, column=0, columnspan=2, sticky="ew", padx=14, pady=(2, 14))
-        self._action_buttons.append(self._review_sync_btn)
-
     def _build_actions_card(self) -> None:
         actions = ctk.CTkFrame(self._actions_card, fg_color="transparent")
         actions.grid(row=1, column=0, columnspan=2, sticky="nsew", padx=14, pady=(0, 14))
-        for column in range(2):
+        for column in range(4):
             actions.grid_columnconfigure(column, weight=1)
 
         self._add_action_button(
@@ -234,6 +278,14 @@ class DashboardTab(ctk.CTkFrame):
             fg="#555555", hover="#666666",
         )
         self._add_action_button(
+            actions, row=0, column=2, text="Open Server Folder", command=self.app._server_tab._open_active_server_folder,
+            fg="#555555", hover="#666666",
+        )
+        self._add_action_button(
+            actions, row=0, column=3, text="Back Up Now", command=self.app._server_tab._on_backup_now,
+            fg="#555555", hover="#666666",
+        )
+        self._add_action_button(
             actions, row=1, column=0, text="Open Client Mods", command=self._open_client_mods_folder,
             fg="#555555", hover="#666666",
         )
@@ -242,15 +294,7 @@ class DashboardTab(ctk.CTkFrame):
             fg="#555555", hover="#666666",
         )
         self._add_action_button(
-            actions, row=2, column=0, text="Open Dedicated Server Mods", command=self._open_dedicated_server_mods_folder,
-            fg="#555555", hover="#666666",
-        )
-        self._add_action_button(
-            actions, row=2, column=1, text="Open Server Folder", command=self.app._server_tab._open_active_server_folder,
-            fg="#555555", hover="#666666",
-        )
-        self._add_action_button(
-            actions, row=3, column=0, text="Back Up Now", command=self.app._server_tab._on_backup_now,
+            actions, row=1, column=2, text="Open Dedicated Server Mods", command=self._open_dedicated_server_mods_folder,
             fg="#555555", hover="#666666",
         )
 
@@ -591,9 +635,12 @@ class DashboardTab(ctk.CTkFrame):
                         failed_messages.extend(result.failed[:2])
                     else:
                         success += 1
-                        self.app._server_tab._record_action(
-                            action="hosted_upload",
-                            target="hosted",
+                        self.app._server_tab._record_hosted_upload(
+                            archive_path=action.get("archive"),
+                            display_name=action["name"],
+                            profile=profile,
+                            plan=plan,
+                            result=result,
                             notes=f"Dashboard sync uploaded {action['name']} to hosted server {profile.name} ({result.summary})",
                         )
                 except Exception as exc:
@@ -659,6 +706,9 @@ class DashboardTab(ctk.CTkFrame):
             label.configure(font=self.app.ui_font("body"), wraplength=self.app.ui_tokens.panel_wrap - 40)
         for label in self._count_values.values():
             label.configure(font=self.app.ui_font("body"))
+        for label in self._framework_values.values():
+            label.configure(font=self.app.ui_font("body"), wraplength=self.app.ui_tokens.panel_wrap)
+        self._framework_note.configure(font=self.app.ui_font("small"), wraplength=self.app.ui_tokens.panel_wrap)
         self._compare_target_menu.configure(font=self.app.ui_font("body"), height=self.app.ui_tokens.compact_button_height)
         self._parity_state.configure(font=self.app.ui_font("row_title"))
         self._parity_summary.configure(font=self.app.ui_font("small"), wraplength=self.app.ui_tokens.panel_wrap)
@@ -678,11 +728,13 @@ class DashboardTab(ctk.CTkFrame):
         local_state = self._server_status_text("server")
         dedicated_state = self._server_status_text("dedicated_server")
         hosted_state = server_tab._hosted_dashboard_state
+        framework_states = self.app.framework_state.all_local_states(self.app.paths)
 
         self._set_state_label(self._status_values["client"], client_state)
         self._set_state_label(self._status_values["server"], local_state)
         self._set_state_label(self._status_values["dedicated_server"], dedicated_state)
         self._set_state_label(self._status_values["hosted"], hosted_state)
+        self._refresh_frameworks(framework_states)
 
         self._setup_values["source"].configure(text=source_label)
         self._setup_values["world"].configure(text=active_world)
@@ -736,6 +788,63 @@ class DashboardTab(ctk.CTkFrame):
             return "Running"
         return "Configured"
 
+    def _refresh_frameworks(self, states: dict) -> None:
+        self._set_framework_label(
+            self._framework_values["ue4ss"],
+            self._framework_targets_text(states, "ue4ss_runtime", empty="Missing"),
+        )
+        self._set_framework_label(
+            self._framework_values["rcon"],
+            self._framework_targets_text(states, "rcon_mod", empty="Not installed"),
+        )
+        self._set_framework_label(
+            self._framework_values["windrose_plus"],
+            self._windrose_plus_text(states),
+        )
+
+    @staticmethod
+    def _framework_target_names(states: dict, attribute: str) -> list[str]:
+        labels = {
+            "client": "Client",
+            "server": "Local",
+            "dedicated_server": "Dedicated",
+        }
+        return [labels[key] for key, state in states.items() if getattr(state, attribute, False)]
+
+    @classmethod
+    def _framework_targets_text(cls, states: dict, attribute: str, *, empty: str) -> str:
+        targets = cls._framework_target_names(states, attribute)
+        return ", ".join(targets) if targets else empty
+
+    @classmethod
+    def _windrose_plus_text(cls, states: dict) -> str:
+        active = cls._framework_target_names(states, "windrose_plus")
+        files = [
+            target
+            for target, state in zip(
+                ["Client", "Local", "Dedicated"],
+                [states.get("client"), states.get("server"), states.get("dedicated_server")],
+            )
+            if state and state.windrose_plus_package and not state.windrose_plus
+        ]
+        parts = []
+        if active:
+            parts.append(f"Active on {', '.join(active)}")
+        if files:
+            parts.append(f"Files on {', '.join(files)}")
+        return " | ".join(parts) if parts else "Not installed"
+
+    @staticmethod
+    def _set_framework_label(label: ctk.CTkLabel, value: str) -> None:
+        normalized = value.lower()
+        if "missing" in normalized or "files on" in normalized:
+            color = "#e67e22"
+        elif "not installed" in normalized:
+            color = "#95a5a6"
+        else:
+            color = "#2d8a4e"
+        label.configure(text=value, text_color=color)
+
     @staticmethod
     def _status_text(running: bool, *, configured: bool) -> str:
         if not configured:
@@ -751,6 +860,8 @@ class DashboardTab(ctk.CTkFrame):
             color = "#95a5a6"
         elif "running" in normalized or "connected" in normalized:
             color = "#2d8a4e"
+        elif "missing" in normalized:
+            color = "#e67e22"
         elif normalized == "configured":
             color = "#95a5a6"
         else:

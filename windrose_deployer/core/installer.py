@@ -129,6 +129,7 @@ class Installer:
             source_archive=str(archive_path),
             archive_hash=archive_hash,
             install_type=plan.install_type,
+            install_kind=plan.install_kind,
             selected_variant=plan.selected_variant,
             targets=[plan.target.value],
             installed_files=installed_paths,
@@ -144,6 +145,7 @@ class Installer:
             action="install",
             display_name=plan.mod_name,
             source_archive=str(archive_path),
+            install_kind=plan.install_kind,
             files=deployed_files,
             notes=notes,
         )
@@ -192,6 +194,7 @@ class Installer:
             action="uninstall",
             display_name=mod.display_name,
             source_archive=mod.source_archive,
+            install_kind=mod.install_kind,
             files=removed,
             notes=notes,
         )

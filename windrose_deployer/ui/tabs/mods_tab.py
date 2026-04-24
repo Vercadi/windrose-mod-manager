@@ -1,4 +1,4 @@
-"""Mods screen with archive and applied state in one workspace."""
+"""Mods screen with active and inactive mod state in one workspace."""
 from __future__ import annotations
 
 from collections import defaultdict
@@ -24,6 +24,7 @@ from ...core.live_mod_inventory import (
     bundle_live_file_names,
     snapshot_live_mods_folder,
 )
+from ...core.pak_bundle_importer import import_pak_bundles, is_pak_bundle_file
 from ...core.version_hints import possible_update_hint_for_archive
 from ...models.archive_info import ArchiveInfo
 from ...models.deployment_record import DeployedFile, DeploymentRecord
@@ -45,7 +46,9 @@ if TYPE_CHECKING:
 log = logging.getLogger(__name__)
 
 _FILETYPES = [
-    ("Mod archives", "*.zip *.7z *.rar"),
+    ("Mod files", "*.zip *.7z *.rar *.pak *.utoc *.ucas"),
+    ("Archives", "*.zip *.7z *.rar"),
+    ("Pak / IoStore files", "*.pak *.utoc *.ucas"),
     ("Zip archives", "*.zip"),
     ("7-Zip archives", "*.7z"),
     ("RAR archives", "*.rar"),
@@ -61,13 +64,21 @@ _SCOPE_LABELS = {
 }
 
 _FILTER_LABELS = {
-    "Available Archives": "available",
-    "Applied Sources": "installed",
-    "All Tracked Archives": "all",
+    "Inactive Mods": "available",
+    "Active Mods": "installed",
+    "All Known Mods": "all",
     "Client": "client",
     "Local Server": "server",
     "Dedicated Server": "dedicated",
     "Client + Local Server": "client_local",
+    "Missing Source": "missing archive",
+}
+
+_FILTER_VALUE_ALIASES = {
+    **_FILTER_LABELS,
+    "Available Archives": "available",
+    "Applied Sources": "installed",
+    "All Tracked Archives": "all",
     "Missing Archive": "missing archive",
 }
 
@@ -108,7 +119,7 @@ class ModsTab(ctk.CTkFrame):
 
         self._search_var = ctk.StringVar()
         self._search_var.trace_add("write", lambda *_args: self._refresh_library_ui(refresh_applied=False))
-        self._filter_var = ctk.StringVar(value="Available Archives")
+        self._filter_var = ctk.StringVar(value="Inactive Mods")
         self._scope_var = ctk.StringVar(value="all")
         self._variant_var = ctk.StringVar(value="(none)")
         self._mod_name_var = ctk.StringVar()
@@ -212,7 +223,7 @@ class ModsTab(ctk.CTkFrame):
         header = ctk.CTkFrame(panel, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
         header.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(header, text="Applied Mods", font=self.app.ui_font("section_title")).grid(
+        ctk.CTkLabel(header, text="Active Mods", font=self.app.ui_font("section_title")).grid(
             row=0, column=0, sticky="w"
         )
         self._applied_summary_label = ctk.CTkLabel(header, text="", anchor="e", text_color="#95a5a6", font=self.app.ui_font("small"))
@@ -257,46 +268,53 @@ class ModsTab(ctk.CTkFrame):
 
         header = ctk.CTkFrame(panel, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
-        header.grid_columnconfigure(3, weight=1)
-        ctk.CTkLabel(header, text="Archives", font=self.app.ui_font("section_title")).grid(
+        header.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(header, text="Inactive Mods", font=self.app.ui_font("section_title")).grid(
             row=0, column=0, sticky="w"
         )
         add_btn = ctk.CTkButton(
             header, text="Add", width=64, fg_color="#2980b9", hover_color="#2471a3", command=self.import_archives,
             height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body")
         )
-        add_btn.grid(row=0, column=1, sticky="w", padx=(8, 6))
+        add_btn.grid(row=0, column=1, sticky="e", padx=(8, 6))
         self._action_buttons.append(add_btn)
         self._filter_menu = ctk.CTkOptionMenu(
             header,
             variable=self._filter_var,
             values=list(_FILTER_LABELS.keys()),
-            width=156,
+            width=152,
             command=lambda _value: self._refresh_library_ui(refresh_applied=False),
             font=self.app.ui_font("body"),
         )
         self._filter_menu.grid(row=0, column=2, sticky="e", padx=(0, 6))
-        self._search_entry = ctk.CTkEntry(
-            header, textvariable=self._search_var, placeholder_text="Search...", width=170, font=self.app.ui_font("body")
+        refresh_btn = ctk.CTkButton(
+            header, text="Refresh", width=72, fg_color="#555555", hover_color="#666666", command=self.refresh_view,
+            height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body")
         )
-        self._search_entry.grid(row=0, column=3, sticky="e", padx=(0, 6))
+        refresh_btn.grid(row=0, column=3, sticky="e")
+        self._action_buttons.append(refresh_btn)
+
+        self._search_entry = ctk.CTkEntry(
+            header, textvariable=self._search_var, placeholder_text="Search inactive mods...", width=150, font=self.app.ui_font("body")
+        )
+        self._search_entry.grid(row=1, column=0, sticky="ew", pady=(6, 0), padx=(0, 6))
         self._selected_archives_label = ctk.CTkLabel(header, text="", anchor="e", text_color="#95a5a6", font=self.app.ui_font("small"))
-        self._selected_archives_label.grid(row=0, column=4, sticky="e", padx=(0, 6))
+        self._selected_archives_label.grid(row=1, column=1, sticky="e", pady=(6, 0), padx=(0, 6))
         self._install_selected_btn = ctk.CTkButton(
             header,
-            text="Install Selected",
-            width=128,
+            text="Install",
+            width=86,
             height=self.app.ui_tokens.compact_button_height,
             font=self.app.ui_font("body"),
             state="disabled",
             command=self._on_install_selected_archives,
         )
-        self._install_selected_btn.grid(row=0, column=5, sticky="e", padx=(0, 6))
+        self._install_selected_btn.grid(row=1, column=2, sticky="e", pady=(6, 0), padx=(0, 6))
         self._action_buttons.append(self._install_selected_btn)
         self._clear_archive_selection_btn = ctk.CTkButton(
             header,
             text="Clear",
-            width=64,
+            width=58,
             height=self.app.ui_tokens.compact_button_height,
             font=self.app.ui_font("body"),
             fg_color="#555555",
@@ -304,18 +322,12 @@ class ModsTab(ctk.CTkFrame):
             state="disabled",
             command=self._clear_selected_archives,
         )
-        self._clear_archive_selection_btn.grid(row=0, column=6, sticky="e", padx=(0, 6))
+        self._clear_archive_selection_btn.grid(row=1, column=3, sticky="e", pady=(6, 0))
         self._action_buttons.append(self._clear_archive_selection_btn)
-        refresh_btn = ctk.CTkButton(
-            header, text="Refresh", width=72, fg_color="#555555", hover_color="#666666", command=self.refresh_view,
-            height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body")
-        )
-        refresh_btn.grid(row=0, column=7, sticky="e")
-        self._action_buttons.append(refresh_btn)
 
         self._archive_hint_label = ctk.CTkLabel(
             panel,
-            text="Double-click an archive to choose a target. Right-click rows for more actions. Drop archives anywhere in this pane.",
+            text="Double-click an inactive mod to choose a target. Right-click rows for more actions. Drop archives or pak files anywhere in this pane.",
             justify="left",
             wraplength=self.app.ui_tokens.panel_wrap,
             text_color="#95a5a6",
@@ -333,14 +345,14 @@ class ModsTab(ctk.CTkFrame):
         panel.grid_columnconfigure(0, weight=1)
 
         self._detail_header = ctk.CTkLabel(
-            panel, text="Select a mod or archive", font=self.app.ui_font("detail_title"), anchor="w"
+            panel, text="Select a mod", font=self.app.ui_font("detail_title"), anchor="w"
         )
         self._detail_header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 2))
         self._detail_meta = ctk.CTkLabel(panel, text="", anchor="w", justify="left", text_color="#95a5a6", font=self.app.ui_font("body"))
         self._detail_meta.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
         self._detail_hint = ctk.CTkLabel(
             panel,
-            text="Archive install actions and applied mod management now live in row menus. Double-click an archive to install quickly.",
+            text="Install actions and active mod management now live in row menus. Double-click an inactive mod to install quickly.",
             justify="left",
             wraplength=self.app.ui_tokens.detail_wrap,
             text_color="#95a5a6",
@@ -348,7 +360,7 @@ class ModsTab(ctk.CTkFrame):
         )
         self._detail_hint.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
 
-        self._installed_box = self._add_text_section(panel, 3, "Applied State", 78)
+        self._installed_box = self._add_text_section(panel, 3, "Active State", 78)
         self._review_box = self._add_text_section(panel, 4, "Review", 78)
         self._preview_box = self._add_text_section(panel, 5, "Contents", 120)
 
@@ -532,7 +544,7 @@ class ModsTab(ctk.CTkFrame):
 
     def _installed_to_text(self, mods: list[ModInstall]) -> str:
         if not mods:
-            return "Not installed"
+            return "Not active"
         labels = []
         for mod in mods:
             label = summarize_target_values(mod.targets)
@@ -549,6 +561,21 @@ class ModsTab(ctk.CTkFrame):
             return "No actions yet"
         latest = max(history, key=lambda item: item.timestamp)
         return f"{latest.action.replace('_', ' ').title()} - {latest.timestamp[:19].replace('T', ' ')}"
+
+    @staticmethod
+    def _source_kind_label(entry: dict) -> str:
+        if entry.get("source_kind") == "pak_bundle":
+            return "Pak Files"
+        return "Archive"
+
+    @staticmethod
+    def _install_kind_label(value: str | None) -> str:
+        return {
+            "ue4ss_runtime": "UE4SS Runtime",
+            "ue4ss_mod": "UE4SS Mod",
+            "rcon_mod": "RCON Mod",
+            "windrose_plus": "WindrosePlus",
+        }.get(value or "standard_mod", "")
 
     @staticmethod
     def _target_label(target: InstallTarget) -> str:
@@ -571,7 +598,17 @@ class ModsTab(ctk.CTkFrame):
     def _save_library(self) -> None:
         write_json(self._library_path(), {"archives": self._library})
 
-    def _add_to_library(self, archive_path: Path) -> None:
+    def _loose_import_dir(self) -> Path:
+        return self._library_path().parent / "imports"
+
+    def _add_to_library(
+        self,
+        archive_path: Path,
+        *,
+        name: str | None = None,
+        source_kind: str = "archive",
+        original_files: list[str] | None = None,
+    ) -> None:
         archive_str = str(archive_path)
         for entry in self._library:
             if entry.get("path") == archive_str:
@@ -580,12 +617,46 @@ class ModsTab(ctk.CTkFrame):
             self._normalize_library_entry(
                 {
                     "path": archive_str,
-                    "name": archive_path.stem,
+                    "name": name or archive_path.stem,
                     "ext": archive_path.suffix.lower(),
+                    "source_kind": source_kind,
+                    "original_files": list(original_files or []),
                 }
             )
         )
         self._save_library()
+
+    def _import_source_paths(self, paths: list[Path]) -> tuple[list[Path], list[str]]:
+        archive_paths: list[Path] = []
+        pak_paths: list[Path] = []
+        warnings: list[str] = []
+
+        for path in paths:
+            suffix = path.suffix.lower()
+            if suffix in SUPPORTED_EXTENSIONS:
+                archive_paths.append(path)
+            elif is_pak_bundle_file(path):
+                pak_paths.append(path)
+            else:
+                warnings.append(f"Skipped unsupported file: {path.name}")
+
+        imported_paths: list[Path] = []
+        for archive_path in archive_paths:
+            self._add_to_library(archive_path, source_kind="archive")
+            imported_paths.append(archive_path)
+
+        bundle_result = import_pak_bundles(pak_paths, self._loose_import_dir())
+        warnings.extend(bundle_result.warnings)
+        for bundle in bundle_result.created_archives:
+            self._add_to_library(
+                bundle.archive_path,
+                name=bundle.display_name,
+                source_kind="pak_bundle",
+                original_files=[str(path) for path in bundle.source_files],
+            )
+            imported_paths.append(bundle.archive_path)
+
+        return imported_paths, warnings
 
     def _get_archive_info(self, archive_path: Path) -> ArchiveInfo:
         key = str(archive_path)
@@ -606,6 +677,7 @@ class ModsTab(ctk.CTkFrame):
                     "total_files": info.total_files,
                     "child_items": self._archive_child_names(info),
                     "content_category": info.content_category,
+                    "install_kind": info.install_kind,
                     "framework_name": info.framework_name,
                     "dependency_warnings": list(info.dependency_warnings),
                     "likely_destinations": list(info.likely_destinations),
@@ -628,7 +700,10 @@ class ModsTab(ctk.CTkFrame):
         normalized.setdefault("archive_type", "")
         normalized.setdefault("total_files", 0)
         normalized.setdefault("child_items", [])
+        normalized.setdefault("source_kind", "archive")
+        normalized.setdefault("original_files", [])
         normalized.setdefault("content_category", "standard_mod")
+        normalized.setdefault("install_kind", "standard_mod")
         normalized.setdefault("framework_name", "")
         normalized.setdefault("dependency_warnings", [])
         normalized.setdefault("likely_destinations", [])
@@ -799,7 +874,7 @@ class ModsTab(ctk.CTkFrame):
         return scope in targets
 
     def _selected_filter_value(self) -> str:
-        return _FILTER_LABELS.get(self._filter_var.get(), "all")
+        return _FILTER_VALUE_ALIASES.get(self._filter_var.get(), "all")
 
     def _applied_group_label(self, mod: ModInstall) -> str:
         targets = self._effective_targets(mod)
@@ -911,7 +986,7 @@ class ModsTab(ctk.CTkFrame):
             self._set_result(f"Could not open {label}: {exc}", level="error")
 
     def _open_archive_folder(self, archive_path: Path) -> None:
-        self._open_folder(archive_path.parent, label=f"{archive_path.name} folder")
+        self._open_folder(archive_path.parent, label=f"{archive_path.name} source folder")
 
     def _open_mod_folder(self, mod: ModInstall) -> None:
         if not mod.installed_files:
@@ -1162,7 +1237,7 @@ class ModsTab(ctk.CTkFrame):
         menu.add_separator()
         menu.add_command(label="Open Installed Folder", command=lambda m=mod: self._open_mod_folder(m))
         if mod.source_archive and Path(mod.source_archive).is_file():
-            menu.add_command(label="Open Archive Folder", command=lambda p=Path(mod.source_archive): self._open_archive_folder(p))
+            menu.add_command(label="Open Source Folder", command=lambda p=Path(mod.source_archive): self._open_archive_folder(p))
         menu.add_separator()
         menu.add_command(label="Compare with Server", command=self._on_compare_with_server)
         try:
@@ -1208,13 +1283,13 @@ class ModsTab(ctk.CTkFrame):
                 label=f"Install {label}",
                 command=lambda current=archive_path, current_info=info, entries=selected_entries: self._install_archive_components(current, current_info, entries),
             )
-        if installed_targets != "Not installed":
+        if installed_targets != "Not active":
             menu.add_command(
                 label=f"Uninstall {label}",
                 command=lambda current=archive_path, entries=selected_entries: self._uninstall_archive_components(current, entries),
             )
         menu.add_separator()
-        menu.add_command(label="Inspect Archive", command=lambda current=archive_path: self._inspect_archive(current))
+        menu.add_command(label="Inspect Mod", command=lambda current=archive_path: self._inspect_archive(current))
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -1252,13 +1327,13 @@ class ModsTab(ctk.CTkFrame):
             summary += f" | {unmanaged_count} unmanaged items"
         if missing_count:
             summary += f" | {missing_count} missing files"
-        self._applied_summary_label.configure(text=summary if (mods or live_snapshots) else "0 applied")
+        self._applied_summary_label.configure(text=summary if (mods or live_snapshots) else "0 active")
 
         has_live_issues = any(snapshot.warning or snapshot.unmanaged_files or snapshot.missing_managed_files for snapshot in live_snapshots.values())
         if not mods and not has_live_issues:
             empty = ctk.CTkLabel(
                 self._applied_list,
-                text="No applied mods yet. Install an archive to the client, local server, or dedicated server to track it here.",
+                text="No active mods yet. Install an inactive mod to the client, local server, or dedicated server to track it here.",
                 justify="left",
                 wraplength=self.app.ui_tokens.panel_wrap,
                 text_color="#95a5a6",
@@ -1307,7 +1382,7 @@ class ModsTab(ctk.CTkFrame):
             row += 1
 
             for mod in sorted(items, key=lambda item: (not item.enabled, item.display_name.lower(), item.install_time), reverse=False):
-                archive_name = Path(mod.source_archive).name if mod.source_archive else "(no archive)"
+                archive_name = Path(mod.source_archive).name if mod.source_archive else "(no source)"
                 component_groups = self._mod_component_groups(mod)
                 is_expanded = mod.mod_id in self._expanded_mod_ids
                 row_frame = ctk.CTkFrame(
@@ -1343,13 +1418,17 @@ class ModsTab(ctk.CTkFrame):
                 )
                 title.grid(row=0, column=1, sticky="ew", padx=9, pady=(5 + self.app.ui_tokens.row_pad_y, 1))
 
-                subtitle_parts = [summarize_target_values(mod.targets), archive_name, f"{mod.file_count} files"]
+                subtitle_parts = [summarize_target_values(mod.targets)]
+                install_kind_label = self._install_kind_label(mod.install_kind)
+                if install_kind_label:
+                    subtitle_parts.append(install_kind_label)
+                subtitle_parts.extend([archive_name, f"{mod.file_count} files"])
                 if mod.metadata.version_tag:
                     subtitle_parts.append(f"version {mod.metadata.version_tag}")
                 elif mod.metadata.source_label:
                     subtitle_parts.append(mod.metadata.source_label)
                 if mod.source_archive and not Path(mod.source_archive).is_file():
-                    subtitle_parts.append("archive missing")
+                    subtitle_parts.append("source missing")
                 subtitle = ctk.CTkLabel(
                     row_frame,
                     text=" | ".join(subtitle_parts),
@@ -1653,13 +1732,13 @@ class ModsTab(ctk.CTkFrame):
 
         display_entries = self._display_entries()
         if self._scope_var.get() == "hosted":
-            applied_summary = "live hosted inventory"
+            active_summary = "live hosted inventory"
         else:
-            applied_count = sum(
+            active_count = sum(
                 1 for mod in self.app.manifest.list_mods()
                 if self._scope_matches_targets(self._effective_targets(mod))
             )
-            applied_summary = f"{applied_count} applied"
+            active_summary = f"{active_count} active"
         hidden_count = sum(1 for entry in display_entries if entry.get("_synthetic"))
         scope_label = {
             "all": "all targets",
@@ -1671,16 +1750,16 @@ class ModsTab(ctk.CTkFrame):
         filtered_entries = self._filtered_entries()
         visible_paths = {str(entry["path"]) for entry in filtered_entries}
         self._selected_archive_paths.intersection_update(visible_paths)
-        summary = f"{len(filtered_entries)} archives shown | {applied_summary} | {scope_label}"
+        summary = f"{len(filtered_entries)} inactive mod(s) shown | {active_summary} | {scope_label}"
         if hidden_count:
             summary += f" | {hidden_count} not tracked"
         self._summary_label.configure(text=summary)
 
         if not filtered_entries:
             empty_text = (
-                "Drop archives into this list or use Add to track your first archive."
+                "Drop archives or pak files into this list, or use Add to track your first inactive mod."
                 if not self._search_var.get().strip() and self._selected_filter_value() == "available"
-                else "No archives match the current search or filter."
+                else "No inactive mods match the current search or filter."
             )
             empty = ctk.CTkLabel(
                 self._library_list,
@@ -1717,12 +1796,12 @@ class ModsTab(ctk.CTkFrame):
             except Exception as exc:
                 log.warning("Could not inspect archive for inline bundle view: %s", exc)
         if mods and is_synthetic and exists:
-            status = "Applied"
+            status = "Active"
         elif mods and is_synthetic and not exists:
-            status = "Applied*"
+            status = "Active*"
         else:
-            status = "Missing" if not exists else "Applied" if mods else "Ready"
-        if mods and all(not mod.enabled for mod in mods) and status == "Applied":
+            status = "Missing" if not exists else "Active" if mods else "Inactive"
+        if mods and all(not mod.enabled for mod in mods) and status == "Active":
             status = "Disabled"
 
         row = ctk.CTkFrame(
@@ -1746,10 +1825,10 @@ class ModsTab(ctk.CTkFrame):
         )
 
         color = {
-            "Ready": "#3498db",
-            "Applied": "#2d8a4e",
+            "Inactive": "#3498db",
+            "Active": "#2d8a4e",
             "Disabled": "#f39c12",
-            "Applied*": "#f39c12",
+            "Active*": "#f39c12",
             "Missing": "#c0392b",
         }.get(status, "#95a5a6")
         badge = ctk.CTkLabel(row, text=status, text_color=color, width=58, anchor="w", font=self.app.ui_font("small"))
@@ -1765,16 +1844,17 @@ class ModsTab(ctk.CTkFrame):
 
         type_label = str(entry.get("archive_type", "Unknown")).title()
         total_files = int(entry.get("total_files", 0) or 0)
-        category_label = {
+        category_label = self._install_kind_label(str(entry.get("install_kind", "standard_mod"))) or {
             "framework_runtime": "Framework Runtime",
             "framework_mod": "Framework-Dependent Mod",
         }.get(str(entry.get("content_category", "standard_mod")), "")
         details = " | ".join(
             part for part in [
+                self._source_kind_label(entry),
                 type_label,
                 category_label,
                 f"{total_files} files" if total_files else "",
-                f"Installed To: {self._installed_to_text(mods)}",
+                f"Active On: {self._installed_to_text(mods)}",
                 "Not tracked" if is_synthetic else "",
             ] if part
         )
@@ -1807,7 +1887,7 @@ class ModsTab(ctk.CTkFrame):
         if is_synthetic and exists:
             action_btn = ctk.CTkButton(
                 row,
-                text="Track",
+                text="Add",
                 width=64,
                 height=self.app.ui_tokens.compact_button_height,
                 font=self.app.ui_font("body"),
@@ -1819,7 +1899,7 @@ class ModsTab(ctk.CTkFrame):
         elif not is_synthetic:
             action_btn = ctk.CTkButton(
                 row,
-                text="Untrack",
+                text="Remove",
                 width=76,
                 height=self.app.ui_tokens.compact_button_height,
                 font=self.app.ui_font("body"),
@@ -1889,12 +1969,12 @@ class ModsTab(ctk.CTkFrame):
                 log.warning("Could not inspect archive for inline bundle view: %s", exc)
 
         if mods and is_synthetic and exists:
-            status = "Applied"
+            status = "Active"
         elif mods and is_synthetic and not exists:
-            status = "Applied*"
+            status = "Active*"
         else:
-            status = "Missing" if not exists else "Applied" if mods else "Ready"
-        if mods and all(not mod.enabled for mod in mods) and status == "Applied":
+            status = "Missing" if not exists else "Active" if mods else "Inactive"
+        if mods and all(not mod.enabled for mod in mods) and status == "Active":
             status = "Disabled"
 
         row = ctk.CTkFrame(
@@ -1915,10 +1995,10 @@ class ModsTab(ctk.CTkFrame):
         ).grid(row=0, column=0, rowspan=3, sticky="nw", padx=(8, 2), pady=(8, 4))
 
         color = {
-            "Ready": "#3498db",
-            "Applied": "#2d8a4e",
+            "Inactive": "#3498db",
+            "Active": "#2d8a4e",
             "Disabled": "#f39c12",
-            "Applied*": "#f39c12",
+            "Active*": "#f39c12",
             "Missing": "#c0392b",
         }.get(status, "#95a5a6")
         badge = ctk.CTkLabel(row, text=status, text_color=color, width=58, anchor="w", font=self.app.ui_font("small"))
@@ -1934,16 +2014,17 @@ class ModsTab(ctk.CTkFrame):
 
         type_label = str(entry.get("archive_type", "Unknown")).title()
         total_files = int(entry.get("total_files", 0) or 0)
-        category_label = {
+        category_label = self._install_kind_label(str(entry.get("install_kind", "standard_mod"))) or {
             "framework_runtime": "Framework Runtime",
             "framework_mod": "Framework-Dependent Mod",
         }.get(str(entry.get("content_category", "standard_mod")), "")
         details = " | ".join(
             part for part in [
+                self._source_kind_label(entry),
                 type_label,
                 category_label,
                 f"{total_files} files" if total_files else "",
-                f"Installed To: {self._installed_to_text(mods)}",
+                f"Active On: {self._installed_to_text(mods)}",
                 "Not tracked" if is_synthetic else "",
             ] if part
         )
@@ -1975,7 +2056,7 @@ class ModsTab(ctk.CTkFrame):
         if is_synthetic and exists:
             action_btn = ctk.CTkButton(
                 row,
-                text="Track",
+                text="Add",
                 width=64,
                 height=self.app.ui_tokens.compact_button_height,
                 font=self.app.ui_font("body"),
@@ -1987,7 +2068,7 @@ class ModsTab(ctk.CTkFrame):
         elif not is_synthetic:
             action_btn = ctk.CTkButton(
                 row,
-                text="Untrack",
+                text="Remove",
                 width=76,
                 height=self.app.ui_tokens.compact_button_height,
                 font=self.app.ui_font("body"),
@@ -2026,7 +2107,7 @@ class ModsTab(ctk.CTkFrame):
                     child_title.grid(row=0, column=1, sticky="ew", padx=(0, 8), pady=(6, 1))
                     child_subtitle = ctk.CTkLabel(
                         child_row,
-                        text=f"Installed: {self._component_targets_text(mods, group)}",
+                        text=f"Active: {self._component_targets_text(mods, group)}",
                         anchor="w",
                         justify="left",
                         text_color="#95a5a6",
@@ -2114,9 +2195,9 @@ class ModsTab(ctk.CTkFrame):
         mods = self._mods_for_archive(path_str)
         if mods and not self.app.confirm_action(
             "bulk",
-            "Untrack Archive",
-            "Remove this archive from the tracked archive list?\n\n"
-            "This does not uninstall the applied mod. The install stays active and will remain visible in Applied Mods.",
+            "Remove from Library",
+            "Remove this source from the inactive mod list?\n\n"
+            "This does not uninstall the active mod. The install stays active and will remain visible in Active Mods.",
         ):
             return
         self._library = [entry for entry in self._library if entry.get("path") != path_str]
@@ -2125,7 +2206,7 @@ class ModsTab(ctk.CTkFrame):
             self._clear_details()
         self._save_library()
         self._refresh_library_ui()
-        self._set_result(f"Removed {Path(path_str).name} from the tracked archive list.", level="info")
+        self._set_result(f"Removed {Path(path_str).name} from the inactive mod list.", level="info")
 
     def _toggle_archive_expanded(self, path_str: str) -> None:
         if path_str in self._expanded_archive_paths:
@@ -2153,17 +2234,24 @@ class ModsTab(ctk.CTkFrame):
     def _track_in_library(self, path_str: str) -> None:
         archive_path = Path(path_str)
         if not archive_path.is_file():
-            messagebox.showerror("Archive Missing", f"The archive is no longer available:\n{path_str}")
+            messagebox.showerror("Source Missing", f"The source file is no longer available:\n{path_str}")
             return
         self._add_to_library(archive_path)
         self._refresh_library_ui()
-        self._set_result(f"Added {archive_path.name} to the archive library.", level="success")
+        self._set_result(f"Added {archive_path.name} to the inactive mod list.", level="success")
 
     def _show_library_menu(self, event, archive_path: Path) -> None:
         menu = tk.Menu(self, tearoff=0)
         if archive_path.is_file():
             install_menu = self._build_install_menu(menu, archive_path)
-            menu.add_cascade(label="Install", menu=install_menu)
+            entry = self._library_entry(str(archive_path)) or {}
+            install_label = {
+                "ue4ss_runtime": "Install UE4SS Runtime",
+                "ue4ss_mod": "Install UE4SS Mod",
+                "rcon_mod": "Install RCON Mod",
+                "windrose_plus": "Install WindrosePlus",
+            }.get(str(entry.get("install_kind", "standard_mod")), "Install")
+            menu.add_cascade(label=install_label, menu=install_menu)
             selected_archives = self._selected_archive_context(archive_path)
             if len(selected_archives) > 1:
                 bulk_menu = self._build_install_menu(menu, selected_archives, include_hosted=False)
@@ -2176,11 +2264,11 @@ class ModsTab(ctk.CTkFrame):
         menu.add_separator()
         menu.add_command(label="Inspect", command=lambda: self._inspect_archive(archive_path))
         if archive_path.is_file():
-            menu.add_command(label="Open Archive Folder", command=lambda p=archive_path: self._open_archive_folder(p))
+            menu.add_command(label="Open Source Folder", command=lambda p=archive_path: self._open_archive_folder(p))
         if any(entry.get("path") == str(archive_path) for entry in self._library):
-            menu.add_command(label="Untrack Archive", command=lambda: self._remove_from_library(str(archive_path)))
+            menu.add_command(label="Remove from Library", command=lambda: self._remove_from_library(str(archive_path)))
         elif archive_path.is_file():
-            menu.add_command(label="Track Archive", command=lambda: self._track_in_library(str(archive_path)))
+            menu.add_command(label="Add to Library", command=lambda: self._track_in_library(str(archive_path)))
         try:
             menu.tk_popup(event.x_root, event.y_root)
         finally:
@@ -2379,17 +2467,17 @@ class ModsTab(ctk.CTkFrame):
     def _on_drop(self, event) -> None:
         self._archive_panel.configure(border_color="#3b3b3b")
         self._archive_hint_label.configure(text_color="#95a5a6")
-        valid = [path for path in self._parse_drop_data(event.data) if path.suffix.lower() in SUPPORTED_EXTENSIONS]
-        if not valid:
-            self._set_result("The drop did not contain a supported archive.", level="warning")
+        imported, warnings = self._import_source_paths(self._parse_drop_data(event.data))
+        if not imported:
+            warning_text = " ".join(warnings[:2]) if warnings else "The drop did not contain a supported mod file."
+            self._set_result(warning_text, level="warning")
             return
-        for path in valid:
-            self._add_to_library(path)
         self._save_library()
         self._refresh_library_ui()
-        if len(valid) == 1:
-            self._load_archive(valid[0])
-        self._set_result(f"Added {len(valid)} archive(s) to the library.", level="success")
+        if len(imported) == 1:
+            self._load_archive(imported[0])
+        suffix = " " + " ".join(warnings[:2]) if warnings else ""
+        self._set_result(f"Added {len(imported)} inactive mod(s).{suffix}", level="success" if not warnings else "warning")
 
     def _parse_drop_data(self, data: str) -> list[Path]:
         paths: list[Path] = []
@@ -2413,18 +2501,19 @@ class ModsTab(ctk.CTkFrame):
         return paths
 
     def _on_browse(self) -> None:
-        paths = filedialog.askopenfilenames(title="Select Mod Archive(s)", filetypes=_FILETYPES)
+        paths = filedialog.askopenfilenames(title="Select Mod File(s)", filetypes=_FILETYPES)
         if not paths:
             return
-        valid = [Path(path) for path in paths if Path(path).suffix.lower() in SUPPORTED_EXTENSIONS]
-        for path in valid:
-            self._add_to_library(path)
+        valid, warnings = self._import_source_paths([Path(path) for path in paths])
         self._save_library()
         self._refresh_library_ui()
         if len(valid) == 1:
             self._load_archive(valid[0])
         if valid:
-            self._set_result(f"Added {len(valid)} archive(s) to the library.", level="success")
+            suffix = " " + " ".join(warnings[:2]) if warnings else ""
+            self._set_result(f"Added {len(valid)} inactive mod(s).{suffix}", level="success" if not warnings else "warning")
+        elif warnings:
+            self._set_result(" ".join(warnings[:2]), level="warning")
 
     def _load_archive(self, archive_path: Path, *, refresh_only: bool = False) -> None:
         archive_str = str(archive_path)
@@ -2432,16 +2521,18 @@ class ModsTab(ctk.CTkFrame):
             self._selected_library_path = archive_str
             self._refresh_library_selection_styles()
         installed_mods = self._mods_for_archive(str(archive_path))
+        library_entry = self._library_entry(archive_str)
+        display_name = str(library_entry.get("name") or archive_path.stem) if library_entry else archive_path.stem
         try:
             info = self._get_archive_info(archive_path)
         except Exception as exc:
             self._current_info = None
-            self._detail_header.configure(text=self._compact_name(archive_path.stem or archive_path.name))
+            self._detail_header.configure(text=self._compact_name(display_name or archive_path.name))
             self._detail_meta.configure(
                 text="\n".join(
                     [
-                        f"Installed To: {self._installed_to_text(installed_mods)}",
-                        f"Archive: {archive_path.name}",
+                        f"Active On: {self._installed_to_text(installed_mods)}",
+                        f"Source: {archive_path.name}",
                         f"Last Action: {self._last_action_text(str(archive_path))}",
                         f"Could not inspect archive: {exc}",
                     ]
@@ -2450,11 +2541,11 @@ class ModsTab(ctk.CTkFrame):
             self._set_textbox(self._installed_box, self._installed_text(installed_mods))
             self._set_textbox(
                 self._review_box,
-                "Archive details are unavailable. Re-import the archive to inspect, reinstall, or repair this install.",
+                "Source details are unavailable. Re-import this mod to inspect, reinstall, or repair this install.",
             )
             self._set_textbox(
                 self._preview_box,
-                "Archive contents are unavailable because the source archive is missing or could not be read.",
+                "Source contents are unavailable because the source file is missing or could not be read.",
             )
             return
 
@@ -2464,19 +2555,19 @@ class ModsTab(ctk.CTkFrame):
         meta_parts = [
             info.archive_type.value.replace("_", " ").title(),
             f"{info.total_files} files",
-            f"Installed To: {self._installed_to_text(installed_mods)}",
+            f"Active On: {self._installed_to_text(installed_mods)}",
         ]
-        self._detail_header.configure(text=self._compact_name(archive_path.stem))
+        self._detail_header.configure(text=self._compact_name(display_name))
         self._detail_meta.configure(
             text="\n".join(
                 [
                     " | ".join(part for part in meta_parts if part),
-                    f"Archive: {archive_path.name}",
+                    f"Source: {archive_path.name}",
                     f"Last Action: {self._last_action_text(str(archive_path))}",
                 ]
             )
         )
-        self._mod_name_var.set(self._compact_name(archive_path.stem))
+        self._mod_name_var.set(self._compact_name(display_name))
 
         self._set_textbox(self._installed_box, self._installed_text(installed_mods))
         self._set_textbox(self._review_box, self._build_install_review(info))
@@ -2486,7 +2577,7 @@ class ModsTab(ctk.CTkFrame):
 
     def _clear_details(self) -> None:
         self._current_info = None
-        self._detail_header.configure(text="Select a mod or archive")
+        self._detail_header.configure(text="Select a mod")
         self._detail_meta.configure(text="")
         self._mod_name_var.set("")
         self._set_textbox(self._installed_box, "")
@@ -2562,7 +2653,7 @@ class ModsTab(ctk.CTkFrame):
 
     def _installed_text(self, mods: list[ModInstall]) -> str:
         if not mods:
-            return "This archive is not currently applied anywhere."
+            return "This mod is not currently active anywhere."
         lines: list[str] = []
         for mod in mods:
             target_text = summarize_target_values(mod.targets)
@@ -2570,7 +2661,7 @@ class ModsTab(ctk.CTkFrame):
             if mod.selected_variant:
                 lines.append(f"  variant: {mod.selected_variant}")
             lines.append(f"  files: {mod.file_count}")
-            lines.append(f"  archive: {Path(mod.source_archive).name}")
+            lines.append(f"  source: {Path(mod.source_archive).name}")
             lines.append("")
         return "\n".join(lines).strip()
 
@@ -2602,10 +2693,10 @@ class ModsTab(ctk.CTkFrame):
                 lines.append(f"{label}: {conflict_count} managed conflict(s)")
             else:
                 lines.append(f"{label}: ready")
-        lines.append("Hosted Server only: open the archive row menu or double-click the archive to launch the hosted upload flow.")
+        lines.append("Hosted Server only: open the inactive mod row menu or double-click the mod to launch the hosted upload flow.")
         if info.warnings:
             lines.append("")
-            lines.append("Archive warnings:")
+            lines.append("Source warnings:")
             lines.extend(f"- {warning}" for warning in info.warnings)
         if info.dependency_warnings:
             lines.append("")
@@ -2615,10 +2706,11 @@ class ModsTab(ctk.CTkFrame):
 
     def _preview_text(self, info: ArchiveInfo) -> str:
         lines = [
-            f"Archive:     {Path(info.archive_path).name}",
+            f"Source:      {Path(info.archive_path).name}",
             f"Source Path: {info.archive_path}",
             f"Type:        {info.archive_type.value}",
             f"Category:    {info.content_category}",
+            f"Install Kind:{info.install_kind}",
             f"Files:       {info.total_files}",
             "",
         ]
@@ -2756,12 +2848,14 @@ class ModsTab(ctk.CTkFrame):
             if component_entries and component_entries.intersection(group_entries):
                 targets.update(self._effective_targets(mod))
         if not targets:
-            return "Not installed"
+            return "Not active"
         return summarize_target_values(sorted(targets))
 
     def _open_inspect_dialog(self, archive_path: Path, info: ArchiveInfo, installed_mods: list[ModInstall]) -> None:
+        library_entry = self._library_entry(str(archive_path))
+        display_name = str(library_entry.get("name") or archive_path.stem) if library_entry else archive_path.stem
         dialog = ctk.CTkToplevel(self)
-        dialog.title(f"Inspect Archive - {archive_path.name}")
+        dialog.title(f"Inspect Mod - {self._compact_name(display_name)}")
         self.app.center_dialog(dialog, 860, 720)
         dialog.minsize(760, 620)
         dialog.transient(self.winfo_toplevel())
@@ -2772,14 +2866,14 @@ class ModsTab(ctk.CTkFrame):
         header = ctk.CTkFrame(dialog, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=16, pady=(16, 8))
         header.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(header, text=self._compact_name(archive_path.stem), font=self.app.ui_font("detail_title")).grid(
+        ctk.CTkLabel(header, text=self._compact_name(display_name), font=self.app.ui_font("detail_title")).grid(
             row=0, column=0, sticky="w"
         )
         meta = self._archive_metadata(str(archive_path))
         meta_bits = [
             info.archive_type.value.replace("_", " ").title(),
             f"{info.total_files} files",
-            summarize_target_values([target for mod in installed_mods for target in mod.targets]) if installed_mods else "Not installed",
+            summarize_target_values([target for mod in installed_mods for target in mod.targets]) if installed_mods else "Not active",
         ]
         ctk.CTkLabel(
             header,
@@ -2796,14 +2890,15 @@ class ModsTab(ctk.CTkFrame):
         overview = ctk.CTkFrame(body)
         overview.grid(row=0, column=0, sticky="ew", pady=(0, 8))
         overview.grid_columnconfigure(0, weight=1)
-        ctk.CTkLabel(overview, text="Archive Overview", font=self.app.ui_font("card_title")).grid(
+        ctk.CTkLabel(overview, text="Mod Source Overview", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=12, pady=(12, 6)
         )
         overview_text = [
-            f"Archive: {archive_path.name}",
+            f"Source: {archive_path.name}",
             f"Type: {info.archive_type.value.replace('_', ' ').title()}",
             f"Suggested destination: {', '.join(info.likely_destinations) if info.likely_destinations else (info.suggested_target or 'Review recommended')}",
             f"Category: {info.content_category.replace('_', ' ').title()}",
+            f"Install kind: {self._install_kind_label(info.install_kind) or info.install_kind.replace('_', ' ').title()}",
         ]
         update_hint = self._archive_update_hint(self._library_entry(str(archive_path)) or {"path": str(archive_path), "name": archive_path.stem, "metadata": meta.to_dict()})
         if update_hint:
@@ -2945,7 +3040,7 @@ class ModsTab(ctk.CTkFrame):
             selected_variant = self._prompt_variant_choice(info)
             if info.has_variants and not selected_variant:
                 return
-            mod_name = self._mod_name_var.get().strip() or self._compact_name(archive_path.stem)
+            mod_name = self._mod_name_var.get().strip() or self._compact_name(display_name)
             if self._run_install_preset(info, mod_name, preset, selected_variant):
                 dialog.destroy()
 
@@ -2959,11 +3054,11 @@ class ModsTab(ctk.CTkFrame):
                 return
             preset = self._choose_install_preset(
                 title=f"Install Selected Items - {archive_path.name}",
-                subtitle="Selected-child install is only used when the archive structure looks safe for partial install.",
+                subtitle="Selected-child install is only used when the mod source structure looks safe for partial install.",
             )
             if not preset:
                 return
-            mod_name = self._mod_name_var.get().strip() or self._compact_name(archive_path.stem)
+            mod_name = self._mod_name_var.get().strip() or self._compact_name(display_name)
             if self._run_install_preset(info, mod_name, preset, None, selected_entries=selected_entries):
                 dialog.destroy()
 
@@ -3008,7 +3103,7 @@ class ModsTab(ctk.CTkFrame):
         close_btn.pack(side="right")
         open_btn = ctk.CTkButton(
             button_row,
-            text="Open Archive Folder",
+            text="Open Source Folder",
             width=138,
             height=self.app.ui_tokens.compact_button_height,
             font=self.app.ui_font("body"),
@@ -3035,11 +3130,14 @@ class ModsTab(ctk.CTkFrame):
             return
         preset = self._choose_install_preset(
             title=f"Install Selected Items - {archive_path.name}",
-            subtitle="Selected-child install is only used when the archive structure looks safe for partial install.",
+            subtitle="Selected-child install is only used when the mod source structure looks safe for partial install.",
         )
         if not preset:
             return
-        mod_name = self._mod_name_var.get().strip() or self._compact_name(archive_path.stem)
+        entry = self._library_entry(str(archive_path))
+        display_name = str(entry.get("name") or archive_path.stem) if entry else archive_path.stem
+        field_name = self._mod_name_var.get().strip() if self._selected_library_path == str(archive_path) else ""
+        mod_name = field_name or self._compact_name(display_name)
         self._run_install_preset(info, mod_name, preset, None, selected_entries=selected_entries)
 
     def _uninstall_mod_components(self, mod: ModInstall, selected_entries: set[str]) -> bool:
@@ -3459,10 +3557,12 @@ class ModsTab(ctk.CTkFrame):
             return None, "Configure the local server path in Settings first."
         if target == InstallTarget.DEDICATED_SERVER and not paths.dedicated_server_root:
             return None, "Configure the dedicated server path in Settings first."
+        if info.install_kind == "windrose_plus" and target == InstallTarget.CLIENT:
+            return None, "WindrosePlus is a server framework and should be installed to Local Server or Dedicated Server."
         plan = plan_deployment(info, paths, target, selected_variant, mod_name, selected_entries)
         if not plan.valid:
             return None, "\n".join(plan.warnings) if plan.warnings else "The install plan is not valid."
-        if info.content_category == "framework_mod":
+        if info.install_kind in {"ue4ss_mod", "rcon_mod", "windrose_plus"}:
             framework_root = {
                 InstallTarget.CLIENT: paths.client_root,
                 InstallTarget.SERVER: paths.server_root,
@@ -3498,6 +3598,7 @@ class ModsTab(ctk.CTkFrame):
 
         prepared = []
         warnings: list[str] = []
+        plan_warning_lines: list[str] = []
         conflict_lines: list[str] = []
         for target in targets:
             try:
@@ -3513,6 +3614,12 @@ class ModsTab(ctk.CTkFrame):
             if plan is None:
                 warnings.append(f"{self._target_label(target)}: {error}")
                 continue
+            plan_warnings = getattr(plan, "warnings", [])
+            if plan_warnings:
+                plan_warning_lines.extend(
+                    f"{self._target_label(target)}: {warning}"
+                    for warning in plan_warnings
+                )
             conflict_report = check_plan_conflicts(plan, self.app.manifest)
             if conflict_report.has_conflicts:
                 conflict_lines.extend(
@@ -3532,6 +3639,14 @@ class ModsTab(ctk.CTkFrame):
                 "conflict",
                 "Managed File Conflicts",
                 "Existing managed files will be backed up before they are overwritten.\n\n" + "\n".join(conflict_lines),
+            ):
+                return False
+
+        if plan_warning_lines and not quiet:
+            if not self.app.confirm_action(
+                "conflict",
+                "Review Install Warnings",
+                "Review these notes before installing:\n\n" + "\n".join(plan_warning_lines[:10]),
             ):
                 return False
 
@@ -3587,7 +3702,7 @@ class ModsTab(ctk.CTkFrame):
 
     def _install_current(self, preset_key: str) -> None:
         if self._current_info is None:
-            self._set_result("Select an archive first.", level="info")
+            self._set_result("Select an inactive mod first.", level="info")
             return
         if preset_key == "hosted":
             self.app.open_remote_deploy(Path(self._current_info.archive_path))
@@ -3605,7 +3720,7 @@ class ModsTab(ctk.CTkFrame):
 
     def _on_install_to_hosted(self) -> None:
         if self._current_info is None:
-            self._set_result("Select an archive first.", level="info")
+            self._set_result("Select an inactive mod first.", level="info")
             return
         self.app.open_remote_deploy(self._current_info.archive_path)
 
@@ -3624,12 +3739,12 @@ class ModsTab(ctk.CTkFrame):
 
     def _install_archive_batch(self, archives: list[Path], preset: str) -> None:
         if not archives:
-            self._set_result("Select one or more archive rows first.", level="info")
+            self._set_result("Select one or more inactive mod rows first.", level="info")
             return
         if not self.app.confirm_action(
             "bulk",
-            "Install Selected Archives",
-            f"Install {len(archives)} selected archive(s) to {self._install_preset_label(preset)}?",
+            "Install Selected Mods",
+            f"Install {len(archives)} selected inactive mod(s) to {self._install_preset_label(preset)}?",
         ):
             return
 
@@ -3643,7 +3758,8 @@ class ModsTab(ctk.CTkFrame):
                 if info.has_variants and not selected_variant:
                     skipped += 1
                     continue
-                mod_name = self._compact_name(archive_path.stem)
+                entry = self._library_entry(str(archive_path))
+                mod_name = self._compact_name(str(entry.get("name") or archive_path.stem) if entry else archive_path.stem)
                 if self._run_install_preset(info, mod_name, preset, selected_variant, quiet=True, confirm_conflicts=True):
                     success += 1
                 else:
@@ -3653,7 +3769,7 @@ class ModsTab(ctk.CTkFrame):
                 failed += 1
 
         self._clear_selected_archives()
-        parts = [f"Installed {success} archive(s) to {self._install_preset_label(preset)}."]
+        parts = [f"Installed {success} inactive mod(s) to {self._install_preset_label(preset)}."]
         if failed:
             parts.append(f"{failed} failed.")
         if skipped:
@@ -3663,11 +3779,11 @@ class ModsTab(ctk.CTkFrame):
     def _on_install_selected_archives(self) -> None:
         archives = self._selected_archives()
         if not archives:
-            self._set_result("Select one or more archive rows first.", level="info")
+            self._set_result("Select one or more inactive mod rows first.", level="info")
             return
         preset = self._choose_install_preset(
-            title=f"Install {len(archives)} Selected Archive(s)",
-            subtitle="Bulk install uses the same target for every selected archive. Hosted uploads stay separate from bulk install.",
+            title=f"Install {len(archives)} Selected Inactive Mod(s)",
+            subtitle="Bulk install uses the same target for every selected mod. Hosted uploads stay separate from bulk install.",
             include_hosted=False,
         )
         if not preset:
@@ -3678,7 +3794,7 @@ class ModsTab(ctk.CTkFrame):
         mods = self._selected_mods()
         live_items = self._selected_live_items()
         if not mods and not live_items:
-            self._set_result("Select one or more applied mod rows first.", level="info")
+            self._set_result("Select one or more active mod rows first.", level="info")
             return
         if not self.app.confirm_action(
             "destructive",
@@ -3701,7 +3817,7 @@ class ModsTab(ctk.CTkFrame):
         for bundle_id, bundle_paths in live_items:
             try:
                 metadata = getattr(self, "_live_file_bundle_meta", {}).get(bundle_id, {})
-                target_label = metadata.get("target_label", "Applied Mods")
+                target_label = metadata.get("target_label", "Active Mods")
                 kind = metadata.get("kind", "local")
                 if kind == "hosted":
                     profile = self._selected_hosted_profile()
@@ -3751,12 +3867,12 @@ class ModsTab(ctk.CTkFrame):
     def _on_install_all(self) -> None:
         to_install = [entry for entry in self._library if Path(entry["path"]).is_file() and not self._mods_for_archive(str(entry["path"]))]
         if not to_install:
-            self._set_result("All tracked archives are already applied or missing.", level="info")
+            self._set_result("All inactive mods are already active or missing.", level="info")
             return
         if not self.app.confirm_action(
             "bulk",
             "Install All",
-            f"Install {len(to_install)} archive(s) to the client target?\n\nArchives with variants will be skipped for manual review.",
+            f"Install {len(to_install)} inactive mod(s) to the client target?\n\nMods with variants will be skipped for manual review.",
         ):
             return
         success = 0
@@ -3768,14 +3884,15 @@ class ModsTab(ctk.CTkFrame):
                 if info.has_variants:
                     skipped_variants += 1
                     continue
-                if self._run_install_preset(info, Path(entry["path"]).stem, "client", None, quiet=True):
+                mod_name = self._compact_name(str(entry.get("name") or Path(entry["path"]).stem))
+                if self._run_install_preset(info, mod_name, "client", None, quiet=True):
                     success += 1
                 else:
                     failed += 1
             except Exception as exc:
                 log.error("Install All failed for %s: %s", entry["path"], exc)
                 failed += 1
-        lines = [f"Installed {success} archive(s)."]
+        lines = [f"Installed {success} inactive mod(s)."]
         if failed:
             lines.append(f"{failed} failed.")
         if skipped_variants:
@@ -3839,17 +3956,17 @@ class ModsTab(ctk.CTkFrame):
 
     def _on_uninstall(self) -> None:
         if not self._selected_library_path:
-            self._set_result("Select an archive first.", level="info")
+            self._set_result("Select a mod first.", level="info")
             return
         mods = self._mods_for_archive(self._selected_library_path)
         if not mods:
-            self._set_result("This archive is not currently installed.", level="info")
+            self._set_result("This mod is not currently active.", level="info")
             return
         selected = self._choose_mod(mods, purpose="uninstall", allow_all=True)
         if selected is None:
             return
         targets = mods if selected == "all" else [selected]
-        if not self.app.confirm_action("destructive", "Confirm Uninstall", f"Uninstall {len(targets)} install(s) from this archive?"):
+        if not self.app.confirm_action("destructive", "Confirm Uninstall", f"Uninstall {len(targets)} active install(s) from this mod?"):
             return
         for mod in targets:
             record = self.app.installer.uninstall(mod)
@@ -3858,22 +3975,22 @@ class ModsTab(ctk.CTkFrame):
         self.app.refresh_installed_tab()
         self.app.refresh_backups_tab()
         self.refresh_view()
-        self._set_result(f"Uninstalled {len(targets)} install(s) from the selected archive.", level="success")
+        self._set_result(f"Uninstalled {len(targets)} active install(s) from the selected mod.", level="success")
 
     def _on_reinstall(self) -> None:
         if not self._selected_library_path:
-            self._set_result("Select an archive first.", level="info")
+            self._set_result("Select a mod first.", level="info")
             return
         mods = self._mods_for_archive(self._selected_library_path)
         if not mods:
-            self._set_result("This archive is not currently installed.", level="info")
+            self._set_result("This mod is not currently active.", level="info")
             return
         selected = self._choose_mod(mods, purpose="reinstall")
         if selected is None:
             return
         archive_path = Path(selected.source_archive) if selected.source_archive else None
         if not archive_path or not archive_path.is_file():
-            messagebox.showerror("Archive Not Found", f"The original archive is no longer available:\n{selected.source_archive}")
+            messagebox.showerror("Source Not Found", f"The original mod source is no longer available:\n{selected.source_archive}")
             return
         try:
             info = inspect_archive(archive_path)
@@ -3908,11 +4025,11 @@ class ModsTab(ctk.CTkFrame):
 
     def _on_repair(self) -> None:
         if not self._selected_library_path:
-            self._set_result("Select an archive first.", level="info")
+            self._set_result("Select a mod first.", level="info")
             return
         mods = self._mods_for_archive(self._selected_library_path)
         if not mods:
-            self._set_result("This archive is not currently installed.", level="info")
+            self._set_result("This mod is not currently active.", level="info")
             return
         selected = self._choose_mod(mods, purpose="repair")
         if selected is None:
