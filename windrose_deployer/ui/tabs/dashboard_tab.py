@@ -5,13 +5,17 @@ import os
 import subprocess
 import threading
 import tkinter as tk
+import webbrowser
+from datetime import datetime
 from pathlib import Path
 from tkinter import messagebox
+from urllib.request import urlopen
 
 import customtkinter as ctk
 
 from ...core.archive_inspector import inspect_archive
 from ...core.conflict_detector import check_plan_conflicts
+from ...core.framework_config_service import KNOWN_CONFIGS
 from ...core.remote_deployer import plan_remote_deployment
 from ...models.mod_install import InstallTarget
 
@@ -45,6 +49,17 @@ class DashboardTab(ctk.CTkFrame):
 
         self._title = ctk.CTkLabel(body, text="Dashboard", font=self.app.ui_font("title"))
         self._title.grid(row=0, column=0, sticky="w", padx=8, pady=(0, 2))
+        self._refresh_btn = ctk.CTkButton(
+            body,
+            text="Refresh",
+            width=92,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._manual_refresh,
+        )
+        self._refresh_btn.grid(row=0, column=1, sticky="e", padx=8, pady=(0, 2))
 
         self._subtitle = ctk.CTkLabel(
             body,
@@ -71,10 +86,10 @@ class DashboardTab(ctk.CTkFrame):
     def _make_card(self, body, *, row: int, column: int, title: str, columnspan: int = 1):
         card = ctk.CTkFrame(body)
         padx = 8 if columnspan > 1 else (8 if column == 0 else (4, 8))
-        card.grid(row=row, column=column, columnspan=columnspan, sticky="nsew", padx=padx, pady=(0, 8))
+        card.grid(row=row, column=column, columnspan=columnspan, sticky="nsew", padx=padx, pady=(0, 6))
         card.grid_columnconfigure(1, weight=1)
         ctk.CTkLabel(card, text=title, font=self.app.ui_font("card_title")).grid(
-            row=0, column=0, columnspan=2, sticky="w", padx=14, pady=(14, 10)
+            row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(10, 6)
         )
         return card
 
@@ -91,9 +106,9 @@ class DashboardTab(ctk.CTkFrame):
                 text=label,
                 font=self.app.ui_font("body"),
                 text_color="#aeb6bf",
-            ).grid(row=index, column=0, sticky="w", padx=14, pady=4)
+            ).grid(row=index, column=0, sticky="w", padx=12, pady=2)
             value = ctk.CTkLabel(self._status_card, text="", anchor="e", font=self.app.ui_font("body"))
-            value.grid(row=index, column=1, sticky="e", padx=14, pady=4)
+            value.grid(row=index, column=1, sticky="e", padx=12, pady=2)
             self._status_values[key] = value
 
     def _build_frameworks_card(self) -> None:
@@ -108,7 +123,7 @@ class DashboardTab(ctk.CTkFrame):
                 text=label,
                 font=self.app.ui_font("body"),
                 text_color="#aeb6bf",
-            ).grid(row=index, column=0, sticky="w", padx=14, pady=4)
+            ).grid(row=index, column=0, sticky="w", padx=12, pady=3)
             value = ctk.CTkLabel(
                 self._frameworks_card,
                 text="",
@@ -117,19 +132,28 @@ class DashboardTab(ctk.CTkFrame):
                 font=self.app.ui_font("body"),
                 wraplength=self.app.ui_tokens.detail_wrap,
             )
-            value.grid(row=index, column=1, sticky="ew", padx=14, pady=4)
+            value.grid(row=index, column=1, sticky="ew", padx=12, pady=3)
             self._framework_values[key] = value
 
         self._framework_note = ctk.CTkLabel(
             self._frameworks_card,
-            text="WindrosePlus files are present; activation depends on its own install/start workflow.",
+            text="WindrosePlus uses its own install/start workflow.",
             justify="left",
             anchor="w",
             text_color="#95a5a6",
             font=self.app.ui_font("small"),
             wraplength=self.app.ui_tokens.panel_wrap,
         )
-        self._framework_note.grid(row=4, column=0, columnspan=2, sticky="ew", padx=14, pady=(6, 14))
+        self._framework_note.grid(row=4, column=0, columnspan=2, sticky="ew", padx=12, pady=(2, 6))
+        ctk.CTkButton(
+            self._frameworks_card,
+            text="Manage Frameworks",
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._open_frameworks_dialog,
+        ).grid(row=5, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 10))
 
     def _build_current_card(self) -> None:
         labels = [
@@ -146,7 +170,7 @@ class DashboardTab(ctk.CTkFrame):
                 text=label,
                 font=self.app.ui_font("body"),
                 text_color="#aeb6bf",
-            ).grid(row=index, column=0, sticky="w", padx=14, pady=4)
+            ).grid(row=index, column=0, sticky="w", padx=12, pady=3)
             value = ctk.CTkLabel(
                 self._current_card,
                 text="",
@@ -155,7 +179,7 @@ class DashboardTab(ctk.CTkFrame):
                 font=self.app.ui_font("body"),
                 wraplength=self.app.ui_tokens.panel_wrap - 40,
             )
-            value.grid(row=index, column=1, sticky="e", padx=14, pady=4)
+            value.grid(row=index, column=1, sticky="e", padx=12, pady=3)
             self._setup_values[key] = value
 
     def _build_parity_card(self) -> None:
@@ -298,6 +322,12 @@ class DashboardTab(ctk.CTkFrame):
             fg="#555555", hover="#666666",
         )
 
+    def _manual_refresh(self) -> None:
+        self.refresh_view()
+        self._subtitle.configure(
+            text=f"Operations home for Windrose client, local server, dedicated server, and hosted server state. Last refreshed {datetime.now().strftime('%H:%M:%S')}."
+        )
+
     def _add_action_button(self, parent, *, row: int, column: int, text: str, command, fg: str, hover: str) -> None:
         button = ctk.CTkButton(
             parent,
@@ -310,6 +340,452 @@ class DashboardTab(ctk.CTkFrame):
         )
         button.grid(row=row, column=column, sticky="ew", padx=4, pady=4)
         self._action_buttons.append(button)
+
+    def _open_frameworks_dialog(self) -> None:
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Frameworks")
+        self.app.center_dialog(dialog, 900, 680)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        dialog.grid_columnconfigure(0, weight=1)
+        dialog.grid_rowconfigure(3, weight=1)
+
+        ctk.CTkLabel(dialog, text="Frameworks", font=self.app.ui_font("title")).grid(
+            row=0, column=0, sticky="w", padx=16, pady=(16, 4)
+        )
+        ctk.CTkLabel(
+            dialog,
+            text="Known UE4SS, RCON, and WindrosePlus actions only. These actions do not edit arbitrary files.",
+            text_color="#95a5a6",
+            font=self.app.ui_font("small"),
+            wraplength=820,
+        ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 10))
+
+        control_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        control_row.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 8))
+        ctk.CTkLabel(control_row, text="Target:", font=self.app.ui_font("body")).pack(side="left")
+        target_var = ctk.StringVar(value=self._default_framework_target_label())
+        content = ctk.CTkScrollableFrame(dialog)
+        content.grid(row=3, column=0, sticky="nsew", padx=16, pady=(0, 8))
+        content.grid_columnconfigure(0, weight=1)
+        result_label = ctk.CTkLabel(dialog, text="", font=self.app.ui_font("small"), text_color="#95a5a6")
+        result_label.grid(row=4, column=0, sticky="ew", padx=16, pady=(0, 14))
+
+        def set_result(text: str, color: str = "#95a5a6") -> None:
+            result_label.configure(text=text, text_color=color)
+
+        def render(_choice: str | None = None) -> None:
+            for widget in content.winfo_children():
+                widget.destroy()
+            root = self._framework_target_root(target_var.get())
+            state = self.app.framework_state.local_state(root)
+            self._render_framework_dialog_content(content, target_var.get(), root, state, set_result, refresh_content=render)
+
+        ctk.CTkOptionMenu(
+            control_row,
+            values=["Client", "Local Server", "Dedicated Server"],
+            variable=target_var,
+            command=render,
+            width=220,
+            font=self.app.ui_font("body"),
+        ).pack(side="left", padx=(8, 0))
+        render()
+
+    def _render_framework_dialog_content(self, parent, target_label: str, root: Path | None, state, set_result, refresh_content=None) -> None:
+        if root is None:
+            self._framework_section(parent, "Target", [f"{target_label} is not configured in Settings."], [])
+            return
+
+        ue4ss_actions = []
+        if self._known_config_exists(root, "ue4ss_settings"):
+            ue4ss_actions.append(("Edit UE4SS Settings", lambda r=root: self._open_known_config_editor(r, "ue4ss_settings", set_result)))
+        ue4ss_actions.append(("Repair / Reinstall Runtime", lambda r=root, t=target_label: self._repair_ue4ss_runtime(r, t, set_result)))
+        self._framework_section(
+            parent,
+            "UE4SS Runtime",
+            [
+                f"Status: {'Installed' if state.ue4ss_runtime else 'Missing'}" + (" (partial)" if state.ue4ss_partial else ""),
+                "Runtime path: R5\\Binaries\\Win64",
+                "UE4SS-settings.ini changes require a restart." if state.ue4ss_runtime else "Install or repair the runtime before editing runtime settings.",
+            ],
+            ue4ss_actions,
+        )
+
+        if target_label == "Client":
+            client_rcon_status = "Detected on Client - unsupported" if state.rcon_mod else "Not installed"
+            self._framework_section(
+                parent,
+                "RCON",
+                [
+                    f"Status: {client_rcon_status}",
+                    "RCON is server-only. Install and configure it on Local Server or Dedicated Server, not Client.",
+                    "If RCON files are present in the client folder, remove them unless you are deliberately testing an unsupported setup.",
+                ],
+                [],
+            )
+        else:
+            rcon_status = "Not installed"
+            if state.rcon_mod:
+                rcon_status = "Installed, password needs review" if state.rcon_missing_password else "Installed"
+            self._framework_section(
+                parent,
+                "RCON",
+                [
+                    f"Status: {rcon_status}",
+                    "RCON is server-side and installs version.dll to R5\\Binaries\\Win64. Client installs are blocked.",
+                    "Start the server once to generate windrosercon\\settings.ini, then configure port/password.",
+                    "Live RCON admin/test commands are deferred until the protocol path is proven reliable.",
+                ],
+                [("Edit RCON Settings", lambda r=root: self._open_rcon_settings_editor(r, set_result))] if state.rcon_configured else [],
+            )
+
+        wp_paths = self.app.framework_config.windrose_plus_paths(root)
+        wp_actions = []
+        if wp_paths and wp_paths.install_script.is_file():
+            wp_actions.append(("Run WindrosePlus Install", lambda r=root: self._run_windrose_plus_install(r, set_result, refresh_content)))
+        if wp_paths and wp_paths.folder.exists():
+            wp_actions.append(("Open WindrosePlus Folder", lambda p=wp_paths.folder: self._open_existing_path(p, set_result)))
+        if self._known_config_exists(root, "windrose_plus_json"):
+            wp_actions.append(("Edit windrose_plus.json", lambda r=root: self._open_known_config_editor(r, "windrose_plus_json", set_result)))
+        if self._any_windrose_plus_ini_exists(root):
+            wp_actions.append(("Edit Override INI...", lambda r=root: self._open_windrose_plus_ini_picker(r, set_result)))
+        if wp_paths and wp_paths.dashboard_launcher.is_file():
+            wp_actions.append(("Open WindrosePlus Dashboard", lambda r=root: self._open_windrose_plus_dashboard(r, set_result)))
+        if wp_paths and wp_paths.build_script.is_file():
+            wp_actions.append(("Rebuild WindrosePlus Overrides", lambda r=root: self._run_windrose_plus_rebuild(r, set_result, refresh_content)))
+        if wp_paths and wp_paths.launch_wrapper.is_file():
+            wp_actions.append(("Launch WindrosePlus Server", lambda: self._launch_windrose_plus_server(set_result)))
+            wp_actions.append(("Stop WindrosePlus Server", lambda: self._stop_windrose_plus_server(set_result, refresh_content)))
+            wp_actions.append(("Restart WindrosePlus Server", lambda: self._restart_windrose_plus_server(set_result, refresh_content)))
+        if wp_paths and wp_paths.dashboard_launcher.is_file():
+            wp_actions.append(("Stop WindrosePlus Dashboard", lambda: self._stop_windrose_plus_dashboard(set_result, refresh_content)))
+        self._framework_section(
+            parent,
+            "WindrosePlus",
+            [
+                f"Package files: {'present' if state.windrose_plus_package else 'missing'}",
+                f"Active UE4SS mod: {'present' if state.windrose_plus else 'missing'}",
+                f"Generated PAKs: {'present' if state.windrose_plus_generated_paks else 'not generated'}",
+                f"Launch wrapper: {'present' if state.windrose_plus_launch_wrapper else 'missing'}",
+                "Generated PAKs are only expected after multiplier or override changes.",
+                "Override .ini changes require Rebuild WindrosePlus Overrides before launch.",
+            ],
+            wp_actions,
+        )
+
+    def _framework_section(self, parent, title: str, lines: list[str], actions: list[tuple[str, object]]) -> None:
+        row = len(parent.winfo_children())
+        card = ctk.CTkFrame(parent)
+        card.grid(row=row, column=0, sticky="ew", padx=4, pady=(0, 10))
+        card.grid_columnconfigure(0, weight=1)
+        ctk.CTkLabel(card, text=title, font=self.app.ui_font("card_title")).grid(
+            row=0, column=0, sticky="w", padx=12, pady=(12, 4)
+        )
+        ctk.CTkLabel(
+            card,
+            text="\n".join(lines),
+            justify="left",
+            anchor="w",
+            text_color="#c1c7cd",
+            font=self.app.ui_font("small"),
+            wraplength=780,
+        ).grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
+        if actions:
+            action_row = ctk.CTkFrame(card, fg_color="transparent")
+            action_row.grid(row=2, column=0, sticky="ew", padx=8, pady=(0, 12))
+            for index, (label, command) in enumerate(actions):
+                action_row.grid_columnconfigure(index % 3, weight=1)
+                ctk.CTkButton(
+                    action_row,
+                    text=label,
+                    height=self.app.ui_tokens.compact_button_height,
+                    font=self.app.ui_font("body"),
+                    fg_color="#555555",
+                    hover_color="#666666",
+                    command=command,
+                ).grid(row=index // 3, column=index % 3, sticky="ew", padx=4, pady=4)
+
+    def _default_framework_target_label(self) -> str:
+        if self.app.paths.dedicated_server_root:
+            return "Dedicated Server"
+        if self.app.paths.server_root:
+            return "Local Server"
+        return "Client"
+
+    def _framework_target_root(self, label: str) -> Path | None:
+        return {
+            "Client": self.app.paths.client_root,
+            "Local Server": self.app.paths.server_root,
+            "Dedicated Server": self.app.paths.dedicated_server_root,
+        }.get(label)
+
+    def _framework_target_preset(self, label: str) -> str:
+        return {"Client": "client", "Local Server": "local", "Dedicated Server": "dedicated"}.get(label, "dedicated")
+
+    def _known_config_exists(self, root: Path, key: str) -> bool:
+        path = self.app.framework_config.config_path(root, key)
+        return bool(path and path.is_file())
+
+    def _any_windrose_plus_ini_exists(self, root: Path) -> bool:
+        keys = [
+            "windrose_plus_ini",
+            "windrose_plus_food_ini",
+            "windrose_plus_weapons_ini",
+            "windrose_plus_gear_ini",
+            "windrose_plus_entities_ini",
+        ]
+        return any(self._known_config_exists(root, key) for key in keys)
+
+    def _open_known_config_editor(self, root: Path, key: str, set_result) -> None:
+        spec = KNOWN_CONFIGS.get(key)
+        if spec is None:
+            set_result("Unknown config file.", "#c0392b")
+            return
+        path, text = self.app.framework_config.read_config(root, key)
+        if path is None:
+            set_result("Target root is not configured.", "#c0392b")
+            return
+        self._open_text_editor(
+            title=spec.label,
+            path=path,
+            text=text,
+            guidance=spec.guidance,
+            on_save=lambda new_text: self.app.framework_config.save_config(root, key, new_text),
+            set_result=set_result,
+        )
+
+    def _open_rcon_settings_editor(self, root: Path, set_result) -> None:
+        existing = self.app.rcon_config_svc.load_local(root)
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("WindroseRCON Settings")
+        self.app.center_dialog(dialog, 440, 260)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        ctk.CTkLabel(dialog, text="WindroseRCON settings.ini", font=self.app.ui_font("card_title")).pack(
+            anchor="w", padx=16, pady=(16, 6)
+        )
+        ctk.CTkLabel(
+            dialog,
+            text="Known fields only. Save creates a backup first; restart/reload the server mod after saving.",
+            text_color="#95a5a6",
+            font=self.app.ui_font("small"),
+            wraplength=390,
+            justify="left",
+        ).pack(anchor="w", padx=16, pady=(0, 10))
+        port_var = ctk.StringVar(value=str(existing.port if existing else 27065))
+        password_var = ctk.StringVar(value=existing.password if existing else "")
+        enabled_var = tk.BooleanVar(value=bool(existing.enabled if existing else True))
+        for label, var in (("Port", port_var), ("Password", password_var)):
+            row = ctk.CTkFrame(dialog, fg_color="transparent")
+            row.pack(fill="x", padx=16, pady=4)
+            ctk.CTkLabel(row, text=label, width=90, anchor="w", font=self.app.ui_font("body")).pack(side="left")
+            ctk.CTkEntry(row, textvariable=var, font=self.app.ui_font("body")).pack(side="left", fill="x", expand=True)
+        ctk.CTkCheckBox(dialog, text="Enabled", variable=enabled_var, font=self.app.ui_font("body")).pack(
+            anchor="w", padx=16, pady=(4, 10)
+        )
+
+        def save() -> None:
+            try:
+                from ...core.rcon_config_service import RconSettings
+
+                settings = RconSettings(port=int(port_var.get().strip()), password=password_var.get(), enabled=enabled_var.get())
+                self.app.rcon_config_svc.save_local(root, settings)
+                set_result("Saved WindroseRCON settings. Restart/reload recommended.", "#2d8a4e")
+                self.refresh_view()
+                dialog.destroy()
+            except Exception as exc:
+                messagebox.showerror("Save Failed", str(exc))
+
+        button_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        button_row.pack(fill="x", padx=16, pady=(0, 16))
+        ctk.CTkButton(button_row, text="Save", width=100, command=save).pack(side="left")
+        ctk.CTkButton(button_row, text="Cancel", width=100, fg_color="#555555", hover_color="#666666", command=dialog.destroy).pack(side="right")
+
+    def _open_text_editor(self, *, title: str, path: Path, text: str, guidance: str, on_save, set_result) -> None:
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(title)
+        self.app.center_dialog(dialog, 820, 620)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        dialog.grid_columnconfigure(0, weight=1)
+        dialog.grid_rowconfigure(2, weight=1)
+        ctk.CTkLabel(dialog, text=title, font=self.app.ui_font("card_title")).grid(row=0, column=0, sticky="w", padx=16, pady=(16, 4))
+        ctk.CTkLabel(
+            dialog,
+            text=f"{path}\n{guidance}",
+            text_color="#95a5a6",
+            font=self.app.ui_font("small"),
+            justify="left",
+            wraplength=760,
+        ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 8))
+        box = ctk.CTkTextbox(dialog, font=self.app.ui_font("mono_small"))
+        box.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 10))
+        box.insert("1.0", text)
+        buttons = ctk.CTkFrame(dialog, fg_color="transparent")
+        buttons.grid(row=3, column=0, sticky="ew", padx=16, pady=(0, 16))
+
+        def save() -> None:
+            try:
+                saved_path = on_save(box.get("1.0", "end-1c"))
+                set_result(f"Saved {saved_path.name}. Backup created if the file already existed.", "#2d8a4e")
+                self.refresh_view()
+                dialog.destroy()
+            except Exception as exc:
+                messagebox.showerror("Save Failed", str(exc))
+
+        ctk.CTkButton(buttons, text="Save", width=100, command=save).pack(side="left")
+        ctk.CTkButton(buttons, text="Cancel", width=100, fg_color="#555555", hover_color="#666666", command=dialog.destroy).pack(side="right")
+
+    def _open_windrose_plus_ini_picker(self, root: Path, set_result) -> None:
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("WindrosePlus Override INI")
+        self.app.center_dialog(dialog, 420, 300)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        ctk.CTkLabel(dialog, text="Choose override file", font=self.app.ui_font("card_title")).pack(anchor="w", padx=16, pady=(16, 8))
+        keys = [
+            "windrose_plus_ini",
+            "windrose_plus_food_ini",
+            "windrose_plus_weapons_ini",
+            "windrose_plus_gear_ini",
+            "windrose_plus_entities_ini",
+        ]
+        for key in keys:
+            spec = KNOWN_CONFIGS[key]
+            ctk.CTkButton(
+                dialog,
+                text=spec.label,
+                height=self.app.ui_tokens.compact_button_height,
+                font=self.app.ui_font("body"),
+                command=lambda current=key: (dialog.destroy(), self._open_known_config_editor(root, current, set_result)),
+            ).pack(fill="x", padx=16, pady=4)
+
+    def _repair_ue4ss_runtime(self, _root: Path, target_label: str, set_result) -> None:
+        entry = next(
+            (
+                item for item in self.app._mods_tab.library_entries()
+                if item.get("install_kind") == "ue4ss_runtime" and Path(str(item.get("path", ""))).is_file()
+            ),
+            None,
+        )
+        if entry is None:
+            set_result("No UE4SS runtime source archive is available in Inactive Mods.", "#e67e22")
+            return
+        archive_path = Path(str(entry["path"]))
+        if not self.app.confirm_action("routine", "Repair UE4SS Runtime", f"Install/repair UE4SS runtime from:\n{archive_path.name}"):
+            return
+        self.app._mods_tab._install_path_with_preset(archive_path, self._framework_target_preset(target_label))
+        self.refresh_view()
+        set_result("UE4SS runtime repair/install started from the manager archive copy.", "#2d8a4e")
+
+    def _run_windrose_plus_install(self, root: Path, set_result, refresh_content=None) -> None:
+        if not self.app.confirm_action("destructive", "Run WindrosePlus Install", "Run WindrosePlus install.ps1 for this server root?"):
+            return
+        self._run_framework_worker(lambda: self.app.framework_config.run_windrose_plus_install(root), "WindrosePlus install", set_result, refresh_content=refresh_content)
+
+    def _run_windrose_plus_rebuild(self, root: Path, set_result, refresh_content=None) -> None:
+        if not self.app.confirm_action("destructive", "Rebuild WindrosePlus Overrides", "Run WindrosePlus-BuildPak.ps1 -RemoveStalePak for this server root?"):
+            return
+        self._run_framework_worker(lambda: self.app.framework_config.run_windrose_plus_rebuild(root), "WindrosePlus rebuild", set_result, refresh_content=refresh_content)
+
+    def _launch_windrose_plus_server(self, set_result) -> None:
+        if self.app._on_start_windrose_plus_server():
+            set_result("WindrosePlus server launch started.", "#2d8a4e")
+            self.refresh_view()
+        else:
+            set_result("WindrosePlus server launch failed. Check the dedicated server root and launcher file.", "#c0392b")
+
+    def _stop_windrose_plus_server(self, set_result, refresh_content=None) -> None:
+        ok, message = self.app.stop_windrose_plus_server()
+        set_result(message, "#2d8a4e" if ok else "#e67e22")
+        self.refresh_view()
+        if callable(refresh_content):
+            refresh_content()
+
+    def _restart_windrose_plus_server(self, set_result, refresh_content=None) -> None:
+        ok, message = self.app.restart_windrose_plus_server()
+        set_result(message, "#2d8a4e" if ok else "#e67e22")
+        self.refresh_view()
+        if callable(refresh_content):
+            refresh_content()
+
+    def _stop_windrose_plus_dashboard(self, set_result, refresh_content=None) -> None:
+        ok, message = self.app.stop_windrose_plus_dashboard()
+        set_result(message, "#2d8a4e" if ok else "#e67e22")
+        self.refresh_view()
+        if callable(refresh_content):
+            refresh_content()
+
+    def _run_framework_worker(self, work, label: str, set_result, refresh_content=None) -> None:
+        set_result(f"{label} running...", "#95a5a6")
+
+        def thread_main() -> None:
+            try:
+                completed = work()
+                output = (completed.stdout or completed.stderr or "").strip()
+                message = f"{label} finished with exit code {completed.returncode}."
+                if output:
+                    message += f"\n\n{output[-1200:]}"
+                color = "#2d8a4e" if completed.returncode == 0 else "#e67e22"
+            except Exception as exc:
+                message = f"{label} failed: {exc}"
+                color = "#c0392b"
+
+            def _finish() -> None:
+                set_result(message, color)
+                self.refresh_view()
+                if callable(refresh_content):
+                    refresh_content()
+
+            self.app.dispatch_to_ui(_finish)
+
+        threading.Thread(target=thread_main, daemon=True).start()
+
+    def _open_existing_path(self, path: Path | None, set_result) -> None:
+        if path is None or not path.exists():
+            set_result("Path is not available for this target.", "#e67e22")
+            return
+        subprocess.Popen(["explorer", str(path if path.is_dir() else path.parent)])
+
+    def _open_windrose_plus_dashboard(self, root: Path, set_result) -> None:
+        paths = self.app.framework_config.windrose_plus_paths(root)
+        url = self._windrose_plus_dashboard_url(root)
+        if self._dashboard_url_ready(url):
+            set_result(f"WindrosePlus dashboard is already running. Opening {url}.", "#2d8a4e")
+            webbrowser.open(url)
+            return
+        if paths and paths.dashboard_launcher.is_file():
+            subprocess.Popen(
+                ["cmd.exe", "/k", "call", str(paths.dashboard_launcher)],
+                cwd=str(paths.dashboard_launcher.parent),
+                creationflags=getattr(subprocess, "CREATE_NEW_CONSOLE", 0),
+            )
+            set_result(f"Started WindrosePlus dashboard launcher. Opening {url} shortly.", "#2d8a4e")
+            self.after(1800, lambda: webbrowser.open(url))
+        else:
+            set_result(f"WindrosePlus dashboard launcher was not found. Opening {url} only.", "#e67e22")
+            webbrowser.open(url)
+
+    def _windrose_plus_dashboard_url(self, root: Path) -> str:
+        config_path = root / "windrose_plus.json"
+        port = 8780
+        if config_path.is_file():
+            try:
+                import json
+
+                data = json.loads(config_path.read_text(encoding="utf-8", errors="replace"))
+                port = int(data.get("server", {}).get("http_port", port))
+            except Exception:
+                port = 8780
+        return f"http://localhost:{port}/"
+
+    @staticmethod
+    def _dashboard_url_ready(url: str) -> bool:
+        try:
+            with urlopen(url, timeout=0.35):
+                return True
+        except Exception:
+            return False
 
     def _run_compare(self) -> None:
         self._set_server_target_from_dashboard(refresh_inventory=False)
@@ -791,11 +1267,11 @@ class DashboardTab(ctk.CTkFrame):
     def _refresh_frameworks(self, states: dict) -> None:
         self._set_framework_label(
             self._framework_values["ue4ss"],
-            self._framework_targets_text(states, "ue4ss_runtime", empty="Missing"),
+            self._ue4ss_text(states),
         )
         self._set_framework_label(
             self._framework_values["rcon"],
-            self._framework_targets_text(states, "rcon_mod", empty="Not installed"),
+            self._rcon_text(states),
         )
         self._set_framework_label(
             self._framework_values["windrose_plus"],
@@ -817,8 +1293,41 @@ class DashboardTab(ctk.CTkFrame):
         return ", ".join(targets) if targets else empty
 
     @classmethod
+    def _ue4ss_text(cls, states: dict) -> str:
+        installed = cls._framework_target_names(states, "ue4ss_runtime")
+        partial = cls._framework_target_names(states, "ue4ss_partial")
+        parts = []
+        if installed:
+            parts.append(", ".join(installed))
+        if partial:
+            label = "Review" if installed else "Runtime missing"
+            parts.append(f"{label}: {', '.join(partial)}")
+        return " | ".join(parts) if parts else "Missing"
+
+    @classmethod
+    def _rcon_text(cls, states: dict) -> str:
+        client_state = states.get("client")
+        client_installed = bool(getattr(client_state, "rcon_mod", False))
+        server_states = {key: state for key, state in states.items() if key != "client"}
+        installed = cls._framework_target_names(server_states, "rcon_mod")
+        needs_password = cls._framework_target_names(server_states, "rcon_missing_password")
+        parts = []
+        if installed:
+            parts.append(", ".join(installed))
+        if client_installed:
+            parts.append("Wrong target: Client")
+        if not parts:
+            return "Not installed"
+        if needs_password:
+            parts.append(f"Password review: {', '.join(needs_password)}")
+        return " | ".join(parts)
+
+    @classmethod
     def _windrose_plus_text(cls, states: dict) -> str:
         active = cls._framework_target_names(states, "windrose_plus")
+        generated = cls._framework_target_names(states, "windrose_plus_generated_paks")
+        wrappers = cls._framework_target_names(states, "windrose_plus_launch_wrapper")
+        partial = cls._framework_target_names(states, "windrose_plus_partial")
         files = [
             target
             for target, state in zip(
@@ -830,14 +1339,20 @@ class DashboardTab(ctk.CTkFrame):
         parts = []
         if active:
             parts.append(f"Active on {', '.join(active)}")
+        if generated:
+            parts.append(f"Generated PAKs on {', '.join(generated)}")
+        if wrappers:
+            parts.append(f"Wrapper on {', '.join(wrappers)}")
         if files:
             parts.append(f"Files on {', '.join(files)}")
+        if partial:
+            parts.append(f"Review {', '.join(partial)}")
         return " | ".join(parts) if parts else "Not installed"
 
     @staticmethod
     def _set_framework_label(label: ctk.CTkLabel, value: str) -> None:
         normalized = value.lower()
-        if "missing" in normalized or "files on" in normalized:
+        if "missing" in normalized or "files on" in normalized or "partial" in normalized or "review" in normalized or "wrong target" in normalized:
             color = "#e67e22"
         elif "not installed" in normalized:
             color = "#95a5a6"

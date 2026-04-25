@@ -248,6 +248,134 @@ The next larger release should make UE4SS a first-class, safe, target-aware work
 
 ---
 
+## v0.6.1 - Framework Lifecycle Fixes
+
+Detailed implementation plan lives in `IMPLEMENTATION_v0.6.1.md`.
+
+This patch release started as lifecycle correctness after `v0.6.0`, then pulled forward the safest local framework-management pieces from the `0.6.x` plan.
+
+- [x] Uninstalling the last active `UE4SS` runtime install should return the source archive to `Inactive Mods`
+- [x] Uninstalling the last active `UE4SS` mod install should return the source archive to `Inactive Mods`
+- [x] Dashboard `Frameworks` state should refresh immediately after framework uninstall/install lifecycle changes
+- [x] Audit all framework uninstall entry points so row uninstall, bulk uninstall, and reinstall paths behave consistently
+- [x] Block likely server-only framework packages such as `WindrosePlus` and `RCON` from client install targets
+- [x] Hide or disable invalid client presets for server-only framework packages where practical
+- [x] Copy newly imported archives into the manager archive library by default so inactive/reinstall/repair flows do not depend on browser downloads paths
+- [x] Add a lightweight Dashboard `Refresh` button for local framework state, mod counts, and attention indicators without triggering hosted connection tests
+- [x] Add regression coverage for framework archive re-entry and dashboard refresh correctness
+
+---
+
+## v0.6.2 - WindrosePlus and Framework Compatibility
+
+This follow-up should make installed framework packages feel deliberately supported, while still treating them as server tooling rather than normal gameplay mods.
+
+### Frameworks section
+- [x] Add a dedicated `Frameworks` section inside the Server/Dashboard workflow
+- [x] Keep the section grouped by framework type:
+  - `UE4SS`
+  - `RCON`
+  - `WindrosePlus`
+- [x] Make each framework block status-first, with only relevant actions visible for detected/configured targets
+
+### UE4SS framework support
+- [x] Show UE4SS runtime status per target:
+  - installed
+  - missing
+  - partial/broken
+- [ ] Keep UE4SS runtime clearly separate from UE4SS mods in the UI
+- [x] Edit known `UE4SS-settings.ini` safely with backup before save
+- [x] Show that `UE4SS-settings.ini` changes usually require a server/game restart
+- [x] Add repair/reinstall for UE4SS runtime when the source archive is available
+- [x] Warn when installing a UE4SS mod to a target that does not have UE4SS runtime installed
+
+### RCON framework support
+- [x] Show RCON status per target:
+  - installed
+  - not installed
+  - configured
+  - missing/blank password
+- [x] Edit known `WindroseRCON\settings.ini` safely with backup before save
+- [x] Expose only known fields such as port, password, and enabled/disabled state
+- [x] Show that RCON setting changes may require restart/reload depending on the mod
+- [ ] Add `Test RCON` later only after the protocol path is proven reliable
+
+### WindrosePlus launch compatibility
+- [x] Detect `StartWindrosePlusServer.bat` in the Local Server / Dedicated Server root
+- [x] Add a launch option or automatic preference for the WindrosePlus wrapper when present:
+  - normal dedicated launch remains available
+  - WindrosePlus launch uses `StartWindrosePlusServer.bat`
+  - user-facing wording explains that WindrosePlus may need Administrator/elevated launch
+- [x] Add quick actions where local files exist:
+  - `Run WindrosePlus Install`
+  - `Open WindrosePlus Folder`
+  - `Open WindrosePlus Config`
+  - `Open WindrosePlus Dashboard`
+  - `Rebuild WindrosePlus Overrides`
+- [x] Detect WindrosePlus state clearly:
+  - package installed
+  - active under UE4SS mods
+  - generated override PAK present
+  - install script present
+  - launch wrapper present
+- [x] Detect generated WindrosePlus PAKs such as:
+  - `WindrosePlus_Multipliers_P.pak`
+  - `WindrosePlus_CurveTables_P.pak`
+- [x] Warn if WindrosePlus files are present but `install.ps1`, UE4SS markers, or `StartWindrosePlusServer.bat` output is missing
+- [ ] For hosted servers, keep WindrosePlus launch/rebuild wording honest:
+  - file upload/config editing may be possible
+  - running PowerShell/rebuild/start scripts depends on the host
+
+### Known config editing
+- [x] Add a framework config surface for known files only
+- [x] Support safe load/edit/save with backups for:
+  - `R5\Binaries\Win64\ue4ss\UE4SS-settings.ini`
+  - `R5\Binaries\Win64\ue4ss\Mods\WindroseRCON\settings.ini`
+  - `windrose_plus.json`
+  - `windrose_plus.ini`
+  - `windrose_plus.food.ini`
+  - `windrose_plus.weapons.ini`
+  - `windrose_plus.gear.ini`
+  - `windrose_plus.entities.ini`
+- [x] Do not add raw arbitrary file editing for framework folders
+- [x] Show what each edit likely requires:
+  - UE4SS settings usually require restart
+  - RCON settings may require restart/reload depending on the mod
+  - `windrose_plus.json` may include a mix of live settings and settings that require restart/rebuild
+  - WindrosePlus multiplier/config changes may require rebuild before launch
+
+### WindrosePlus rebuild support
+- [x] Add `Rebuild WindrosePlus Overrides` for local/dedicated Windows targets
+- [x] Run the documented WindrosePlus build script when available:
+  - `windrose_plus\tools\WindrosePlus-BuildPak.ps1`
+  - pass `-ServerDir <server root>`
+  - pass `-RemoveStalePak`
+- [x] Capture and display success/failure output clearly
+- [x] Do not auto-run scripts without explicit confirmation
+- [x] Do not promise rebuild support for hosted servers unless shell/script execution is available and tested
+
+### Framework state quality
+- [ ] Expand partial/broken framework state coverage:
+  - `dwmapi.dll` exists but `ue4ss` folder is missing
+  - `ue4ss\Mods` contains framework mods but UE4SS runtime is missing
+  - UE4SS is installed on client while the selected/detected package is server-only
+  - WindrosePlus package files exist but its installer/wrapper output is missing
+- [x] Show repair guidance instead of treating partial state as fully installed
+
+---
+
+## v0.6.3 - RCON and Dashboard Convenience
+
+This should stay convenience-focused until the RCON path is proven reliable.
+
+- [x] Show `RCON configured / disabled / missing password` on Dashboard
+- [x] Add `Open WindrosePlus Dashboard` using known dashboard config or default local URL where safe
+- [ ] Add a conservative `Test RCON` action only after protocol behavior is verified
+- [ ] Do not add kick/ban/admin command buttons until users ask for them and the command path is reliable
+- [ ] Do not clone the WindrosePlus dashboard inside the manager
+
+---
+
 ## v0.7 - Deep Mod Understanding & Load Order
 
 Detailed implementation plan lives in `IMPLEMENTATION_v0.7.0.md`.

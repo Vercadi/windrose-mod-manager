@@ -15,9 +15,11 @@ from typing import TYPE_CHECKING, Optional
 import customtkinter as ctk
 
 from ...core.archive_handler import SUPPORTED_EXTENSIONS
+from ...core.archive_library_service import manager_owned_archive_path
 from ...core.archive_inspector import inspect_archive
 from ...core.conflict_detector import check_plan_conflicts
 from ...core.deployment_planner import plan_deployment
+from ...core.framework_deployment_planner import is_server_only_framework_install_kind
 from ...core.framework_detector import detect_framework_state
 from ...core.live_mod_inventory import (
     LiveModsFolderSnapshot,
@@ -601,6 +603,9 @@ class ModsTab(ctk.CTkFrame):
     def _loose_import_dir(self) -> Path:
         return self._library_path().parent / "imports"
 
+    def _archive_import_dir(self) -> Path:
+        return self._library_path().parent / "archives"
+
     def _add_to_library(
         self,
         archive_path: Path,
@@ -608,10 +613,24 @@ class ModsTab(ctk.CTkFrame):
         name: str | None = None,
         source_kind: str = "archive",
         original_files: list[str] | None = None,
+        archive_hash: str | None = None,
+        original_path: str | None = None,
+        manager_owned: bool = False,
     ) -> None:
         archive_str = str(archive_path)
         for entry in self._library:
             if entry.get("path") == archive_str:
+                changed = False
+                for key, value in {
+                    "archive_hash": archive_hash,
+                    "original_path": original_path,
+                    "manager_owned": manager_owned,
+                }.items():
+                    if value not in (None, "") and entry.get(key) != value:
+                        entry[key] = value
+                        changed = True
+                if changed:
+                    self._save_library()
                 return
         self._library.append(
             self._normalize_library_entry(
@@ -621,10 +640,16 @@ class ModsTab(ctk.CTkFrame):
                     "ext": archive_path.suffix.lower(),
                     "source_kind": source_kind,
                     "original_files": list(original_files or []),
+                    "archive_hash": archive_hash or "",
+                    "original_path": original_path or "",
+                    "manager_owned": manager_owned,
                 }
             )
         )
         self._save_library()
+
+    def _manager_owned_archive(self, archive_path: Path) -> tuple[Path, str, bool]:
+        return manager_owned_archive_path(archive_path, self._archive_import_dir(), self._library)
 
     def _import_source_paths(self, paths: list[Path]) -> tuple[list[Path], list[str]]:
         archive_paths: list[Path] = []
@@ -642,8 +667,19 @@ class ModsTab(ctk.CTkFrame):
 
         imported_paths: list[Path] = []
         for archive_path in archive_paths:
-            self._add_to_library(archive_path, source_kind="archive")
-            imported_paths.append(archive_path)
+            managed_path, archive_hash, reused = self._manager_owned_archive(archive_path)
+            self._add_to_library(
+                managed_path,
+                name=archive_path.stem,
+                source_kind="archive",
+                original_files=[str(archive_path)],
+                archive_hash=archive_hash,
+                original_path=str(archive_path),
+                manager_owned=True,
+            )
+            imported_paths.append(managed_path)
+            if reused:
+                warnings.append(f"Reused existing library copy for {archive_path.name}.")
 
         bundle_result = import_pak_bundles(pak_paths, self._loose_import_dir())
         warnings.extend(bundle_result.warnings)
@@ -702,6 +738,9 @@ class ModsTab(ctk.CTkFrame):
         normalized.setdefault("child_items", [])
         normalized.setdefault("source_kind", "archive")
         normalized.setdefault("original_files", [])
+        normalized.setdefault("archive_hash", "")
+        normalized.setdefault("original_path", "")
+        normalized.setdefault("manager_owned", False)
         normalized.setdefault("content_category", "standard_mod")
         normalized.setdefault("install_kind", "standard_mod")
         normalized.setdefault("framework_name", "")
@@ -2236,7 +2275,22 @@ class ModsTab(ctk.CTkFrame):
         if not archive_path.is_file():
             messagebox.showerror("Source Missing", f"The source file is no longer available:\n{path_str}")
             return
-        self._add_to_library(archive_path)
+        if archive_path.suffix.lower() in SUPPORTED_EXTENSIONS:
+            managed_path, archive_hash, reused = self._manager_owned_archive(archive_path)
+            self._add_to_library(
+                managed_path,
+                name=archive_path.stem,
+                source_kind="archive",
+                original_files=[str(archive_path)],
+                archive_hash=archive_hash,
+                original_path=str(archive_path),
+                manager_owned=True,
+            )
+            archive_path = managed_path
+            if reused:
+                self._set_result(f"Reused existing library copy for {archive_path.name}.", level="info")
+        else:
+            self._add_to_library(archive_path)
         self._refresh_library_ui()
         self._set_result(f"Added {archive_path.name} to the inactive mod list.", level="success")
 
@@ -2305,8 +2359,11 @@ class ModsTab(ctk.CTkFrame):
     def _build_install_menu(self, parent, archive_path: Path | list[Path], *, include_hosted: bool = True) -> tk.Menu:
         archive_paths = [archive_path] if isinstance(archive_path, Path) else list(archive_path)
         menu = tk.Menu(parent, tearoff=0)
+        install_kinds = [self._install_kind_for_archive_path(path) for path in archive_paths]
         for key, label, _detail in _INSTALL_PRESETS:
             if not include_hosted and key == "hosted":
+                continue
+            if not self._install_preset_allowed_for_kinds(key, install_kinds):
                 continue
             menu.add_command(
                 label=label,
@@ -2316,6 +2373,23 @@ class ModsTab(ctk.CTkFrame):
                 ),
             )
         return menu
+
+    def _install_kind_for_archive_path(self, archive_path: Path) -> str:
+        entry = self._library_entry(str(archive_path))
+        if entry is not None and entry.get("install_kind"):
+            return str(entry.get("install_kind"))
+        if archive_path.is_file():
+            try:
+                return self._get_archive_info(archive_path).install_kind
+            except Exception:
+                return "standard_mod"
+        return "standard_mod"
+
+    @staticmethod
+    def _install_preset_allowed_for_kinds(preset_key: str, install_kinds: list[str]) -> bool:
+        if any(is_server_only_framework_install_kind(kind) for kind in install_kinds):
+            return preset_key not in {"client", "client_local", "client_dedicated"}
+        return True
 
     def _install_archives_with_preset(self, archive_paths: list[Path], preset_key: str) -> None:
         if len(archive_paths) == 1:
@@ -3557,12 +3631,12 @@ class ModsTab(ctk.CTkFrame):
             return None, "Configure the local server path in Settings first."
         if target == InstallTarget.DEDICATED_SERVER and not paths.dedicated_server_root:
             return None, "Configure the dedicated server path in Settings first."
-        if info.install_kind == "windrose_plus" and target == InstallTarget.CLIENT:
-            return None, "WindrosePlus is a server framework and should be installed to Local Server or Dedicated Server."
+        if is_server_only_framework_install_kind(info.install_kind) and target == InstallTarget.CLIENT:
+            return None, f"{self._install_kind_label(info.install_kind) or 'This framework'} is server-only and should be installed to Local Server or Dedicated Server."
         plan = plan_deployment(info, paths, target, selected_variant, mod_name, selected_entries)
         if not plan.valid:
             return None, "\n".join(plan.warnings) if plan.warnings else "The install plan is not valid."
-        if info.install_kind in {"ue4ss_mod", "rcon_mod", "windrose_plus"}:
+        if info.install_kind in {"ue4ss_mod", "windrose_plus"}:
             framework_root = {
                 InstallTarget.CLIENT: paths.client_root,
                 InstallTarget.SERVER: paths.server_root,
@@ -3594,6 +3668,13 @@ class ModsTab(ctk.CTkFrame):
         if not targets:
             if not quiet:
                 messagebox.showerror("Install Target Error", f"Unknown install preset: {preset_key}")
+            return False
+        if is_server_only_framework_install_kind(getattr(info, "install_kind", "standard_mod")) and InstallTarget.CLIENT in targets:
+            if not quiet:
+                messagebox.showerror(
+                    "Install Target Error",
+                    f"{self._install_kind_label(getattr(info, 'install_kind', 'standard_mod')) or 'This framework'} is server-only. Choose Local Server, Dedicated Server, or Hosted Server.",
+                )
             return False
 
         prepared = []

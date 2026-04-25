@@ -110,6 +110,41 @@ def test_plan_deployment_rejects_windrose_plus_client_target(tmp_path):
     assert plan.file_count == 0
 
 
+def test_plan_deployment_rejects_rcon_client_target(tmp_path):
+    paths = AppPaths(client_root=tmp_path / "Windrose")
+    info = ArchiveInfo(
+        archive_path="rcon.zip",
+        archive_type=ArchiveType.LOOSE_FILES,
+        entries=[ArchiveEntry(path="version.dll")],
+        loose_entries=[ArchiveEntry(path="version.dll")],
+        install_kind="rcon_mod",
+    )
+
+    plan = plan_deployment(info, paths, InstallTarget.CLIENT)
+
+    assert not plan.valid
+    assert plan.file_count == 0
+    assert "server framework" in "\n".join(plan.warnings).lower()
+
+
+def test_plan_deployment_routes_rcon_version_dll_to_server_win64(tmp_path):
+    root = tmp_path / "Windrose Dedicated Server"
+    paths = AppPaths(dedicated_server_root=root)
+    info = ArchiveInfo(
+        archive_path="WindroseRCON.zip",
+        archive_type=ArchiveType.LOOSE_FILES,
+        entries=[ArchiveEntry(path="version.dll")],
+        loose_entries=[ArchiveEntry(path="version.dll")],
+        install_kind="rcon_mod",
+    )
+
+    plan = plan_deployment(info, paths, InstallTarget.DEDICATED_SERVER)
+
+    assert plan.valid
+    destinations = [str(file.dest_path.relative_to(root)) for file in plan.files]
+    assert destinations == ["R5\\Binaries\\Win64\\version.dll"]
+
+
 def test_plan_deployment_routes_windrose_plus_package_to_server_root(tmp_path):
     root = tmp_path / "Windrose Dedicated Server"
     paths = AppPaths(dedicated_server_root=root)

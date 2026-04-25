@@ -1,4 +1,4 @@
-"""Read/write known Windrose RCON UE4SS config files."""
+"""Read/write known Windrose RCON config files."""
 from __future__ import annotations
 
 from dataclasses import dataclass
@@ -16,12 +16,14 @@ from .remote_provider_factory import create_remote_provider
 class RconSettings:
     port: int = 27065
     password: str = ""
-    enabled: bool = False
+    enabled: bool = True
     source_path: str = ""
 
     def to_text(self) -> str:
         return (
             "# WindroseRCON Configuration\n"
+            "# Enable/disable the RCON mod when supported by the plugin\n"
+            f"Enabled={'true' if self.enabled else 'false'}\n\n"
             "# RCON server port\n"
             f"Port={self.port}\n\n"
             "# RCON password\n"
@@ -45,7 +47,7 @@ def parse_rcon_settings(text: str, *, source_path: str = "") -> RconSettings:
     return RconSettings(
         port=port,
         password=values.get("password", ""),
-        enabled=True,
+        enabled=values.get("enabled", "true").lower() not in {"0", "false", "no", "off"},
         source_path=source_path,
     )
 
@@ -59,10 +61,19 @@ class RconConfigService:
     def local_settings_path(root: Path | None) -> Optional[Path]:
         if root is None:
             return None
-        return root / "R5" / "Binaries" / "Win64" / "ue4ss" / "Mods" / "WindroseRCON" / "settings.ini"
+        primary = root / "R5" / "Binaries" / "Win64" / "windrosercon" / "settings.ini"
+        legacy = root / "R5" / "Binaries" / "Win64" / "ue4ss" / "Mods" / "WindroseRCON" / "settings.ini"
+        return legacy if legacy.is_file() and not primary.is_file() else primary
 
     @staticmethod
     def remote_settings_path(profile: RemoteProfile) -> str:
+        root = profile.normalized_root_dir()
+        if not root:
+            return ""
+        return str(PurePosixPath(root).joinpath("R5", "Binaries", "Win64", "windrosercon", "settings.ini"))
+
+    @staticmethod
+    def remote_legacy_settings_path(profile: RemoteProfile) -> str:
         root = profile.normalized_root_dir()
         if not root:
             return ""
@@ -89,14 +100,19 @@ class RconConfigService:
         return True
 
     def load_remote(self, profile: RemoteProfile) -> Optional[RconSettings]:
-        remote_path = self.remote_settings_path(profile)
-        if not remote_path:
+        remote_paths = [path for path in (self.remote_settings_path(profile), self.remote_legacy_settings_path(profile)) if path]
+        if not remote_paths:
             return None
         provider: RemoteProvider | None = None
         try:
             provider = self.provider_factory(profile)
-            data = provider.read_bytes(remote_path)
-            return parse_rcon_settings(data.decode("utf-8", errors="replace"), source_path=remote_path)
+            for remote_path in remote_paths:
+                try:
+                    data = provider.read_bytes(remote_path)
+                    return parse_rcon_settings(data.decode("utf-8", errors="replace"), source_path=remote_path)
+                except Exception:
+                    continue
+            return None
         except Exception:
             return None
         finally:
@@ -104,12 +120,19 @@ class RconConfigService:
                 provider.close()
 
     def save_remote(self, profile: RemoteProfile, settings: RconSettings) -> bool:
-        remote_path = self.remote_settings_path(profile)
-        if not remote_path:
+        primary_path = self.remote_settings_path(profile)
+        legacy_path = self.remote_legacy_settings_path(profile)
+        if not primary_path:
             return False
         provider: RemoteProvider | None = None
         try:
             provider = self.provider_factory(profile)
+            remote_path = primary_path
+            try:
+                if legacy_path and provider.path_exists(legacy_path) and not provider.path_exists(primary_path):
+                    remote_path = legacy_path
+            except Exception:
+                remote_path = primary_path
             try:
                 data = provider.read_bytes(remote_path)
                 self.backup.backup_bytes(

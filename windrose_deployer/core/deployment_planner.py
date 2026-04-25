@@ -13,6 +13,7 @@ from .framework_deployment_planner import (
     framework_entry_relative_path,
     framework_install_root,
     is_framework_install_kind,
+    is_server_only_framework_install_kind,
 )
 from .target_resolver import resolve_pak_target, resolve_loose_target, strip_archive_prefix
 
@@ -70,6 +71,10 @@ def plan_deployment(
         return plan
 
     if is_framework_install_kind(info.install_kind):
+        if is_server_only_framework_install_kind(info.install_kind) and target == InstallTarget.CLIENT:
+            plan.valid = False
+            plan.warnings.append("This server framework cannot be installed to the client target.")
+            return plan
         _plan_framework_files(info, plan, paths, target, selected_entries)
         if plan.file_count == 0:
             plan.valid = False

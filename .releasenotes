@@ -1,42 +1,38 @@
-## Windrose Mod Manager v0.5.2
+## Windrose Mod Manager v0.6.1
 
-Windrose Mod Manager v0.5.2 is a polish and trust update on top of v0.5.1. It keeps the new Dashboard/FTP work and tightens the daily workflow around compare, sync review, hosted path diagnostics, and startup reliability.
+Windrose Mod Manager v0.6.1 is a framework workflow hotfix and polish release on top of v0.6.0.
 
 ### Highlights
 
-- Dashboard compare now has its own target selector for Local Server, Dedicated Server, and Hosted Server.
-- Dashboard `Run Compare` updates the parity card for the selected target without forcing a tab jump.
-- Added `Review Sync Actions` after compare for safe, preview-first client-to-server fixes.
-- Local and Dedicated sync actions install missing client mods through the existing backup/history install path.
-- Hosted sync actions upload missing client mods through the existing hosted deployment path.
-- Server-only / hosted-only removals are shown for review, but are not auto-deleted.
-- Manifest drift is now surfaced on the Dashboard instead of only being logged.
-- Activity / Backups wording is aligned across the app instead of referring to the old Recovery tab name.
-- Activity refresh is lighter for large histories, and non-visible Activity refreshes are avoided where safe.
-- Startup/discovery is safer when an old saved Steam path points to a missing or inaccessible drive.
-- FTP path checks now handle servers that do not support `SIZE` by falling back to parent-directory listing.
-- Hosted path errors now explain FTP-root-relative paths, including Nitrado-style setups.
-- Hosted setup retains provider QoL for Host Havoc and Indifferent Broccoli.
+- UE4SS runtime and UE4SS mod uninstall now return the source archive to Inactive Mods correctly.
+- Dashboard framework status refreshes immediately after framework install/uninstall actions.
+- Imported `.zip`, `.7z`, and `.rar` archives are copied into the manager archive library by default.
+- Duplicate archive imports reuse an existing manager-owned copy when the file hash matches.
+- WindroseRCON archives that contain `version.dll` are detected and routed to `R5\Binaries\Win64`.
+- RCON and WindrosePlus are blocked from Client install targets.
+- Invalid Client / Client + Server presets are hidden or blocked for server-only framework packages.
+- Added Frameworks management actions for UE4SS, RCON, and WindrosePlus.
+- Added backup-before-save editing for known UE4SS, RCON, and WindrosePlus config files.
+- WindrosePlus support now includes install, rebuild, dashboard, launch, stop, and restart actions.
+- WindrosePlus JSON editing now formats and validates JSON before saving.
+- Dashboard Frameworks layout is more compact and easier to scan.
 
-### Safety Fixes
+### Notes
 
-- Failed hosted Dashboard sync no longer records a successful hosted upload in Activity.
-- Dashboard status coloring no longer treats `Not running` as a healthy/running state.
-- Missing remote root, mods folder, save root, or ServerDescription paths now produce clearer path guidance.
-
-### Compatibility
-
-- Existing v0.5.1 hosted FTP/SFTP profiles remain compatible.
-- Existing older SFTP hosted profiles without a protocol field still default to SFTP.
-- Existing hosted backup/recovery records using old `sftp://...` identity remain compatible.
-- FTP remains file-transfer only; restart-command automation still requires SFTP/SSH-style command access.
+- UE4SS, WindrosePlus, and RCON are not bundled with the manager.
+- WindrosePlus and RCON are treated as server-side tools.
+- Hosted framework upload works as file deployment; script/start behavior still depends on the host.
 
 ### Validation
 
-- `python -m compileall windrose_deployer`
-- `python -m pytest -q --basetemp .pytest_tmp_full_052_release -o cache_dir=.pytest_cache_full_052_release` -> `171 passed`
+- `python -m compileall windrose_deployer -q`
+- `python -m pytest -q` -> `214 passed`
 - `git diff --check` -> clean except normal CRLF warnings
+
+### SHA256
+
+`C251D75383B60DC210BE187FA7997154BFA1AF63F74508BED9ACE440C0EE49F2`
 
 ### Full Changelog
 
-https://github.com/Vercadi/windrose-mod-manager/compare/v0.5.1...v0.5.2
+https://github.com/Vercadi/windrose-mod-manager/compare/v0.6.0...v0.6.1

@@ -10,6 +10,7 @@ from ..models.mod_install import InstallTarget
 from .target_resolver import strip_archive_prefix
 
 FRAMEWORK_INSTALL_KINDS = {"ue4ss_runtime", "ue4ss_mod", "rcon_mod", "windrose_plus"}
+SERVER_ONLY_FRAMEWORK_INSTALL_KINDS = {"rcon_mod", "windrose_plus"}
 UE4SS_CORE_FILE_NAMES = {
     "ue4ss.dll",
     "ue4ss-settings.ini",
@@ -25,6 +26,10 @@ def is_framework_install_kind(value: str | None) -> bool:
     return (value or "standard_mod") in FRAMEWORK_INSTALL_KINDS
 
 
+def is_server_only_framework_install_kind(value: str | None) -> bool:
+    return (value or "standard_mod") in SERVER_ONLY_FRAMEWORK_INSTALL_KINDS
+
+
 def framework_install_root(paths: AppPaths, target: InstallTarget, install_kind: str) -> Optional[Path]:
     target_root = _target_root(paths, target)
     if target_root is None:
@@ -36,7 +41,9 @@ def framework_install_root(paths: AppPaths, target: InstallTarget, install_kind:
     win64 = target_root / "R5" / "Binaries" / "Win64"
     if install_kind == "ue4ss_runtime":
         return win64
-    if install_kind in {"ue4ss_mod", "rcon_mod"}:
+    if install_kind == "rcon_mod":
+        return win64
+    if install_kind == "ue4ss_mod":
         return win64 / "ue4ss" / "Mods"
     return None
 
@@ -48,7 +55,9 @@ def remote_framework_install_root(remote_root: str, install_kind: str) -> str:
     win64 = root.joinpath("R5", "Binaries", "Win64")
     if install_kind == "ue4ss_runtime":
         return str(win64)
-    if install_kind in {"ue4ss_mod", "rcon_mod"}:
+    if install_kind == "rcon_mod":
+        return str(win64)
+    if install_kind == "ue4ss_mod":
         return str(win64.joinpath("ue4ss", "Mods"))
     return str(root)
 
@@ -56,7 +65,9 @@ def remote_framework_install_root(remote_root: str, install_kind: str) -> str:
 def framework_entry_relative_path(info: ArchiveInfo, entry: ArchiveEntry) -> str | None:
     if info.install_kind == "ue4ss_runtime":
         return _runtime_relative_path(info, entry)
-    if info.install_kind in {"ue4ss_mod", "rcon_mod"}:
+    if info.install_kind == "rcon_mod":
+        return _rcon_relative_path(info, entry)
+    if info.install_kind == "ue4ss_mod":
         return _ue4ss_mod_relative_path(info, entry)
     if info.install_kind == "windrose_plus":
         return _windrose_plus_relative_path(info, entry)
@@ -123,6 +134,25 @@ def _ue4ss_mod_relative_path(info: ArchiveInfo, entry: ArchiveEntry) -> str | No
     if _looks_like_ue4ss_mod_parts(stripped_parts):
         return str(PurePosixPath(*stripped_parts))
 
+    return None
+
+
+def _rcon_relative_path(info: ArchiveInfo, entry: ArchiveEntry) -> str | None:
+    parts = PurePosixPath(entry.path).parts
+    for marker in (("R5", "Binaries", "Win64"), ("Binaries", "Win64"), ("Win64",)):
+        rel_parts = _parts_after(parts, marker)
+        if rel_parts:
+            return str(PurePosixPath(*rel_parts))
+
+    stripped_parts = _stripped_parts(info, entry)
+    if not stripped_parts:
+        return None
+    first = stripped_parts[0].lower()
+    name = stripped_parts[-1].lower()
+    if name == "version.dll":
+        return "version.dll"
+    if first == "windrosercon":
+        return str(PurePosixPath(*stripped_parts))
     return None
 
 

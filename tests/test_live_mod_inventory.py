@@ -1,6 +1,8 @@
 from pathlib import Path
 from types import SimpleNamespace
 
+import pytest
+
 from windrose_deployer.core.live_mod_inventory import bundle_live_file_names, snapshot_live_mods_folder
 from windrose_deployer.core.manifest_store import ManifestStore
 from windrose_deployer.models.mod_install import ModInstall
@@ -92,3 +94,34 @@ def test_available_archives_filter_hides_applied_sources(tmp_path):
     entries = ModsTab._filtered_entries(tab)
 
     assert [entry["path"] for entry in entries] == ["available.zip"]
+
+
+@pytest.mark.parametrize("install_kind", ["ue4ss_runtime", "ue4ss_mod"])
+def test_framework_source_archive_returns_to_inactive_after_last_uninstall(tmp_path, install_kind):
+    manifest = ManifestStore(tmp_path / "data")
+    archive_path = str(tmp_path / "data" / "archives" / f"{install_kind}.zip")
+
+    tab = object.__new__(ModsTab)
+    tab.app = SimpleNamespace(manifest=manifest)
+    tab._library = [{"path": archive_path, "name": install_kind, "ext": ".zip", "install_kind": install_kind}]
+    tab._search_var = SimpleNamespace(get=lambda: "")
+    tab._filter_var = SimpleNamespace(get=lambda: "Available Archives")
+    tab._scope_var = SimpleNamespace(get=lambda: "all")
+
+    mod_id = generate_mod_id()
+    manifest.add_mod(
+        ModInstall(
+            mod_id=mod_id,
+            display_name=install_kind,
+            source_archive=archive_path,
+            install_kind=install_kind,
+            targets=["dedicated_server"],
+            installed_files=["D:/server/R5/Binaries/Win64/ue4ss/file.txt"],
+        )
+    )
+    assert ModsTab._filtered_entries(tab) == []
+
+    manifest.remove_mod(mod_id)
+    entries = ModsTab._filtered_entries(tab)
+
+    assert [entry["path"] for entry in entries] == [archive_path]
