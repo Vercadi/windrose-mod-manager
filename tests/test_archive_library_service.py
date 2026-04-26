@@ -1,4 +1,4 @@
-from windrose_deployer.core.archive_library_service import manager_owned_archive_path
+from windrose_deployer.core.archive_library_service import manager_owned_archive_path, should_copy_archive_to_library
 
 
 def test_manager_owned_archive_path_copies_imported_archive(tmp_path):
@@ -35,3 +35,10 @@ def test_manager_owned_archive_path_reuses_existing_hash_copy(tmp_path):
     assert reused_digest == digest
     assert reused is True
     assert len(list(library_dir.iterdir())) == 1
+
+
+def test_framework_archives_are_not_manager_copied_by_default():
+    assert should_copy_archive_to_library(content_category="standard_mod", install_kind="standard_mod") is True
+    assert should_copy_archive_to_library(content_category="framework_mod", install_kind="windrose_plus") is False
+    assert should_copy_archive_to_library(content_category="framework_runtime", install_kind="ue4ss_runtime") is False
+    assert should_copy_archive_to_library(content_category="framework_mod", install_kind="rcon_mod") is False

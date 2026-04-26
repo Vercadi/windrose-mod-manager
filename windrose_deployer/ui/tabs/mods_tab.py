@@ -15,7 +15,7 @@ from typing import TYPE_CHECKING, Optional
 import customtkinter as ctk
 
 from ...core.archive_handler import SUPPORTED_EXTENSIONS
-from ...core.archive_library_service import manager_owned_archive_path
+from ...core.archive_library_service import manager_owned_archive_path, should_copy_archive_to_library
 from ...core.archive_inspector import inspect_archive
 from ...core.conflict_detector import check_plan_conflicts
 from ...core.deployment_planner import plan_deployment
@@ -595,6 +595,8 @@ class ModsTab(ctk.CTkFrame):
             for entry in read_json(self._library_path()).get("archives", [])
             if isinstance(entry, dict)
         ]
+        if self._normalize_manager_owned_framework_entries():
+            self._save_library()
         self._refresh_library_ui()
 
     def _save_library(self) -> None:
@@ -651,6 +653,49 @@ class ModsTab(ctk.CTkFrame):
     def _manager_owned_archive(self, archive_path: Path) -> tuple[Path, str, bool]:
         return manager_owned_archive_path(archive_path, self._archive_import_dir(), self._library)
 
+    def _archive_should_be_manager_owned(self, archive_path: Path) -> tuple[bool, ArchiveInfo | None]:
+        try:
+            info = self._get_archive_info(archive_path)
+        except Exception as exc:
+            log.warning("Could not inspect archive before library copy decision: %s", exc)
+            return True, None
+        return (
+            should_copy_archive_to_library(
+                content_category=info.content_category,
+                install_kind=info.install_kind,
+            ),
+            info,
+        )
+
+    def _add_imported_archive_to_library(self, archive_path: Path) -> tuple[Path, str, bool, bool]:
+        should_copy, _info = self._archive_should_be_manager_owned(archive_path)
+        if should_copy:
+            managed_path, archive_hash, reused = self._manager_owned_archive(archive_path)
+            self._add_to_library(
+                managed_path,
+                name=archive_path.stem,
+                source_kind="archive",
+                original_files=[str(archive_path)],
+                archive_hash=archive_hash,
+                original_path=str(archive_path),
+                manager_owned=True,
+            )
+            return managed_path, archive_hash, reused, True
+
+        from ...utils.hashing import hash_file
+
+        archive_hash = hash_file(archive_path)
+        self._add_to_library(
+            archive_path,
+            name=archive_path.stem,
+            source_kind="archive",
+            original_files=[str(archive_path)],
+            archive_hash=archive_hash,
+            original_path=str(archive_path),
+            manager_owned=False,
+        )
+        return archive_path, archive_hash, False, False
+
     def _import_source_paths(self, paths: list[Path]) -> tuple[list[Path], list[str]]:
         archive_paths: list[Path] = []
         pak_paths: list[Path] = []
@@ -667,19 +712,14 @@ class ModsTab(ctk.CTkFrame):
 
         imported_paths: list[Path] = []
         for archive_path in archive_paths:
-            managed_path, archive_hash, reused = self._manager_owned_archive(archive_path)
-            self._add_to_library(
-                managed_path,
-                name=archive_path.stem,
-                source_kind="archive",
-                original_files=[str(archive_path)],
-                archive_hash=archive_hash,
-                original_path=str(archive_path),
-                manager_owned=True,
-            )
+            managed_path, _archive_hash, reused, copied = self._add_imported_archive_to_library(archive_path)
             imported_paths.append(managed_path)
             if reused:
                 warnings.append(f"Reused existing library copy for {archive_path.name}.")
+            elif not copied:
+                warnings.append(
+                    f"Linked framework/tool archive without copying it into app data: {archive_path.name}."
+                )
 
         bundle_result = import_pak_bundles(pak_paths, self._loose_import_dir())
         warnings.extend(bundle_result.warnings)
@@ -748,6 +788,24 @@ class ModsTab(ctk.CTkFrame):
         normalized.setdefault("likely_destinations", [])
         normalized["metadata"] = metadata
         return normalized
+
+    def _normalize_manager_owned_framework_entries(self) -> bool:
+        changed = False
+        for entry in self._library:
+            if not entry.get("manager_owned"):
+                continue
+            if should_copy_archive_to_library(
+                content_category=str(entry.get("content_category", "standard_mod")),
+                install_kind=str(entry.get("install_kind", "standard_mod")),
+            ):
+                continue
+            original = Path(str(entry.get("original_path") or ""))
+            if original.is_file():
+                entry["path"] = str(original)
+                entry["manager_owned"] = False
+                entry["original_files"] = [str(original)]
+                changed = True
+        return changed
 
     @staticmethod
     def _set_textbox(widget: ctk.CTkTextbox, text: str) -> None:
@@ -2276,19 +2334,15 @@ class ModsTab(ctk.CTkFrame):
             messagebox.showerror("Source Missing", f"The source file is no longer available:\n{path_str}")
             return
         if archive_path.suffix.lower() in SUPPORTED_EXTENSIONS:
-            managed_path, archive_hash, reused = self._manager_owned_archive(archive_path)
-            self._add_to_library(
-                managed_path,
-                name=archive_path.stem,
-                source_kind="archive",
-                original_files=[str(archive_path)],
-                archive_hash=archive_hash,
-                original_path=str(archive_path),
-                manager_owned=True,
-            )
+            managed_path, _archive_hash, reused, copied = self._add_imported_archive_to_library(archive_path)
             archive_path = managed_path
             if reused:
                 self._set_result(f"Reused existing library copy for {archive_path.name}.", level="info")
+            elif not copied:
+                self._set_result(
+                    f"Linked framework/tool archive without copying it into app data: {archive_path.name}.",
+                    level="info",
+                )
         else:
             self._add_to_library(archive_path)
         self._refresh_library_ui()

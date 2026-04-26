@@ -208,14 +208,16 @@ class SettingsTab(ctk.CTkFrame):
 
     def _build_server_tab(self) -> None:
         card = self._section_card(self._tab_server, 0, "Server Targets")
-        self._add_path_row(card, 1, "server_root", "Local Server Folder")
-        self._add_path_row(card, 2, "dedicated_server_root", "Dedicated Server Folder")
+        self._add_path_row(card, 1, "server_root", "Local Server Folder (Main Game)")
+        self._add_path_row(card, 2, "dedicated_server_root", "Dedicated Server Folder (Steam App)")
         self._add_path_row(card, 3, "local_save_root", "Dedicated Server World Saves Folder")
         self._server_hint = ctk.CTkLabel(
             card,
             text=(
-                "Local Server Folder should point at <Windrose>/R5/Builds/WindowsServer. "
-                "Dedicated Server Folder should point at the standalone Windrose Dedicated Server install. "
+                "Local Server means the bundled server inside the main Windrose game install: "
+                "<Windrose>/R5/Builds/WindowsServer. "
+                "Dedicated Server means the standalone Steam Windrose Dedicated Server app root, which does not have "
+                "the R5/Builds/WindowsServer folder. "
                 "Local server world files are derived from <local>/R5/Saved. Dedicated server launch and "
                 "dedicated server/world settings use the dedicated server folder, and world saves default to "
                 "<dedicated>/R5/Saved."

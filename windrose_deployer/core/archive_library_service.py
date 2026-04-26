@@ -9,6 +9,13 @@ from ..utils.hashing import hash_file
 from ..utils.naming import sanitize_mod_id
 
 
+def should_copy_archive_to_library(*, content_category: str = "standard_mod", install_kind: str = "standard_mod") -> bool:
+    """Only manager-copy normal mod archives, not external tool/framework bundles."""
+    if (install_kind or "standard_mod") != "standard_mod":
+        return False
+    return (content_category or "standard_mod") not in {"framework_runtime", "framework_mod"}
+
+
 def manager_owned_archive_path(
     source: Path,
     archive_dir: Path,

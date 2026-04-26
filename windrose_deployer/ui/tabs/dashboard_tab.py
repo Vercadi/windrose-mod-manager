@@ -455,10 +455,6 @@ class DashboardTab(ctk.CTkFrame):
             wp_actions.append(("Rebuild WindrosePlus Overrides", lambda r=root: self._run_windrose_plus_rebuild(r, set_result, refresh_content)))
         if wp_paths and wp_paths.launch_wrapper.is_file():
             wp_actions.append(("Launch WindrosePlus Server", lambda: self._launch_windrose_plus_server(set_result)))
-            wp_actions.append(("Stop WindrosePlus Server", lambda: self._stop_windrose_plus_server(set_result, refresh_content)))
-            wp_actions.append(("Restart WindrosePlus Server", lambda: self._restart_windrose_plus_server(set_result, refresh_content)))
-        if wp_paths and wp_paths.dashboard_launcher.is_file():
-            wp_actions.append(("Stop WindrosePlus Dashboard", lambda: self._stop_windrose_plus_dashboard(set_result, refresh_content)))
         self._framework_section(
             parent,
             "WindrosePlus",
@@ -694,27 +690,6 @@ class DashboardTab(ctk.CTkFrame):
             self.refresh_view()
         else:
             set_result("WindrosePlus server launch failed. Check the dedicated server root and launcher file.", "#c0392b")
-
-    def _stop_windrose_plus_server(self, set_result, refresh_content=None) -> None:
-        ok, message = self.app.stop_windrose_plus_server()
-        set_result(message, "#2d8a4e" if ok else "#e67e22")
-        self.refresh_view()
-        if callable(refresh_content):
-            refresh_content()
-
-    def _restart_windrose_plus_server(self, set_result, refresh_content=None) -> None:
-        ok, message = self.app.restart_windrose_plus_server()
-        set_result(message, "#2d8a4e" if ok else "#e67e22")
-        self.refresh_view()
-        if callable(refresh_content):
-            refresh_content()
-
-    def _stop_windrose_plus_dashboard(self, set_result, refresh_content=None) -> None:
-        ok, message = self.app.stop_windrose_plus_dashboard()
-        set_result(message, "#2d8a4e" if ok else "#e67e22")
-        self.refresh_view()
-        if callable(refresh_content):
-            refresh_content()
 
     def _run_framework_worker(self, work, label: str, set_result, refresh_content=None) -> None:
         set_result(f"{label} running...", "#95a5a6")

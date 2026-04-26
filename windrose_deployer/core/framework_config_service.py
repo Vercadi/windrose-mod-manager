@@ -157,7 +157,7 @@ class FrameworkConfigService:
 
 def _run_powershell(script: Path, args: list[str], *, cwd: Path) -> subprocess.CompletedProcess[str]:
     return subprocess.run(
-        ["powershell.exe", "-NoProfile", "-ExecutionPolicy", "Bypass", "-File", str(script), *args],
+        ["powershell.exe", "-NoProfile", "-File", str(script), *args],
         cwd=str(cwd),
         text=True,
         capture_output=True,

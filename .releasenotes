@@ -1,38 +1,32 @@
-## Windrose Mod Manager v0.6.1
+## Windrose Mod Manager v0.6.2
 
-Windrose Mod Manager v0.6.1 is a framework workflow hotfix and polish release on top of v0.6.0.
+Windrose Mod Manager v0.6.2 is a small hotfix for v0.6.1 that reduces antivirus/Chrome false-positive triggers while keeping the framework support work.
 
 ### Highlights
 
-- UE4SS runtime and UE4SS mod uninstall now return the source archive to Inactive Mods correctly.
-- Dashboard framework status refreshes immediately after framework install/uninstall actions.
-- Imported `.zip`, `.7z`, and `.rar` archives are copied into the manager archive library by default.
-- Duplicate archive imports reuse an existing manager-owned copy when the file hash matches.
-- WindroseRCON archives that contain `version.dll` are detected and routed to `R5\Binaries\Win64`.
-- RCON and WindrosePlus are blocked from Client install targets.
-- Invalid Client / Client + Server presets are hidden or blocked for server-only framework packages.
-- Added Frameworks management actions for UE4SS, RCON, and WindrosePlus.
-- Added backup-before-save editing for known UE4SS, RCON, and WindrosePlus config files.
-- WindrosePlus support now includes install, rebuild, dashboard, launch, stop, and restart actions.
-- WindrosePlus JSON editing now formats and validates JSON before saving.
-- Dashboard Frameworks layout is more compact and easier to scan.
+- Removed WindrosePlus Stop / Restart process-control buttons for now.
+- Removed the forced PowerShell `ExecutionPolicy Bypass` flag from WindrosePlus install/rebuild helpers.
+- Kept UE4SS, RCON, WindrosePlus detection/install/config support from v0.6.1.
+- Framework/tool archives such as UE4SS, RCON, and WindrosePlus are linked from their original path instead of copied into the manager app-data archive folder.
+- Normal pak mod archives still get manager-owned library copies.
+- Clarified Settings wording for Local Server vs standalone Dedicated Server.
+- Dedicated server running detection now checks `WindroseServer.exe` and `WindroseServer-Win64-Shipping.exe`.
 
 ### Notes
 
+- This hotfix removes the highest-risk new process-control behavior from v0.6.1.
+- WindrosePlus launch/dashboard/config/install/rebuild actions remain available.
 - UE4SS, WindrosePlus, and RCON are not bundled with the manager.
-- WindrosePlus and RCON are treated as server-side tools.
-- Hosted framework upload works as file deployment; script/start behavior still depends on the host.
 
 ### Validation
 
 - `python -m compileall windrose_deployer -q`
-- `python -m pytest -q` -> `214 passed`
-- `git diff --check` -> clean except normal CRLF warnings
+- `python -m pytest -q` -> `215 passed`
 
 ### SHA256
 
-`C251D75383B60DC210BE187FA7997154BFA1AF63F74508BED9ACE440C0EE49F2`
+`ED2DBF4CD27225C2813EAAB29CB85909971D54671CD652251EF19902E43A80A2`
 
 ### Full Changelog
 
-https://github.com/Vercadi/windrose-mod-manager/compare/v0.6.0...v0.6.1
+https://github.com/Vercadi/windrose-mod-manager/compare/v0.6.1...v0.6.2

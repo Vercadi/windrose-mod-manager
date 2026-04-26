@@ -1,9 +1,7 @@
 """Main application window — assembles all tabs and services."""
 from __future__ import annotations
 
-import json
 import logging
-import os
 import queue
 import subprocess
 import threading
@@ -401,7 +399,7 @@ class AppWindow(ctk.CTk):
 
     def is_server_process_running(self) -> bool:
         names = self._running_process_names()
-        return "windroseserver.exe" in names
+        return any(name in names for name in {"windroseserver.exe", "windroseserver-win64-shipping.exe"})
 
     # ---------------------------------------------------------- UI
 
@@ -757,185 +755,6 @@ class AppWindow(ctk.CTk):
             log.error("Failed to launch %s %s: %s", label.lower(), target, exc)
             messagebox.showerror("Launch Failed", f"Could not launch {label}.\n{exc}")
             return False
-
-    def stop_windrose_plus_server(self, *, confirm: bool = True) -> tuple[bool, str]:
-        root = self.paths.dedicated_server_root
-        if not root:
-            return False, "Dedicated server root is not configured."
-        root = root.resolve()
-        matches = self._find_windrose_plus_processes(root, kinds={"server", "server_wrapper"})
-        if not matches:
-            return False, "No running WindrosePlus/dedicated server process was found for this server root."
-        if confirm and not self.confirm_action(
-            "destructive",
-            "Stop WindrosePlus Server",
-            "This will stop WindroseServer.exe and WindrosePlus launch wrappers running from the configured dedicated server folder.\n\n"
-            "Use this only after the world has saved.",
-        ):
-            return False, "Stop cancelled."
-        pids = [int(item["ProcessId"]) for item in matches if str(item.get("ProcessId", "")).isdigit()]
-        stopped = self._taskkill_process_tree(pids)
-        self._process_names_cache = set()
-        self._process_names_cache_at = 0.0
-        if stopped:
-            self._record_action(
-                "stop_server",
-                target="dedicated_server",
-                display_name="WindrosePlus Server",
-                notes=f"Stopped {len(stopped)} process(es) under {root}",
-            )
-            return True, f"Stopped {len(stopped)} WindrosePlus/server process(es)."
-        return False, "No WindrosePlus/server processes could be stopped."
-
-    def restart_windrose_plus_server(self) -> tuple[bool, str]:
-        root = self.paths.dedicated_server_root
-        if not root:
-            return False, "Dedicated server root is not configured."
-        root = root.resolve()
-        if not self.confirm_action(
-            "destructive",
-            "Restart WindrosePlus Server",
-            "This will stop WindroseServer.exe under the configured dedicated server folder and then launch StartWindrosePlusServer.bat.\n\n"
-            "Use this only after the world has saved.",
-        ):
-            return False, "Restart cancelled."
-        had_running_process = bool(self._find_windrose_plus_processes(root, kinds={"server", "server_wrapper"}))
-        stopped, stop_message = self.stop_windrose_plus_server(confirm=False)
-        if had_running_process and not stopped:
-            return False, f"Restart cancelled: {stop_message}"
-        self.after(1200, self._on_start_windrose_plus_server)
-        return True, f"Restart requested. {stop_message} Launching WindrosePlus Server shortly."
-
-    def stop_windrose_plus_dashboard(self, *, confirm: bool = True) -> tuple[bool, str]:
-        root = self.paths.dedicated_server_root
-        if not root:
-            return False, "Dedicated server root is not configured."
-        root = root.resolve()
-        matches = self._find_windrose_plus_processes(root, kinds={"dashboard", "dashboard_wrapper"})
-        if not matches:
-            return False, "No running WindrosePlus dashboard process was found for this server root."
-        if confirm and not self.confirm_action(
-            "destructive",
-            "Stop WindrosePlus Dashboard",
-            "This will stop the WindrosePlus local dashboard process for the configured dedicated server folder.",
-        ):
-            return False, "Stop cancelled."
-        pids = [int(item["ProcessId"]) for item in matches if str(item.get("ProcessId", "")).isdigit()]
-        stopped = self._taskkill_process_tree(pids)
-        self._process_names_cache = set()
-        self._process_names_cache_at = 0.0
-        if stopped:
-            self._record_action(
-                "stop_server",
-                target="dedicated_server",
-                display_name="WindrosePlus Dashboard",
-                notes=f"Stopped {len(stopped)} dashboard process(es) under {root}",
-            )
-            return True, f"Stopped {len(stopped)} WindrosePlus dashboard process(es)."
-        return False, "No WindrosePlus dashboard processes could be stopped."
-
-    def _find_windrose_plus_processes(self, root: Path, *, kinds: set[str]) -> list[dict]:
-        root_text = str(root).lower()
-        matches: list[dict] = []
-        seen: set[int] = set()
-        for record in self._windows_process_records():
-            try:
-                pid = int(record.get("ProcessId"))
-            except Exception:
-                continue
-            if pid in seen:
-                continue
-            name = str(record.get("Name") or "").lower()
-            exe = str(record.get("ExecutablePath") or "").lower()
-            command_line = str(record.get("CommandLine") or "").lower()
-            if root_text not in exe and root_text not in command_line:
-                continue
-            is_server = name in {"windroseserver.exe", "windroseserver-win64-shipping.exe"}
-            is_server_wrapper = name == "cmd.exe" and "startwindroseplusserver.bat" in command_line
-            is_dashboard = name in {"powershell.exe", "pwsh.exe"} and "windrose_plus_server.ps1" in command_line
-            is_dashboard_wrapper = name == "cmd.exe" and "start_dashboard.bat" in command_line
-            kind_match = (
-                ("server" in kinds and is_server)
-                or ("server_wrapper" in kinds and is_server_wrapper)
-                or ("dashboard" in kinds and is_dashboard)
-                or ("dashboard_wrapper" in kinds and is_dashboard_wrapper)
-            )
-            if kind_match:
-                seen.add(pid)
-                matches.append(record)
-        return matches
-
-    def _windows_process_records(self) -> list[dict]:
-        if os.name != "nt":
-            return []
-        try:
-            startupinfo = None
-            creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-            if hasattr(subprocess, "STARTUPINFO"):
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
-                startupinfo.wShowWindow = 0
-            result = subprocess.run(
-                [
-                    "powershell.exe",
-                    "-NoProfile",
-                    "-ExecutionPolicy",
-                    "Bypass",
-                    "-Command",
-                    (
-                        "Get-CimInstance Win32_Process | "
-                        "Select-Object ProcessId,Name,ExecutablePath,CommandLine | "
-                        "ConvertTo-Json -Compress"
-                    ),
-                ],
-                capture_output=True,
-                text=True,
-                check=False,
-                creationflags=creationflags,
-                startupinfo=startupinfo,
-            )
-            payload = (result.stdout or "").strip()
-            if not payload:
-                return []
-            parsed = json.loads(payload)
-            if isinstance(parsed, dict):
-                return [parsed]
-            if isinstance(parsed, list):
-                return [item for item in parsed if isinstance(item, dict)]
-        except Exception as exc:
-            log.warning("Could not query process command lines: %s", exc)
-        return []
-
-    def _taskkill_process_tree(self, pids: list[int]) -> list[int]:
-        stopped: list[int] = []
-        for pid in sorted(set(pids)):
-            try:
-                startupinfo = None
-                creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
-                if hasattr(subprocess, "STARTUPINFO"):
-                    startupinfo = subprocess.STARTUPINFO()
-                    startupinfo.dwFlags |= getattr(subprocess, "STARTF_USESHOWWINDOW", 0)
-                    startupinfo.wShowWindow = 0
-                result = subprocess.run(
-                    ["taskkill.exe", "/PID", str(pid), "/T", "/F"],
-                    capture_output=True,
-                    text=True,
-                    check=False,
-                    creationflags=creationflags,
-                    startupinfo=startupinfo,
-                )
-                if result.returncode == 0:
-                    stopped.append(pid)
-                else:
-                    log.warning(
-                        "taskkill failed for process %s with code %s: %s",
-                        pid,
-                        result.returncode,
-                        (result.stderr or result.stdout or "").strip(),
-                    )
-            except Exception as exc:
-                log.warning("Could not stop process %s: %s", pid, exc)
-        return stopped
 
     # ---------------------------------------------------------- lifecycle
 
