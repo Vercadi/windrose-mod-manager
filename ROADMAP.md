@@ -177,6 +177,16 @@ High-level direction:
 - Nitrado-specific support is handled through clearer FTP-root path diagnostics, not a provider-specific integration layer.
 - True construction-lazy tabs and broader UI decomposition remain deferred to a focused `v0.5.3` / early `v0.6` prep pass.
 
+### v0.6.x hosted FTP follow-up
+
+- [ ] Improve FTP timeout diagnostics after real Nitrado reports:
+  - distinguish control-connection timeout from login failure and remote-folder/path failure
+  - mention firewall, VPN, ISP/router FTP blocking, and provider-side session limits when the FTP banner is not reached
+  - suggest WinSCP/FileZilla validation from the same PC before assuming a manager bug
+  - include the resolved host/port/protocol in the connection-test result with the password hidden
+  - consider a slightly longer FTP connect timeout or a retry before showing failure
+  - avoid wording that overstates "wrong protocol" when the server may simply be unreachable from the user's machine
+
 ### Deferred startup refactor note
 
 Do not treat true lazy tab construction as complete just because v0.5.2 improved startup behavior. Dashboard, Mods, and Server still call into each other directly in several places, so making those tabs construction-lazy should happen only after a small coordinator/helper extraction. The safe target is `v0.5.3` or early `v0.6` prep, before adding UE4SS/load-order UI to the already-heavy tabs.

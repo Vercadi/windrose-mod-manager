@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import socket
 from dataclasses import dataclass, field
 from pathlib import Path, PurePosixPath
 from typing import Callable, Optional
@@ -190,6 +191,23 @@ def _join_remote(root: str, rel: str) -> str:
     return str(root_path.joinpath(rel_path))
 
 
+def remote_connection_diagnostics(profile: RemoteProfile) -> str:
+    """Return non-secret connection context suitable for support copy/paste."""
+    protocol = normalize_remote_protocol(profile.protocol).upper()
+    parts = [
+        f"Tried {protocol} {profile.host or '(host not set)'}:{profile.port} as {profile.username or '(username not set)'}.",
+    ]
+    if profile.remote_root_dir.strip():
+        parts.append(f"Server Folder: {profile.remote_root_dir.strip()}")
+    if profile.remote_mods_dir.strip():
+        parts.append(f"Mods Override: {profile.remote_mods_dir.strip()}")
+    if profile.remote_server_description_path.strip():
+        parts.append(f"Server Settings Override: {profile.remote_server_description_path.strip()}")
+    if profile.remote_save_root.strip():
+        parts.append(f"World Saves Override: {profile.remote_save_root.strip()}")
+    return " | ".join(parts)
+
+
 class RemoteDeploymentService:
     def __init__(self, provider_factory: Callable[[RemoteProfile], RemoteProvider] | None = None):
         self.provider_factory = provider_factory or create_remote_provider
@@ -206,44 +224,62 @@ class RemoteDeploymentService:
 
             if root_dir:
                 if not provider.path_exists(root_dir):
-                    return False, self._missing_remote_path_message(profile, "remote root", root_dir)
+                    return False, self._with_connection_diagnostics(
+                        profile,
+                        self._missing_remote_path_message(profile, "remote root", root_dir),
+                    )
                 notes.append(f"root OK: {root_dir}")
 
             if mods_dir:
                 if not provider.path_exists(mods_dir):
                     if profile.has_explicit_mods_dir():
-                        return False, self._missing_remote_path_message(profile, "mods folder", mods_dir)
+                        return False, self._with_connection_diagnostics(
+                            profile,
+                            self._missing_remote_path_message(profile, "mods folder", mods_dir),
+                        )
                     notes.append(f"mods dir missing (will be created on first install): {mods_dir}")
                 else:
                     notes.append(f"mods dir OK: {mods_dir}")
 
             if server_desc:
                 if not provider.path_exists(server_desc):
-                    return False, (
-                        "Connected, but ServerDescription.json was not found at "
-                        f"{server_desc}. Check Server Folder, or paste the exact file path into "
-                        "Server Settings File Override."
-                        + self._remote_path_hint(profile)
+                    return False, self._with_connection_diagnostics(
+                        profile,
+                        (
+                            "Connected, but ServerDescription.json was not found at "
+                            f"{server_desc}. Check Server Folder, or paste the exact file path into "
+                            "Server Settings File Override."
+                            + self._remote_path_hint(profile)
+                        ),
                     )
                 notes.append(f"server config OK: {server_desc}")
 
             if save_root:
                 if not provider.path_exists(save_root):
-                    return False, self._missing_remote_path_message(profile, "save root", save_root)
+                    return False, self._with_connection_diagnostics(
+                        profile,
+                        self._missing_remote_path_message(profile, "save root", save_root),
+                    )
                 notes.append(f"save root OK: {save_root}")
 
             if notes:
-                return True, "Connection successful. " + " | ".join(notes)
-            return True, (
-                "Connection successful. Set Server Folder to derive Windrose paths, "
-                "enter '.' if the login already opens in the server root, "
-                "or leave it blank and fill the overrides manually."
+                return True, self._with_connection_diagnostics(
+                    profile,
+                    "Connection successful. " + " | ".join(notes),
+                )
+            return True, self._with_connection_diagnostics(
+                profile,
+                (
+                    "Connection successful. Set Server Folder to derive Windrose paths, "
+                    "enter '.' if the login already opens in the server root, "
+                    "or leave it blank and fill the overrides manually."
+                ),
             )
         except Exception as exc:
             message = self._friendly_connection_error(profile, exc)
             if "paramiko is required" in message.lower():
                 message += " Run 'python -m pip install -r requirements.txt' when testing from source."
-            return False, message
+            return False, self._with_connection_diagnostics(profile, message)
         finally:
             if provider is not None:
                 provider.close()
@@ -326,6 +362,21 @@ class RemoteDeploymentService:
         message = str(exc).strip() or exc.__class__.__name__
         lowered = message.lower()
 
+        if isinstance(exc, socket.gaierror) or any(
+            token in lowered
+            for token in (
+                "getaddrinfo failed",
+                "name or service not known",
+                "nodename nor servname",
+                "temporary failure in name resolution",
+                "no such host",
+            )
+        ):
+            return (
+                "Connection failed. The hostname could not be resolved. "
+                "Check Host / IP for typos, swapped digits, hidden spaces, or a copied web-panel URL instead of the FTP/SFTP hostname."
+            )
+
         if protocol == "sftp":
             if "error reading ssh protocol banner" in lowered or "banner timeout" in lowered:
                 return (
@@ -339,12 +390,13 @@ class RemoteDeploymentService:
         if protocol == "ftp":
             if "timed out" in lowered or "connection reset" in lowered or "connection refused" in lowered:
                 return (
-                    "Connection failed. The selected protocol is FTP, but the host did not respond like an FTP service. "
-                    "Check that the provider really gave FTP credentials, the port is correct, and the selected protocol matches the host."
+                    "Connection failed. The FTP service could not be reached from this PC. "
+                    "Check the FTP hostname and port, then try WinSCP/FileZilla from the same PC. "
+                    "Firewall, VPN, router/ISP FTP blocking, provider session limits, or provider outage can also cause this."
                 )
             if "530" in lowered or "login incorrect" in lowered or "not logged in" in lowered:
                 return "Connection failed. The FTP username or password was rejected."
-            if "502" in lowered or "500" in lowered or "unknown command" in lowered:
+            if "ssh-" in lowered or "502" in lowered or "500" in lowered or "unknown command" in lowered:
                 return (
                     "Connection failed. The selected protocol is FTP, but the host response suggests the protocol may not match. "
                     "If the provider offers SFTP Info instead, switch the profile to SFTP."
@@ -370,3 +422,7 @@ class RemoteDeploymentService:
             " If your login opens directly inside the Windrose server folder, set Server Folder to '.' and "
             "leave Mods Folder Override blank, or set Mods Folder Override to R5/Content/Paks/~mods."
         )
+
+    @staticmethod
+    def _with_connection_diagnostics(profile: RemoteProfile, message: str) -> str:
+        return f"{message}\n\n{remote_connection_diagnostics(profile)}"

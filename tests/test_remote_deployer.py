@@ -6,6 +6,7 @@ from windrose_deployer.core.archive_inspector import inspect_archive
 from windrose_deployer.core.remote_deployer import (
     RemoteDeploymentService,
     plan_remote_deployment,
+    remote_connection_diagnostics,
 )
 from windrose_deployer.models.remote_profile import RemoteProfile
 
@@ -333,7 +334,7 @@ def test_test_connection_reports_protocol_mismatch_for_sftp_banner_errors() -> N
     assert "likely does not match the host" in message.lower()
 
 
-def test_test_connection_reports_protocol_mismatch_for_ftp_timeouts() -> None:
+def test_test_connection_reports_network_reachability_for_ftp_timeouts() -> None:
     profile = _make_profile()
     profile.protocol = "ftp"
     profile.port = 21
@@ -344,5 +345,56 @@ def test_test_connection_reports_protocol_mismatch_for_ftp_timeouts() -> None:
     ok, message = service.test_connection(profile)
 
     assert not ok
-    assert "selected protocol is ftp" in message.lower()
-    assert "check that the provider really gave ftp credentials" in message.lower()
+    assert "ftp service could not be reached from this pc" in message.lower()
+    assert "winscp/filezilla" in message.lower()
+    assert "Tried FTP example.com:21 as user." in message
+
+
+def test_test_connection_reports_hostname_resolution_failures() -> None:
+    profile = _make_profile()
+    profile.protocol = "ftp"
+    profile.host = "ms2048.gamedata.io"
+    profile.port = 21
+    service = RemoteDeploymentService(
+        provider_factory=lambda _profile: (_ for _ in ()).throw(OSError("[Errno 11001] getaddrinfo failed")),
+    )
+
+    ok, message = service.test_connection(profile)
+
+    assert not ok
+    assert "hostname could not be resolved" in message.lower()
+    assert "typos" in message.lower()
+    assert "Tried FTP ms2048.gamedata.io:21 as user." in message
+
+
+def test_test_connection_reports_ftp_login_rejected() -> None:
+    profile = _make_profile()
+    profile.protocol = "ftp"
+    profile.port = 21
+    service = RemoteDeploymentService(
+        provider_factory=lambda _profile: (_ for _ in ()).throw(RuntimeError("530 Login incorrect.")),
+    )
+
+    ok, message = service.test_connection(profile)
+
+    assert not ok
+    assert "ftp username or password was rejected" in message.lower()
+    assert "Tried FTP example.com:21 as user." in message
+
+
+def test_remote_connection_diagnostics_redacts_secrets() -> None:
+    profile = _make_profile()
+    profile.protocol = "ftp"
+    profile.port = 21
+    profile.password = "super-secret"
+    profile.private_key_path = "C:/Users/me/.ssh/id_rsa"
+    profile.remote_mods_dir = "R5/Content/Paks/~mods"
+    profile.remote_server_description_path = "R5/ServerDescription.json"
+    profile.remote_save_root = "R5/Saved"
+
+    diagnostics = remote_connection_diagnostics(profile)
+
+    assert "Tried FTP example.com:21 as user." in diagnostics
+    assert "super-secret" not in diagnostics
+    assert "id_rsa" not in diagnostics
+    assert "R5/Content/Paks/~mods" in diagnostics

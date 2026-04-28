@@ -14,7 +14,7 @@ class FtpProvider:
         self.profile = profile
         self._ftp = FTP()
         self._ftp.encoding = "utf-8"
-        self._ftp.connect(profile.host, profile.port, timeout=10)
+        self._ftp.connect(profile.host, profile.port, timeout=15)
         self._ftp.login(profile.username, profile.password)
 
     def close(self) -> None:

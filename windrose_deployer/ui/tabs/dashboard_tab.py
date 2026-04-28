@@ -672,7 +672,7 @@ class DashboardTab(ctk.CTkFrame):
             return
         self.app._mods_tab._install_path_with_preset(archive_path, self._framework_target_preset(target_label))
         self.refresh_view()
-        set_result("UE4SS runtime repair/install started from the manager archive copy.", "#2d8a4e")
+        set_result("UE4SS runtime repair/install started from the available source archive.", "#2d8a4e")
 
     def _run_windrose_plus_install(self, root: Path, set_result, refresh_content=None) -> None:
         if not self.app.confirm_action("destructive", "Run WindrosePlus Install", "Run WindrosePlus install.ps1 for this server root?"):

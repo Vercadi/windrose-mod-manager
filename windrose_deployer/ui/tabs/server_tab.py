@@ -18,7 +18,7 @@ from ...core.live_mod_inventory import (
     bundle_live_file_names,
     snapshot_live_mods_folder,
 )
-from ...core.remote_deployer import plan_remote_deployment
+from ...core.remote_deployer import plan_remote_deployment, remote_connection_diagnostics
 from ...models.deployment_record import DeployedFile, DeploymentRecord
 from ...models.mod_install import expand_target_values
 from ...models.remote_profile import (
@@ -1383,8 +1383,8 @@ class ServerTab(ctk.CTkFrame):
     def _hosted_protocol_help(protocol: str) -> str:
         if normalize_remote_protocol(protocol) == "ftp":
             return (
-                "Host / IP = the FTP hostname or server IP from your provider panel. "
-                "Indifferent Broccoli uses FTP on port 21. Host Havoc may also expose FTP Info on some services."
+                "Host / IP = only the FTP hostname from your provider panel, for example ms2084.gamedata.io. "
+                "Use FTP Credentials and port 21. Do not use Query, Game, or RCON ports here."
             )
         return (
             "Host / IP = the SFTP hostname or LAN IP from your provider panel. "
@@ -2152,8 +2152,8 @@ class ServerTab(ctk.CTkFrame):
         ctk.CTkLabel(
             provider_card,
             text=(
-                "These only set the protocol and normal default port. Use the host, username, password, "
-                "and server folder exactly as shown in your provider panel."
+                "These only set the protocol and normal default port. For Nitrado, use the FTP Credentials "
+                "hostname, username, password, and port 21. Query/RCON/Game ports are not FTP ports."
             ),
             justify="left",
             wraplength=520,
@@ -2186,6 +2186,38 @@ class ServerTab(ctk.CTkFrame):
             )
             profile.apply_root_defaults(overwrite=False)
             return profile
+
+        last_diagnostics = {"text": ""}
+
+        def _diagnostics_text(profile: RemoteProfile, result: str = "") -> str:
+            lines = [
+                "Windrose hosted connection diagnostics",
+                remote_connection_diagnostics(profile),
+            ]
+            if result.strip():
+                lines.append("")
+                lines.append("Last result:")
+                lines.append(result.strip())
+            if normalize_remote_protocol(profile.protocol) == "ftp":
+                lines.extend(
+                    [
+                        "",
+                        "FTP note: use provider FTP Credentials. Nitrado Query/RCON/Game ports are not FTP ports.",
+                        f"PowerShell reachability check: Test-NetConnection {profile.host} -Port {profile.port}",
+                    ]
+                )
+            return "\n".join(lines)
+
+        def _copy_diagnostics() -> None:
+            try:
+                profile = _build_profile()
+            except ValueError:
+                messagebox.showerror("Invalid Endpoint", "Host / IP and port must be valid.")
+                return
+            text = last_diagnostics["text"] or _diagnostics_text(profile)
+            dialog.clipboard_clear()
+            dialog.clipboard_append(text)
+            status.configure(text="Hosted diagnostics copied without password/private-key contents.", text_color="#2d8a4e")
 
         def _apply_profile_fields(profile: RemoteProfile) -> None:
             vars_map["protocol"].set(normalize_remote_protocol(profile.protocol))
@@ -2308,12 +2340,19 @@ class ServerTab(ctk.CTkFrame):
 
             def _work() -> None:
                 ok, message = self.app.remote_deployer.test_connection(profile)
-                self.app.dispatch_to_ui(
-                    lambda: status.winfo_exists() and status.configure(
+                diagnostics_text = _diagnostics_text(profile, message)
+
+                def _show_result() -> None:
+                    if not status.winfo_exists():
+                        return
+                    last_diagnostics["text"] = diagnostics_text
+                    copy_diagnostics_btn.configure(state="normal")
+                    status.configure(
                         text=message,
                         text_color="#2d8a4e" if ok else "#c0392b",
                     )
-                )
+
+                self.app.dispatch_to_ui(_show_result)
 
             threading.Thread(target=_work, daemon=True).start()
 
@@ -2353,6 +2392,15 @@ class ServerTab(ctk.CTkFrame):
             command=_apply_root_defaults,
         ).pack(side="left", padx=(0, 6))
         ctk.CTkButton(buttons, text="Test Connection", width=120, command=_test).pack(side="left", padx=6)
+        copy_diagnostics_btn = ctk.CTkButton(
+            buttons,
+            text="Copy Diagnostics",
+            width=140,
+            fg_color="#555555",
+            hover_color="#666666",
+            command=_copy_diagnostics,
+        )
+        copy_diagnostics_btn.pack(side="left", padx=6)
         ctk.CTkButton(buttons, text="Save Profile", width=110, fg_color="#2d8a4e", hover_color="#236b3d", command=_save).pack(side="left", padx=6)
         ctk.CTkButton(buttons, text="Close", width=100, fg_color="#444444", hover_color="#555555", command=dialog.destroy).pack(side="right")
         vars_map["protocol"].trace_add("write", _sync_auth_fields)
