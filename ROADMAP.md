@@ -412,6 +412,60 @@ This should be a low-risk support-quality release before starting load order.
 
 ---
 
+## v0.6.5 - Bulk Selection and Profiles UX
+
+Detailed implementation plan lives in `IMPLEMENTATION_v0.6.5.md`.
+
+This should be a focused quality-of-life release before `v0.7` load order.
+
+- [x] Add `Select All` to `Active Mods`, scoped to the current target tab/filter:
+  - `All`
+  - `Client`
+  - `Local Server`
+  - `Dedicated Server`
+  - `Hosted Server`
+- [x] Add `Select All` to `Inactive Mods`, scoped to the current target/filter/search.
+- [x] Keep destructive work behind `Uninstall Selected` and confirmation, not a one-click `Uninstall All`.
+- [x] Rename inactive bulk action from `Install` to `Install Selected`.
+- [x] Rework Mods panel action rows so the new buttons do not clip at default or large UI sizes.
+- [x] Make existing saved mod Profiles discoverable from the Mods screen.
+- [x] Keep profile apply preview-first:
+  - installs
+  - uninstalls
+  - missing source archives
+  - local targets affected
+- [x] Keep first-pass profile apply focused on local targets:
+  - `Client`
+  - `Local Server`
+  - `Dedicated Server`
+- [x] Treat hosted profile entries as review-only/deferred until remote upload/delete profile semantics are designed safely.
+
+---
+
+## v0.6.6 - Restore Vanilla
+
+Detailed implementation plan lives in `IMPLEMENTATION_v0.6.6.md`.
+
+This should be a focused cleanup/safety release before `v0.7` load order.
+
+- [ ] Add local-only `Restore Vanilla` for:
+  - `Client`
+  - `Local Server`
+  - `Dedicated Server`
+- [ ] Defer hosted restore/cleanup until a safer remote delete workflow exists.
+- [ ] Preview before removing anything.
+- [ ] Let users choose what to remove:
+  - managed mods
+  - unmanaged `~mods` files
+  - framework files
+- [ ] Back up unmanaged and framework files before removal.
+- [ ] Use existing uninstall flow for managed mods.
+- [ ] Detect and clean known UE4SS, RCON, and WindrosePlus file sets.
+- [ ] Do not touch saves, world files, server settings, hosted files, archive library, or backup history.
+- [ ] Refresh Dashboard, Mods, Activity, and Backups after cleanup.
+
+---
+
 ## v0.7 - Managed Load Order
 
 Detailed implementation plan lives in `IMPLEMENTATION_v0.7.0.md`.

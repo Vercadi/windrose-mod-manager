@@ -47,6 +47,8 @@ if TYPE_CHECKING:
 
 log = logging.getLogger(__name__)
 
+_PROFILE_LOCAL_TARGETS = {"client", "server", "dedicated_server"}
+
 _FILETYPES = [
     ("Mod files", "*.zip *.7z *.rar *.pak *.utoc *.ucas"),
     ("Archives", "*.zip *.7z *.rar"),
@@ -113,6 +115,9 @@ class ModsTab(ctk.CTkFrame):
         self._pending_click_path: Optional[Path] = None
         self._single_click_job = None
         self._hosted_inventory_request = 0
+        self._last_hosted_inventory_profile_name = ""
+        self._last_hosted_inventory_files: list[str] = []
+        self._last_hosted_inventory_error: Optional[str] = None
         self._details_visible = False
         self._expanded_archive_paths: set[str] = set()
         self._expanded_mod_ids: set[str] = set()
@@ -154,6 +159,18 @@ class ModsTab(ctk.CTkFrame):
 
         self._summary_label = ctk.CTkLabel(bar, text="", anchor="w", text_color="#95a5a6", font=self.app.ui_font("small"))
         self._summary_label.grid(row=0, column=2, sticky="ew", padx=(0, 12))
+        self._profiles_btn = ctk.CTkButton(
+            bar,
+            text="Profiles",
+            width=86,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._open_profiles_dialog,
+        )
+        self._profiles_btn.grid(row=0, column=3, sticky="e", padx=(0, 6))
+        self._action_buttons.append(self._profiles_btn)
         self._details_toggle_btn = ctk.CTkButton(
             bar,
             text="Show Details",
@@ -164,7 +181,7 @@ class ModsTab(ctk.CTkFrame):
             hover_color="#666666",
             command=self._toggle_details_panel,
         )
-        self._details_toggle_btn.grid(row=0, column=3, sticky="e")
+        self._details_toggle_btn.grid(row=0, column=4, sticky="e")
         self._action_buttons.append(self._details_toggle_btn)
         self._result_label = ctk.CTkLabel(
             self,
@@ -220,7 +237,7 @@ class ModsTab(ctk.CTkFrame):
         panel = ctk.CTkFrame(parent)
         panel.pack(fill="both", expand=True)
         panel.grid_columnconfigure(0, weight=1)
-        panel.grid_rowconfigure(1, weight=1)
+        panel.grid_rowconfigure(2, weight=1)
 
         header = ctk.CTkFrame(panel, fg_color="transparent")
         header.grid(row=0, column=0, sticky="ew", padx=8, pady=(8, 4))
@@ -231,9 +248,25 @@ class ModsTab(ctk.CTkFrame):
         self._applied_summary_label = ctk.CTkLabel(header, text="", anchor="e", text_color="#95a5a6", font=self.app.ui_font("small"))
         self._applied_summary_label.grid(row=0, column=1, sticky="e", padx=(0, 8))
         self._selected_mods_label = ctk.CTkLabel(header, text="", anchor="e", text_color="#95a5a6", font=self.app.ui_font("small"))
-        self._selected_mods_label.grid(row=0, column=2, sticky="e", padx=(0, 8))
+        self._selected_mods_label.grid(row=0, column=2, sticky="e")
+
+        actions = ctk.CTkFrame(panel, fg_color="transparent")
+        actions.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
+        actions.grid_columnconfigure(0, weight=1)
+        self._select_all_mods_btn = ctk.CTkButton(
+            actions,
+            text="Select All",
+            width=92,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._select_all_active_mods,
+        )
+        self._select_all_mods_btn.grid(row=0, column=1, sticky="e", padx=(0, 6))
+        self._action_buttons.append(self._select_all_mods_btn)
         self._uninstall_selected_btn = ctk.CTkButton(
-            header,
+            actions,
             text="Uninstall Selected",
             width=138,
             height=self.app.ui_tokens.compact_button_height,
@@ -241,10 +274,10 @@ class ModsTab(ctk.CTkFrame):
             state="disabled",
             command=self._on_uninstall_selected_mods,
         )
-        self._uninstall_selected_btn.grid(row=0, column=3, sticky="e", padx=(0, 6))
+        self._uninstall_selected_btn.grid(row=0, column=2, sticky="e", padx=(0, 6))
         self._action_buttons.append(self._uninstall_selected_btn)
         self._clear_mod_selection_btn = ctk.CTkButton(
-            header,
+            actions,
             text="Clear",
             width=64,
             height=self.app.ui_tokens.compact_button_height,
@@ -254,18 +287,18 @@ class ModsTab(ctk.CTkFrame):
             state="disabled",
             command=self._clear_selected_mods,
         )
-        self._clear_mod_selection_btn.grid(row=0, column=4, sticky="e")
+        self._clear_mod_selection_btn.grid(row=0, column=3, sticky="e")
         self._action_buttons.append(self._clear_mod_selection_btn)
 
         self._applied_list = ctk.CTkScrollableFrame(panel)
-        self._applied_list.grid(row=1, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        self._applied_list.grid(row=2, column=0, sticky="nsew", padx=8, pady=(0, 8))
         self._applied_list.grid_columnconfigure(0, weight=1)
 
     def _build_archive_panel(self, parent) -> None:
         panel = ctk.CTkFrame(parent, border_width=1, border_color="#3b3b3b")
         panel.pack(fill="both", expand=True)
         panel.grid_columnconfigure(0, weight=1)
-        panel.grid_rowconfigure(2, weight=1)
+        panel.grid_rowconfigure(3, weight=1)
         self._archive_panel = panel
 
         header = ctk.CTkFrame(panel, fg_color="transparent")
@@ -296,25 +329,40 @@ class ModsTab(ctk.CTkFrame):
         refresh_btn.grid(row=0, column=3, sticky="e")
         self._action_buttons.append(refresh_btn)
 
+        actions = ctk.CTkFrame(panel, fg_color="transparent")
+        actions.grid(row=1, column=0, sticky="ew", padx=8, pady=(0, 4))
+        actions.grid_columnconfigure(0, weight=1)
         self._search_entry = ctk.CTkEntry(
-            header, textvariable=self._search_var, placeholder_text="Search inactive mods...", width=150, font=self.app.ui_font("body")
+            actions, textvariable=self._search_var, placeholder_text="Search inactive mods...", width=150, font=self.app.ui_font("body")
         )
-        self._search_entry.grid(row=1, column=0, sticky="ew", pady=(6, 0), padx=(0, 6))
-        self._selected_archives_label = ctk.CTkLabel(header, text="", anchor="e", text_color="#95a5a6", font=self.app.ui_font("small"))
-        self._selected_archives_label.grid(row=1, column=1, sticky="e", pady=(6, 0), padx=(0, 6))
+        self._search_entry.grid(row=0, column=0, columnspan=5, sticky="ew", pady=(0, 5))
+        self._selected_archives_label = ctk.CTkLabel(actions, text="", anchor="e", text_color="#95a5a6", font=self.app.ui_font("small"))
+        self._selected_archives_label.grid(row=1, column=0, sticky="e", padx=(0, 6))
+        self._select_all_archives_btn = ctk.CTkButton(
+            actions,
+            text="Select All",
+            width=92,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._select_all_inactive_archives,
+        )
+        self._select_all_archives_btn.grid(row=1, column=1, sticky="e", padx=(0, 6))
+        self._action_buttons.append(self._select_all_archives_btn)
         self._install_selected_btn = ctk.CTkButton(
-            header,
-            text="Install",
-            width=86,
+            actions,
+            text="Install Selected",
+            width=122,
             height=self.app.ui_tokens.compact_button_height,
             font=self.app.ui_font("body"),
             state="disabled",
             command=self._on_install_selected_archives,
         )
-        self._install_selected_btn.grid(row=1, column=2, sticky="e", pady=(6, 0), padx=(0, 6))
+        self._install_selected_btn.grid(row=1, column=2, sticky="e", padx=(0, 6))
         self._action_buttons.append(self._install_selected_btn)
         self._clear_archive_selection_btn = ctk.CTkButton(
-            header,
+            actions,
             text="Clear",
             width=58,
             height=self.app.ui_tokens.compact_button_height,
@@ -324,7 +372,7 @@ class ModsTab(ctk.CTkFrame):
             state="disabled",
             command=self._clear_selected_archives,
         )
-        self._clear_archive_selection_btn.grid(row=1, column=3, sticky="e", pady=(6, 0))
+        self._clear_archive_selection_btn.grid(row=1, column=3, sticky="e")
         self._action_buttons.append(self._clear_archive_selection_btn)
 
         self._archive_hint_label = ctk.CTkLabel(
@@ -335,10 +383,10 @@ class ModsTab(ctk.CTkFrame):
             text_color="#95a5a6",
             font=self.app.ui_font("small"),
         )
-        self._archive_hint_label.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 8))
+        self._archive_hint_label.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
 
         self._library_list = ctk.CTkScrollableFrame(panel)
-        self._library_list.grid(row=2, column=0, sticky="nsew", padx=8, pady=(0, 8))
+        self._library_list.grid(row=3, column=0, sticky="nsew", padx=8, pady=(0, 8))
         self._library_list.grid_columnconfigure(0, weight=1)
 
     def _build_details_panel(self, parent) -> None:
@@ -838,6 +886,57 @@ class ModsTab(ctk.CTkFrame):
         self._clear_archive_selection_btn.configure(state=archive_state)
         self._uninstall_selected_btn.configure(state=mod_state)
         self._clear_mod_selection_btn.configure(state=mod_state)
+        if hasattr(self, "_select_all_archives_btn"):
+            self._select_all_archives_btn.configure(
+                state="normal" if self._inactive_selectable_archive_paths() else "disabled"
+            )
+        if hasattr(self, "_select_all_mods_btn"):
+            mod_ids, live_ids = self._active_selectable_ids()
+            self._select_all_mods_btn.configure(state="normal" if (mod_ids or live_ids) else "disabled")
+
+    def _inactive_selectable_archive_paths(self) -> set[str]:
+        paths: set[str] = set()
+        for entry in self._filtered_entries():
+            path_str = str(entry.get("path", "") or "")
+            if path_str and Path(path_str).is_file():
+                paths.add(path_str)
+        return paths
+
+    def _active_selectable_ids(self) -> tuple[set[str], set[str]]:
+        if self._scope_var.get() == "hosted":
+            return set(), set(self._live_file_bundle_members.keys())
+        mod_ids = {
+            mod.mod_id
+            for mod in self.app.manifest.list_mods()
+            if self._scope_matches_targets(self._effective_targets(mod))
+        }
+        return mod_ids, set(self._live_file_bundle_members.keys())
+
+    def _select_all_inactive_archives(self) -> None:
+        selectable = self._inactive_selectable_archive_paths()
+        if not selectable:
+            self._set_result("No inactive mod files match the current filter.", level="info")
+            return
+        self._selected_archive_paths = selectable
+        self._refresh_library_ui(refresh_applied=False)
+        self._set_result(f"Selected {len(selectable)} inactive mod(s) in the current list.", level="info")
+
+    def _select_all_active_mods(self) -> None:
+        mod_ids, live_ids = self._active_selectable_ids()
+        if not mod_ids and not live_ids:
+            self._set_result("No active mod rows match the current target.", level="info")
+            return
+        self._selected_mod_ids = mod_ids
+        self._selected_live_files = live_ids
+        if self._scope_var.get() == "hosted":
+            self._render_hosted_inventory(
+                self._last_hosted_inventory_profile_name,
+                self._last_hosted_inventory_files,
+                error=self._last_hosted_inventory_error,
+            )
+        else:
+            self._refresh_applied_ui()
+        self._set_result(f"Selected {len(mod_ids) + len(live_ids)} active item(s) in the current target.", level="info")
 
     def _toggle_archive_selection(self, archive_path_str: str, selected: bool) -> None:
         if selected:
@@ -1219,6 +1318,9 @@ class ModsTab(ctk.CTkFrame):
         threading.Thread(target=_work, daemon=True).start()
 
     def _render_hosted_inventory(self, profile_name: str, remote_files: list[str], *, error: Optional[str] = None) -> None:
+        self._last_hosted_inventory_profile_name = profile_name
+        self._last_hosted_inventory_files = list(remote_files)
+        self._last_hosted_inventory_error = error
         for widget in self._applied_widgets:
             widget.destroy()
         self._applied_widgets.clear()
@@ -3402,37 +3504,119 @@ class ModsTab(ctk.CTkFrame):
             self.refresh_view()
             self._set_result(f"Updated {mod.display_name}.", level="success")
 
-    def _profile_preview_text(self, profile, comparison) -> str:
+    @staticmethod
+    def _profile_local_targets(targets: list[str]) -> list[str]:
+        expanded = expand_target_values(targets)
+        return [target for target in ("client", "server", "dedicated_server") if target in expanded]
+
+    @staticmethod
+    def _profile_has_nonlocal_targets(targets: list[str]) -> bool:
+        expanded = expand_target_values(targets)
+        return not expanded or bool(expanded - _PROFILE_LOCAL_TARGETS)
+
+    def _profile_local_plan(self, comparison) -> dict[str, list]:
+        local_to_install = []
+        review_install = []
+        local_missing = []
+        review_missing = []
+        local_to_uninstall = []
+        review_uninstall = []
+
+        for entry in comparison.to_install:
+            local_targets = self._profile_local_targets(entry.targets)
+            if local_targets:
+                local_to_install.append((entry, local_targets))
+            if self._profile_has_nonlocal_targets(entry.targets):
+                review_install.append(entry)
+
+        for entry in comparison.missing_archives:
+            if self._profile_local_targets(entry.targets):
+                local_missing.append(entry)
+            if self._profile_has_nonlocal_targets(entry.targets):
+                review_missing.append(entry)
+
+        for mod in comparison.to_uninstall:
+            targets = self._effective_targets(mod)
+            if targets and targets.issubset(_PROFILE_LOCAL_TARGETS):
+                local_to_uninstall.append(mod)
+            else:
+                review_uninstall.append(mod)
+
+        return {
+            "to_install": local_to_install,
+            "review_install": review_install,
+            "missing_archives": local_missing,
+            "review_missing": review_missing,
+            "to_uninstall": local_to_uninstall,
+            "review_uninstall": review_uninstall,
+        }
+
+    def _profile_preview_text(self, profile, comparison, *, include_uninstall: bool = True) -> str:
+        plan = self._profile_local_plan(comparison)
+        to_uninstall = plan["to_uninstall"] if include_uninstall else []
+        review_count = (
+            len(plan["review_install"])
+            + len(plan["review_missing"])
+            + (len(plan["review_uninstall"]) if include_uninstall else 0)
+        )
         lines = [
             f"Profile: {profile.name}",
             f"Matching: {len(comparison.matching)}",
-            f"Install: {len(comparison.to_install)}",
-            f"Uninstall: {len(comparison.to_uninstall)}",
-            f"Missing archives: {len(comparison.missing_archives)}",
+            f"Install: {len(plan['to_install'])}",
+            f"Uninstall: {len(to_uninstall)}",
+            f"Missing archives: {len(plan['missing_archives'])}",
+            f"Review separately: {review_count}",
             "",
         ]
-        if comparison.to_install:
+        if not include_uninstall and (plan["to_uninstall"] or plan["review_uninstall"]):
+            lines.append(
+                f"Not removing extras: {len(plan['to_uninstall']) + len(plan['review_uninstall'])} active item(s) are not in this profile."
+            )
+            lines.append("Enable removal in the profile dialog if you want this profile to clean up extra mods.")
+            lines.append("")
+        if plan["to_install"]:
             lines.append("Will install:")
-            for entry in comparison.to_install[:12]:
+            for entry, local_targets in plan["to_install"][:12]:
                 lines.append(
-                    f"  {entry.display_name} [{summarize_target_values(entry.targets)}]"
+                    f"  {entry.display_name} [{summarize_target_values(local_targets)}]"
                     + (f" | variant: {entry.selected_variant}" if entry.selected_variant else "")
                 )
             lines.append("")
-        if comparison.to_uninstall:
+        if to_uninstall:
             lines.append("Will uninstall:")
-            for mod in comparison.to_uninstall[:12]:
+            for mod in to_uninstall[:12]:
                 lines.append(f"  {mod.display_name} [{summarize_target_values(mod.targets)}]")
             lines.append("")
-        if comparison.missing_archives:
+        if plan["missing_archives"]:
             lines.append("Missing source archives:")
-            for entry in comparison.missing_archives[:12]:
+            for entry in plan["missing_archives"][:12]:
                 lines.append(f"  {entry.display_name} | {entry.source_archive}")
+            lines.append("")
+        if review_count:
+            lines.append("Review separately:")
+            lines.append("  Hosted or unsupported profile entries are not auto-applied in this version.")
+            for entry in (plan["review_install"] + plan["review_missing"])[:8]:
+                lines.append(f"  {entry.display_name} [{summarize_target_values(entry.targets)}]")
+            if include_uninstall:
+                for mod in plan["review_uninstall"][:8]:
+                    lines.append(f"  {mod.display_name} [{summarize_target_values(mod.targets)}]")
         return "\n".join(lines).strip()
 
-    def _apply_profile(self, profile) -> None:
+    def _apply_profile(self, profile, *, remove_extra_mods: bool = False) -> None:
         comparison = self.app.profile_service.compare(profile, self.app.manifest.list_mods())
-        preview = self._profile_preview_text(profile, comparison)
+        profile_plan = self._profile_local_plan(comparison)
+        preview = self._profile_preview_text(profile, comparison, include_uninstall=remove_extra_mods)
+        if (
+            remove_extra_mods
+            and not profile.entries
+            and (profile_plan["to_uninstall"] or profile_plan["review_uninstall"])
+            and not self.app.confirm_action(
+                "destructive",
+                "Apply Empty Profile",
+                "This profile contains no managed mods. Applying it with removal enabled can uninstall every local managed mod.\n\nContinue?",
+            )
+        ):
+            return
         if not self.app.confirm_action(
             "destructive",
             "Apply Profile",
@@ -3444,7 +3628,7 @@ class ModsTab(ctk.CTkFrame):
         removed = 0
         failed: list[str] = []
 
-        for entry in comparison.to_install:
+        for entry, local_targets in profile_plan["to_install"]:
             archive_path = Path(entry.source_archive)
             try:
                 info = inspect_archive(archive_path)
@@ -3453,12 +3637,12 @@ class ModsTab(ctk.CTkFrame):
                 continue
 
             selected_entries = set(entry.component_entries) if entry.component_entries else None
-            for target_value in entry.targets:
+            for target_value in local_targets:
                 target_enum = self._target_enum_for_value(target_value)
                 if target_enum is None:
                     continue
                 try:
-                    plan, error = self._prepare_install_target(
+                    install_plan, error = self._prepare_install_target(
                         info,
                         entry.display_name,
                         target_enum,
@@ -3466,17 +3650,17 @@ class ModsTab(ctk.CTkFrame):
                         selected_entries,
                     )
                 except TypeError:
-                    plan, error = self._prepare_install_target(
+                    install_plan, error = self._prepare_install_target(
                         info,
                         entry.display_name,
                         target_enum,
                         entry.selected_variant or None,
                     )
-                if plan is None:
+                if install_plan is None:
                     failed.append(f"{entry.display_name}: {error}")
                     continue
                 try:
-                    mod, record = self.app.installer.install(plan)
+                    mod, record = self.app.installer.install(install_plan)
                     mod.metadata = entry.metadata
                     self.app.manifest.add_mod(mod)
                     self.app.manifest.add_record(record)
@@ -3484,21 +3668,38 @@ class ModsTab(ctk.CTkFrame):
                 except Exception as exc:
                     failed.append(f"{entry.display_name}: {exc}")
 
-        for mod in comparison.to_uninstall:
-            try:
-                record = self.app.installer.uninstall(mod)
-                self.app.manifest.add_record(record)
-                self.app.manifest.remove_mod(mod.mod_id)
-                removed += 1
-            except Exception as exc:
-                failed.append(f"{mod.display_name}: {exc}")
+        if remove_extra_mods:
+            for mod in profile_plan["to_uninstall"]:
+                try:
+                    record = self.app.installer.uninstall(mod)
+                    self.app.manifest.add_record(record)
+                    self.app.manifest.remove_mod(mod.mod_id)
+                    removed += 1
+                except Exception as exc:
+                    failed.append(f"{mod.display_name}: {exc}")
 
         self.app.refresh_installed_tab()
         self.app.refresh_backups_tab()
         self.refresh_view()
+        review_count = (
+            len(profile_plan["review_install"])
+            + len(profile_plan["review_missing"])
+            + (len(profile_plan["review_uninstall"]) if remove_extra_mods else 0)
+        )
+        skipped_removals = 0 if remove_extra_mods else len(profile_plan["to_uninstall"]) + len(profile_plan["review_uninstall"])
         if failed:
             self._set_result(
                 f"Profile applied with warnings. Installed {installed}, removed {removed}, failed {len(failed)} item(s).",
+                level="warning",
+            )
+        elif skipped_removals:
+            self._set_result(
+                f"Applied profile installs. Installed {installed}, removed {removed}. {skipped_removals} extra active item(s) were left installed.",
+                level="warning",
+            )
+        elif review_count:
+            self._set_result(
+                f"Applied local profile changes. Installed {installed}, removed {removed}. {review_count} hosted/unsupported item(s) need review.",
                 level="warning",
             )
         else:
@@ -3524,20 +3725,33 @@ class ModsTab(ctk.CTkFrame):
         right = ctk.CTkFrame(dialog)
         right.grid(row=1, column=1, sticky="nsew", padx=(0, 16), pady=(0, 16))
         right.grid_columnconfigure(0, weight=1)
-        right.grid_rowconfigure(2, weight=1)
+        right.grid_rowconfigure(5, weight=1)
 
         name_var = ctk.StringVar(value="")
         notes_var = ctk.StringVar(value="")
+        remove_extra_var = tk.BooleanVar(value=False)
         selected = {"profile_id": None}
 
-        ctk.CTkLabel(right, text="Name", font=self.app.ui_font("small")).grid(row=0, column=0, sticky="w", padx=12, pady=(12, 2))
+        ctk.CTkLabel(
+            right,
+            text=(
+                "Mod Profiles save managed mods and install targets.\n"
+                "Use them for Single Player, Friends Server, or Testing. Apply always previews first."
+            ),
+            justify="left",
+            wraplength=430,
+            text_color="#95a5a6",
+            font=self.app.ui_font("small"),
+            anchor="w",
+        ).grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 8))
+        ctk.CTkLabel(right, text="Name", font=self.app.ui_font("small")).grid(row=1, column=0, sticky="w", padx=12, pady=(0, 2))
         name_entry = ctk.CTkEntry(right, textvariable=name_var, font=self.app.ui_font("body"))
-        name_entry.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 6))
-        ctk.CTkLabel(right, text="Notes", font=self.app.ui_font("small")).grid(row=2, column=0, sticky="w", padx=12, pady=(0, 2))
+        name_entry.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 6))
+        ctk.CTkLabel(right, text="Notes", font=self.app.ui_font("small")).grid(row=3, column=0, sticky="w", padx=12, pady=(0, 2))
         notes_entry = ctk.CTkEntry(right, textvariable=notes_var, font=self.app.ui_font("body"))
-        notes_entry.grid(row=3, column=0, sticky="ew", padx=12, pady=(0, 6))
+        notes_entry.grid(row=4, column=0, sticky="ew", padx=12, pady=(0, 6))
         preview_box = ctk.CTkTextbox(right, font=self.app.ui_font("mono_small"))
-        preview_box.grid(row=4, column=0, sticky="nsew", padx=12, pady=(0, 8))
+        preview_box.grid(row=5, column=0, sticky="nsew", padx=12, pady=(0, 8))
         preview_box.configure(state="disabled")
 
         def _set_preview(text: str) -> None:
@@ -3567,7 +3781,10 @@ class ModsTab(ctk.CTkFrame):
                     text_color="#95a5a6",
                     font=self.app.ui_font("small"),
                 ).grid(row=0, column=0, sticky="ew", padx=8, pady=8)
-                _set_preview("Save the current setup as a profile to compare and re-apply it later.")
+                _set_preview(
+                    "Save the current managed mod setup as a profile to compare and re-apply it later.\n\n"
+                    "Examples: Single Player, Friends Server, Testing."
+                )
                 return
             for index, profile in enumerate(profiles):
                 row = ctk.CTkFrame(left, fg_color="#213040" if profile.profile_id == selected["profile_id"] else "#2f2f2f")
@@ -3587,23 +3804,59 @@ class ModsTab(ctk.CTkFrame):
                     widget.bind("<Button-1>", lambda _event, value=profile.profile_id: _select_profile(value))
 
         actions = ctk.CTkFrame(right, fg_color="transparent")
-        actions.grid(row=5, column=0, sticky="ew", padx=12, pady=(0, 12))
+        actions.grid(row=6, column=0, sticky="ew", padx=12, pady=(0, 12))
+        for column in range(4):
+            actions.grid_columnconfigure(column, weight=0)
+        actions.grid_columnconfigure(4, weight=1)
 
-        def _save_current_profile() -> None:
+        ctk.CTkCheckBox(
+            actions,
+            text="Remove active mods not in profile",
+            variable=remove_extra_var,
+            font=self.app.ui_font("small"),
+        ).grid(row=0, column=0, columnspan=5, sticky="w", pady=(0, 8))
+
+        def _clear_profile_form() -> None:
+            selected["profile_id"] = None
+            name_var.set("")
+            notes_var.set("")
+            _set_preview(
+                "Save the current managed mod setup as a profile to compare and re-apply it later.\n\n"
+                "Examples: Single Player, Friends Server, Testing."
+            )
+            _refresh_profile_rows()
+            name_entry.focus_set()
+
+        def _capture_profile_from_current_state():
             name = name_var.get().strip() or "New Profile"
-            profile = self.app.profile_service.capture_current_state(
+            return self.app.profile_service.capture_current_state(
                 name=name,
                 mods=self.app.manifest.list_mods(),
                 notes=notes_var.get().strip(),
             )
-            existing = selected["profile_id"]
-            if existing:
-                profile.profile_id = existing
+
+        def _save_new_profile() -> None:
+            profile = _capture_profile_from_current_state()
             self.app.profiles.upsert(profile)
             selected["profile_id"] = profile.profile_id
             _refresh_profile_rows()
             _select_profile(profile.profile_id)
-            self._set_result(f"Saved profile '{profile.name}'.", level="success")
+            self._set_result(f"Saved new profile '{profile.name}'.", level="success")
+
+        def _update_selected_profile() -> None:
+            existing = selected["profile_id"]
+            current = self.app.profiles.get_profile(existing or "")
+            if current is None:
+                self._set_result("Choose a profile to update, or use Save as New.", level="info")
+                return
+            profile = _capture_profile_from_current_state()
+            profile.profile_id = current.profile_id
+            profile.created_at = current.created_at
+            self.app.profiles.upsert(profile)
+            selected["profile_id"] = profile.profile_id
+            _refresh_profile_rows()
+            _select_profile(profile.profile_id)
+            self._set_result(f"Updated profile '{profile.name}'.", level="success")
 
         def _compare_selected_profile() -> None:
             profile = self.app.profiles.get_profile(selected["profile_id"] or "")
@@ -3618,7 +3871,7 @@ class ModsTab(ctk.CTkFrame):
             if profile is None:
                 self._set_result("Choose a profile first.", level="info")
                 return
-            self._apply_profile(profile)
+            self._apply_profile(profile, remove_extra_mods=bool(remove_extra_var.get()))
             _compare_selected_profile()
 
         def _delete_selected_profile() -> None:
@@ -3639,11 +3892,70 @@ class ModsTab(ctk.CTkFrame):
             _refresh_profile_rows()
             self._set_result(f"Deleted profile '{profile.name}'.", level="info")
 
-        ctk.CTkButton(actions, text="Save Current State", width=148, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=_save_current_profile).pack(side="left", padx=(0, 6))
-        ctk.CTkButton(actions, text="Compare", width=96, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=_compare_selected_profile).pack(side="left", padx=6)
-        ctk.CTkButton(actions, text="Apply", width=96, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#2d8a4e", hover_color="#236b3d", command=_apply_selected_profile).pack(side="left", padx=6)
-        ctk.CTkButton(actions, text="Delete", width=96, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#c0392b", hover_color="#962d22", command=_delete_selected_profile).pack(side="left", padx=6)
-        ctk.CTkButton(actions, text="Close", width=96, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), fg_color="#555555", hover_color="#666666", command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(
+            actions,
+            text="New",
+            width=70,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=_clear_profile_form,
+        ).grid(row=1, column=0, sticky="w", padx=(0, 6), pady=(0, 6))
+        ctk.CTkButton(
+            actions,
+            text="Save as New",
+            width=112,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=_save_new_profile,
+        ).grid(row=1, column=1, sticky="w", padx=(0, 6), pady=(0, 6))
+        ctk.CTkButton(
+            actions,
+            text="Update Selected",
+            width=128,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=_update_selected_profile,
+        ).grid(row=1, column=2, sticky="w", padx=(0, 6), pady=(0, 6))
+        ctk.CTkButton(
+            actions,
+            text="Compare",
+            width=88,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            command=_compare_selected_profile,
+        ).grid(row=2, column=0, sticky="w", padx=(0, 6))
+        ctk.CTkButton(
+            actions,
+            text="Apply",
+            width=88,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#2d8a4e",
+            hover_color="#236b3d",
+            command=_apply_selected_profile,
+        ).grid(row=2, column=1, sticky="w", padx=(0, 6))
+        ctk.CTkButton(
+            actions,
+            text="Delete",
+            width=88,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#c0392b",
+            hover_color="#962d22",
+            command=_delete_selected_profile,
+        ).grid(row=2, column=2, sticky="w", padx=(0, 6))
+        ctk.CTkButton(
+            actions,
+            text="Close",
+            width=88,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=dialog.destroy,
+        ).grid(row=2, column=4, sticky="e")
 
         _refresh_profile_rows()
         self.wait_window(dialog)
