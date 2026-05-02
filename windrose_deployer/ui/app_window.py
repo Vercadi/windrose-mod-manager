@@ -33,6 +33,7 @@ from ..core.profile_store import ProfileStore
 from ..core.profile_service import ProfileService
 from ..core.recovery_service import RecoveryService
 from ..core.remote_deployer import RemoteDeploymentService
+from ..core.restore_vanilla_service import RestoreVanillaPlan, RestoreVanillaService
 from ..core.rcon_config_service import RconConfigService
 from ..core.remote_config_service import RemoteConfigService
 from ..core.remote_profile_store import RemoteProfileStore
@@ -215,6 +216,7 @@ class AppWindow(ctk.CTk):
         self.framework_state = FrameworkStateService()
         self.framework_config = FrameworkConfigService(self.backup)
         self.rcon_config_svc = RconConfigService(self.backup)
+        self.restore_vanilla = RestoreVanillaService(self.paths, self.manifest, self.installer, self.backup)
         self.remote_config_svc = RemoteConfigService(self.backup, self.remote_profiles)
         self.recovery = RecoveryService(self.manifest, self.backup)
         self.server_sync = ServerSyncService()
@@ -238,6 +240,7 @@ class AppWindow(ctk.CTk):
             self.remote_config_svc = RemoteConfigService(self.backup, self.remote_profiles)
         if "manifest" in self.__dict__:
             self.recovery = RecoveryService(self.manifest, self.backup)
+            self.restore_vanilla = RestoreVanillaService(self.paths, self.manifest, self.installer, self.backup)
         log.info("Rebound backup-backed services to %s", backup_dir)
 
     def _load_settings(self) -> AppPaths:
@@ -831,6 +834,222 @@ class AppWindow(ctk.CTk):
     def open_recovery_center(self) -> None:
         self._tabview.set("Activity")
         self._on_tab_changed("Activity")
+
+    def open_restore_vanilla_dialog(self, target: str | None = None) -> None:
+        target_values = ["Client", "Local Server", "Dedicated Server"]
+        target_keys = {
+            "Client": "client",
+            "Local Server": "server",
+            "Dedicated Server": "dedicated_server",
+        }
+        reverse_labels = {value: label for label, value in target_keys.items()}
+        initial_label = reverse_labels.get(target or "", None)
+        if initial_label is None:
+            if self.paths.dedicated_server_root:
+                initial_label = "Dedicated Server"
+            elif self.paths.server_root:
+                initial_label = "Local Server"
+            else:
+                initial_label = "Client"
+
+        dialog = ctk.CTkToplevel(self)
+        dialog.title("Restore Vanilla")
+        self.center_dialog(dialog, 880, 700)
+        dialog.transient(self)
+        dialog.grab_set()
+        dialog.grid_columnconfigure(0, weight=1)
+        dialog.grid_rowconfigure(5, weight=1)
+
+        title_label = ctk.CTkLabel(dialog, text=f"Restore Vanilla: {initial_label}", font=self.ui_font("title"))
+        title_label.grid(
+            row=0, column=0, sticky="w", padx=16, pady=(16, 4)
+        )
+        ctk.CTkLabel(
+            dialog,
+            text="This removes selected mod files from this target only. Saves and server settings are not changed.",
+            text_color="#95a5a6",
+            font=self.ui_font("body"),
+            justify="left",
+            wraplength=820,
+        ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 10))
+
+        control_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        control_row.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 8))
+        ctk.CTkLabel(control_row, text="Target:", font=self.ui_font("body")).pack(side="left")
+        target_var = ctk.StringVar(value=initial_label)
+        ctk.CTkOptionMenu(
+            control_row,
+            values=target_values,
+            variable=target_var,
+            width=220,
+            font=self.ui_font("body"),
+            command=lambda _choice: refresh_plan(reset_defaults=True),
+        ).pack(side="left", padx=(8, 0))
+
+        check_row = ctk.CTkFrame(dialog, fg_color="transparent")
+        check_row.grid(row=3, column=0, sticky="ew", padx=16, pady=(0, 8))
+        managed_var = tk.BooleanVar(value=False)
+        unmanaged_var = tk.BooleanVar(value=False)
+        frameworks_var = tk.BooleanVar(value=False)
+        ctk.CTkCheckBox(check_row, text="Managed mods", variable=managed_var, font=self.ui_font("body")).pack(side="left", padx=(0, 14))
+        ctk.CTkCheckBox(check_row, text="Unmanaged ~mods files", variable=unmanaged_var, font=self.ui_font("body")).pack(side="left", padx=(0, 14))
+        ctk.CTkCheckBox(check_row, text="Framework files", variable=frameworks_var, font=self.ui_font("body")).pack(side="left", padx=(0, 14))
+
+        status_label = ctk.CTkLabel(dialog, text="", text_color="#95a5a6", font=self.ui_font("small"), justify="left")
+        status_label.grid(row=4, column=0, sticky="ew", padx=16, pady=(0, 6))
+
+        preview = ctk.CTkTextbox(dialog, font=self.ui_font("mono_small"), wrap="word")
+        preview.grid(row=5, column=0, sticky="nsew", padx=16, pady=(0, 10))
+
+        buttons = ctk.CTkFrame(dialog, fg_color="transparent")
+        buttons.grid(row=6, column=0, sticky="ew", padx=16, pady=(0, 16))
+
+        current_plan: dict[str, RestoreVanillaPlan | None] = {"value": None}
+
+        def write_preview(plan: RestoreVanillaPlan) -> None:
+            preview.configure(state="normal")
+            preview.delete("1.0", "end")
+            preview.insert("1.0", self._restore_vanilla_preview_text(plan))
+            preview.configure(state="disabled")
+
+        def refresh_plan(*, reset_defaults: bool = False) -> None:
+            try:
+                plan = self.restore_vanilla.build_plan(target_keys[target_var.get()])
+            except Exception as exc:
+                current_plan["value"] = None
+                preview.configure(state="normal")
+                preview.delete("1.0", "end")
+                preview.insert("1.0", str(exc))
+                preview.configure(state="disabled")
+                status_label.configure(text="Could not build restore plan.", text_color="#c0392b")
+                execute_btn.configure(state="disabled")
+                return
+
+            current_plan["value"] = plan
+            dialog.title(f"Restore Vanilla: {plan.target_label}")
+            title_label.configure(text=f"Restore Vanilla: {plan.target_label}")
+            if reset_defaults:
+                managed_var.set(bool(plan.managed_mods))
+                unmanaged_var.set(bool(plan.unmanaged_files))
+                frameworks_var.set(False)
+            write_preview(plan)
+            if plan.root is None:
+                status_label.configure(text="Target path is not configured.", text_color="#e67e22")
+                execute_btn.configure(state="disabled")
+            elif not plan.has_actions:
+                status_label.configure(text="No mod or framework files were found for this target.", text_color="#95a5a6")
+                execute_btn.configure(state="disabled")
+            else:
+                status_label.configure(text="Review the preview and choose what to remove.", text_color="#95a5a6")
+                execute_btn.configure(state="normal")
+
+        def execute() -> None:
+            plan = current_plan["value"]
+            if plan is None:
+                return
+            selected_count = sum(
+                [
+                    bool(managed_var.get() and plan.managed_mods),
+                    bool(unmanaged_var.get() and plan.unmanaged_files),
+                    bool(frameworks_var.get() and plan.framework_files),
+                ]
+            )
+            if selected_count == 0:
+                status_label.configure(text="Choose at least one cleanup section first.", text_color="#e67e22")
+                return
+            if not self.confirm_action(
+                "destructive",
+                "Restore Vanilla",
+                (
+                    f"Remove the selected mod files from {plan.target_label}?\n\n"
+                    "Backups are created first. Saves, server settings, hosted files, and the inactive archive library are not touched."
+                ),
+            ):
+                return
+            execute_btn.configure(state="disabled", text="Cleaning...")
+            self.update_idletasks()
+            result = self.restore_vanilla.execute_plan(
+                plan,
+                include_managed=managed_var.get(),
+                include_unmanaged=unmanaged_var.get(),
+                include_frameworks=frameworks_var.get(),
+            )
+            self.refresh_installed_tab()
+            self.refresh_backups_tab()
+            refresh_plan(reset_defaults=True)
+            execute_btn.configure(text="Restore Vanilla")
+            if result.errors:
+                status_label.configure(text="Restore completed with errors: " + "; ".join(result.errors[:3]), text_color="#e67e22")
+            else:
+                message = (
+                    f"Removed {result.removed_managed} managed, {result.removed_unmanaged} unmanaged, "
+                    f"{result.removed_frameworks} framework item(s). Backups: {result.backups_created}."
+                )
+                if result.warnings:
+                    message += " " + " ".join(result.warnings)
+                status_label.configure(text=message, text_color="#2d8a4e")
+
+        execute_btn = ctk.CTkButton(
+            buttons,
+            text="Restore Vanilla",
+            width=140,
+            fg_color="#c0392b",
+            hover_color="#a93226",
+            command=execute,
+        )
+        execute_btn.pack(side="left")
+        ctk.CTkButton(
+            buttons,
+            text="Refresh Preview",
+            width=130,
+            fg_color="#555555",
+            hover_color="#666666",
+            command=lambda: refresh_plan(reset_defaults=True),
+        ).pack(side="left", padx=8)
+        ctk.CTkButton(
+            buttons,
+            text="Cancel",
+            width=100,
+            fg_color="#444444",
+            hover_color="#555555",
+            command=dialog.destroy,
+        ).pack(side="right")
+
+        refresh_plan(reset_defaults=True)
+
+    @staticmethod
+    def _restore_vanilla_preview_text(plan: RestoreVanillaPlan) -> str:
+        lines = [
+            f"Target: {plan.target_label}",
+            f"Root: {plan.root or 'Not configured'}",
+            "",
+        ]
+        if plan.warnings:
+            lines.append("Warnings")
+            lines.extend(f"- {warning}" for warning in plan.warnings)
+            lines.append("")
+
+        def add_section(title: str, items) -> None:
+            lines.append(title)
+            if not items:
+                lines.append("- None")
+            else:
+                for item in items:
+                    detail = f" | {item.detail}" if item.detail else ""
+                    lines.append(f"- {item.label}{detail}")
+            lines.append("")
+
+        add_section("Managed mods", plan.managed_mods)
+        add_section("Unmanaged ~mods files", plan.unmanaged_files)
+        add_section("Framework files", plan.framework_files)
+        add_section("Needs manual review", plan.managed_review)
+        lines.append("Not touched")
+        lines.append("- Saves / worlds")
+        lines.append("- ServerDescription.json and WorldDescription.json")
+        lines.append("- Hosted / remote server files")
+        lines.append("- Inactive archive library")
+        lines.append("- Backup history")
+        return "\n".join(lines)
 
     def manifest_drift_warnings(self) -> list[str]:
         return list(self._manifest_drift_warnings)

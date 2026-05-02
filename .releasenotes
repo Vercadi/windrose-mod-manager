@@ -1,33 +1,34 @@
-## Windrose Mod Manager v0.6.4
+## Windrose Mod Manager v0.6.6
 
-Windrose Mod Manager v0.6.4 is a small stabilization and support-quality release after the hosted/framework updates.
+Windrose Mod Manager v0.6.6 is a local cleanup and QoL release. It includes the unreleased v0.6.5 selection/profile improvements plus a new local-only Restore Vanilla workflow.
 
 ### Highlights
 
-- Added redacted Support Info export from the Help tab.
-- Support Info includes app version, frozen/dev state, target summary, hosted profile context, recent activity, log tail, manifest counts, framework state, and last hosted diagnostics.
-- Hosted profiles now trim hidden whitespace from host, username, and path fields before tests/saves.
-- Hosted setup now shows the normalized FTP/SFTP protocol, host, port, and username before connecting.
-- Dashboard and Frameworks wording now distinguishes RCON `version.dll` installed from RCON fully configured with generated `windrosercon/settings.ini`.
-- Compare/sync now treats server-only framework tooling separately and does not offer client sync actions for intentional server-only packages.
-- Activity keeps long histories lighter and avoids raw backup scans until the raw backup browser is opened.
+- Added `Restore Vanilla` for Client, Local Server, and Dedicated Server.
+- Restore Vanilla previews managed mods, unmanaged `~mods` bundles, and known UE4SS/RCON/WindrosePlus framework files before removal.
+- Restore Vanilla backs up unmanaged and framework files first, and does not touch saves, server settings, hosted files, inactive archives, or backup history.
+- Added `Select All` for Active Mods and Inactive Mods, scoped to the current target/filter/search instead of blindly selecting everything.
+- Improved Profiles workflow with clearer `New`, `Save as New`, and `Update Selected` actions.
+- Profile apply no longer removes extra active mods unless the new removal checkbox is explicitly enabled.
+- Hosted profile entries remain review-only in mod Profiles.
+- Restore Vanilla backups now use a separate `backups/restore_vanilla` area.
 
 ### Notes
 
-- This is intentionally narrow. It does not add FTPS, Nexus downloading, load order, retoc, configurable overhaul, or RCON admin commands.
-- Existing FTP and SFTP hosted profiles remain supported.
-- Support Info redacts hosted passwords, private key paths/contents, common token/password fields, and Windows usernames in local paths where practical.
+- Hosted/remote Restore Vanilla is intentionally deferred.
+- This does not add load order, Nexus downloads, retoc/configurable overhaul, FTPS, or RCON admin commands.
+- Framework cleanup is unchecked by default because it can remove UE4SS, RCON, and WindrosePlus files.
 
 ### Validation
 
 - `python -m compileall windrose_deployer -q`
-- `python -m pytest -q` -> `226 passed`
+- `python -m pytest -q` -> `240 passed`
 - `git diff --check`
 
 ### SHA256
 
-`4402424522D998E86A1870B51711ABAEB8560118D6C81821A0085452E2F075BC`
+`F132F96F344FDA1CDE4E0FC1929884C0DD423269EEC6CE89C8590D8C2E661052`
 
 ### Full Changelog
 
-https://github.com/Vercadi/windrose-mod-manager/compare/v0.6.3...v0.6.4
+https://github.com/Vercadi/windrose-mod-manager/compare/v0.6.4...v0.6.6

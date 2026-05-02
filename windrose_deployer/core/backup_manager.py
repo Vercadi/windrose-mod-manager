@@ -61,6 +61,7 @@ class BackupManager:
         self.max_backups_per_source = max_backups_per_source
         self.installs_dir = backup_root / "installs"
         self.server_config_dir = backup_root / "server_config"
+        self.restore_vanilla_dir = backup_root / "restore_vanilla"
         self.metadata_dir = backup_root / "metadata"
         self._records_path = self.metadata_dir / "backup_records.json"
         self._records: list[BackupRecord] = []
@@ -101,6 +102,41 @@ class BackupManager:
         )
         self._append_record(record)
         log.info("Backed up %s -> %s", source, dest)
+        return record
+
+    def backup_directory(
+        self,
+        source: Path,
+        category: str = "installs",
+        description: str = "",
+    ) -> Optional[BackupRecord]:
+        """Create a recursive backup of *source* and return the record."""
+        if not source.is_dir():
+            log.warning("Cannot back up non-existent directory: %s", source)
+            return None
+
+        ts = timestamp_slug()
+        cat_dir = self._category_dir(category)
+        dest = cat_dir / f"{ts}_{source.name}"
+
+        counter = 1
+        while dest.exists():
+            dest = cat_dir / f"{ts}_{source.name}_{counter}"
+            counter += 1
+
+        ensure_dir(cat_dir)
+        shutil.copytree(source, dest)
+
+        record = BackupRecord(
+            backup_id=f"{category}_{dest.name}",
+            timestamp=datetime.now().isoformat(),
+            category=category,
+            source_path=str(source),
+            backup_path=str(dest),
+            description=description or f"Backup of {source.name}",
+        )
+        self._append_record(record)
+        log.info("Backed up directory %s -> %s", source, dest)
         return record
 
     def backup_bytes(
@@ -144,12 +180,17 @@ class BackupManager:
         backup = Path(record.backup_path)
         dest = dest_path or Path(record.source_path)
 
-        if not backup.is_file():
+        if not backup.exists():
             log.error("Backup file missing: %s", backup)
             return False
 
         ensure_dir(dest.parent)
-        shutil.copy2(backup, dest)
+        if backup.is_dir():
+            if dest.exists():
+                safe_delete(dest)
+            shutil.copytree(backup, dest)
+        else:
+            shutil.copy2(backup, dest)
         log.info("Restored %s -> %s", backup, dest)
         return True
 
@@ -261,6 +302,8 @@ class BackupManager:
     def _category_dir(self, category: str) -> Path:
         if category in ("server_config", "world_config", "remote_server_config", "remote_world_config"):
             return self.server_config_dir
+        if category == "restore_vanilla":
+            return self.restore_vanilla_dir
         return self.installs_dir
 
     def _load_records(self) -> None:

@@ -321,6 +321,10 @@ class DashboardTab(ctk.CTkFrame):
             actions, row=1, column=2, text="Open Dedicated Server Mods", command=self._open_dedicated_server_mods_folder,
             fg="#555555", hover="#666666",
         )
+        self._add_action_button(
+            actions, row=1, column=3, text="Restore Vanilla", command=self.app.open_restore_vanilla_dialog,
+            fg="#8e3b32", hover="#7b3029",
+        )
 
     def _manual_refresh(self) -> None:
         self.refresh_view()
@@ -395,6 +399,16 @@ class DashboardTab(ctk.CTkFrame):
         if root is None:
             self._framework_section(parent, "Target", [f"{target_label} is not configured in Settings."], [])
             return
+
+        self._framework_section(
+            parent,
+            "Target Cleanup",
+            [
+                "Restore Vanilla removes selected mod/framework files from this target only.",
+                "Saves, server settings, hosted files, inactive archives, and backup history are not touched.",
+            ],
+            [("Restore Vanilla...", lambda target=self._framework_target_key(target_label): self.app.open_restore_vanilla_dialog(target))],
+        )
 
         ue4ss_actions = []
         if self._known_config_exists(root, "ue4ss_settings"):
@@ -522,6 +536,9 @@ class DashboardTab(ctk.CTkFrame):
 
     def _framework_target_preset(self, label: str) -> str:
         return {"Client": "client", "Local Server": "local", "Dedicated Server": "dedicated"}.get(label, "dedicated")
+
+    def _framework_target_key(self, label: str) -> str:
+        return {"Client": "client", "Local Server": "server", "Dedicated Server": "dedicated_server"}.get(label, "dedicated_server")
 
     def _known_config_exists(self, root: Path, key: str) -> bool:
         path = self.app.framework_config.config_path(root, key)

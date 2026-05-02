@@ -33,6 +33,7 @@ data/archive_library.json
 data/remote_profiles.json
 data/*.log
 backups/installs/
+backups/restore_vanilla/
 backups/server_config/
 backups/world_config/
 backups/metadata/
