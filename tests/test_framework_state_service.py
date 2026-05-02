@@ -118,8 +118,18 @@ def test_remote_framework_state_ignores_empty_rcon_folder():
 def test_dashboard_rcon_text_marks_client_install_as_wrong_target():
     states = {
         "client": FrameworkTargetState(configured=True, rcon_mod=True),
-        "server": FrameworkTargetState(configured=True, rcon_mod=True),
+        "server": FrameworkTargetState(configured=True, rcon_mod=True, rcon_configured=True),
         "dedicated_server": FrameworkTargetState(configured=True, rcon_mod=False),
     }
 
     assert DashboardTab._rcon_text(states) == "Local | Wrong target: Client"
+
+
+def test_dashboard_rcon_text_marks_settings_pending():
+    states = {
+        "client": FrameworkTargetState(configured=True),
+        "server": FrameworkTargetState(configured=True, rcon_mod=True, rcon_configured=False),
+        "dedicated_server": FrameworkTargetState(configured=True),
+    }
+
+    assert DashboardTab._rcon_text(states) == "Local | Settings pending: Local"

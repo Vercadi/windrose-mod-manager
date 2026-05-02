@@ -38,6 +38,7 @@ from ..core.remote_config_service import RemoteConfigService
 from ..core.remote_profile_store import RemoteProfileStore
 from ..core.server_config_service import ServerConfigService
 from ..core.server_sync_service import ServerSyncService
+from ..core.support_diagnostics import SupportDiagnosticsService
 from ..core.update_checker import ReleaseInfo, check_for_update, download_release_asset
 from ..core.world_config_service import WorldConfigService
 from ..models.app_preferences import AppPreferences
@@ -88,6 +89,7 @@ class AppWindow(ctk.CTk):
         self._process_names_cache: set[str] = set()
         self._process_names_cache_at = 0.0
         self._manifest_drift_warnings: list[str] = []
+        self._last_hosted_diagnostics = ""
 
         # Inject tkdnd so all widgets get drop_target_register / dnd_bind
         self._dnd_enabled = False
@@ -216,6 +218,7 @@ class AppWindow(ctk.CTk):
         self.remote_config_svc = RemoteConfigService(self.backup, self.remote_profiles)
         self.recovery = RecoveryService(self.manifest, self.backup)
         self.server_sync = ServerSyncService()
+        self.support_diagnostics = SupportDiagnosticsService()
         self._log_startup_timing("_init_services.service_wiring", stage_started)
 
         log.info("Services initialized")
@@ -831,6 +834,20 @@ class AppWindow(ctk.CTk):
 
     def manifest_drift_warnings(self) -> list[str]:
         return list(self._manifest_drift_warnings)
+
+    def set_last_hosted_diagnostics(self, text: str) -> None:
+        self._last_hosted_diagnostics = text or ""
+
+    def build_support_report(self) -> str:
+        return self.support_diagnostics.build_report(
+            paths=self.paths,
+            manifest=self.manifest,
+            remote_profiles=self.remote_profiles,
+            framework_state=self.framework_state,
+            data_dir=self.paths.data_dir or DEFAULT_DATA_DIR,
+            backup_root=self.backup.backup_root,
+            last_hosted_diagnostics=self._last_hosted_diagnostics,
+        )
 
     def open_remote_deploy(self, archive_path: str | Path | None = None) -> None:
         self._server_tab.open_hosted_install_dialog(archive_path)

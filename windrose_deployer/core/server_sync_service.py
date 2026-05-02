@@ -46,7 +46,7 @@ class ServerSyncService:
         return self._compare_mod_groups(client_groups, server_groups, target=target)
 
     def compare_hosted(self, mods: list[ModInstall], remote_files: list[str]) -> SyncReport:
-        client_mods = self._mods_for_target(mods, target="client")
+        client_mods = self._mods_for_target(mods, target="client", include_server_only_frameworks=False)
         remote_names = {Path(path).name for path in remote_files}
         expected_names: set[str] = set()
         items: list[SyncItem] = []
@@ -155,7 +155,7 @@ class ServerSyncService:
         """Return client installs whose expected files are absent from hosted inventory."""
         remote_names = {Path(path).name for path in remote_files}
         missing: list[ModInstall] = []
-        for mod in self._mods_for_target(mods, target="client"):
+        for mod in self._mods_for_target(mods, target="client", include_server_only_frameworks=False):
             expected = self._expected_server_file_names(mod)
             if expected and not expected.intersection(remote_names):
                 missing.append(mod)
@@ -164,10 +164,21 @@ class ServerSyncService:
     def hosted_files_missing_from_client(self, mods: list[ModInstall], remote_files: list[str]) -> list[str]:
         """Return hosted files that do not map to expected client-managed files."""
         expected_names: set[str] = set()
-        for mod in self._mods_for_target(mods, target="client"):
+        for mod in self._mods_for_target(mods, target="client", include_server_only_frameworks=False):
             expected_names.update(self._expected_server_file_names(mod))
         remote_names = {Path(path).name for path in remote_files}
         return sorted(remote_names - expected_names)
+
+    def server_only_frameworks_for_target(self, mods: list[ModInstall], *, target: str) -> list[ModInstall]:
+        """Return intentional server-side framework tooling for explanatory UI notes."""
+        result: list[ModInstall] = []
+        for mod in mods:
+            if not mod.enabled or mod.install_kind not in SERVER_ONLY_INSTALL_KINDS:
+                continue
+            if target not in self._expanded_targets(mod):
+                continue
+            result.append(mod)
+        return sorted(result, key=self._sort_key)
 
     def _compare_mod_groups(
         self,

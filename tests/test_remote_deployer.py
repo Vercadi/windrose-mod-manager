@@ -398,3 +398,27 @@ def test_remote_connection_diagnostics_redacts_secrets() -> None:
     assert "super-secret" not in diagnostics
     assert "id_rsa" not in diagnostics
     assert "R5/Content/Paks/~mods" in diagnostics
+
+
+def test_test_connection_uses_trimmed_profile_fields() -> None:
+    seen = {}
+
+    def _factory(profile):
+        seen["profile"] = profile
+        return FakeRemoteProvider([], set())
+
+    profile = _make_profile()
+    profile.protocol = "ftp"
+    profile.host = "  example.com  "
+    profile.port = "21"
+    profile.username = "  user  "
+    profile.remote_root_dir = " . "
+    service = RemoteDeploymentService(provider_factory=_factory)
+
+    service.test_connection(profile)
+
+    normalized = seen["profile"]
+    assert normalized.host == "example.com"
+    assert normalized.port == 21
+    assert normalized.username == "user"
+    assert normalized.remote_root_dir == "."

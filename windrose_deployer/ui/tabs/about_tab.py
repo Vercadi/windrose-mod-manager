@@ -4,6 +4,7 @@ from __future__ import annotations
 import os
 import webbrowser
 from pathlib import Path
+from tkinter import filedialog, messagebox
 from typing import TYPE_CHECKING
 
 import customtkinter as ctk
@@ -132,15 +133,44 @@ class AboutTab(ctk.CTkFrame):
         log_btn.pack(side="left", padx=8)
         self._action_buttons.append(log_btn)
 
+        support_actions = ctk.CTkFrame(card, fg_color="transparent")
+        support_actions.grid(row=2, column=0, sticky="w", padx=16, pady=(0, 8))
+
+        copy_support_btn = ctk.CTkButton(
+            support_actions,
+            text="Copy Support Info",
+            width=150,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._copy_support_info,
+        )
+        copy_support_btn.pack(side="left", padx=(0, 8))
+        self._action_buttons.append(copy_support_btn)
+
+        save_support_btn = ctk.CTkButton(
+            support_actions,
+            text="Save Support Info",
+            width=150,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._save_support_info,
+        )
+        save_support_btn.pack(side="left", padx=8)
+        self._action_buttons.append(save_support_btn)
+
         ctk.CTkLabel(
             card,
             text="Support development",
             text_color="#c1c7cd",
             font=self.app.ui_font("body"),
-        ).grid(row=2, column=0, sticky="w", padx=16, pady=(0, 6))
+        ).grid(row=3, column=0, sticky="w", padx=16, pady=(0, 6))
 
         donate_actions = ctk.CTkFrame(card, fg_color="transparent")
-        donate_actions.grid(row=3, column=0, sticky="w", padx=16, pady=(0, 8))
+        donate_actions.grid(row=4, column=0, sticky="w", padx=16, pady=(0, 8))
 
         kofi_btn = ctk.CTkButton(
             donate_actions,
@@ -180,7 +210,7 @@ class AboutTab(ctk.CTkFrame):
             text_color="#95a5a6",
             font=self.app.ui_font("small"),
         )
-        self._support_hint.grid(row=4, column=0, sticky="ew", padx=16, pady=(0, 14))
+        self._support_hint.grid(row=5, column=0, sticky="ew", padx=16, pady=(0, 14))
 
     def _build_updates_section(self) -> None:
         card = ctk.CTkFrame(self._body)
@@ -253,7 +283,7 @@ class AboutTab(ctk.CTkFrame):
                     "Start in Mods to inspect an archive before installing it.",
                     "Use Server to compare local or hosted server state before applying changes.",
                     "Use Activity & Backups to undo installs or restore previous config versions.",
-                    "If hosted connection tests fail, verify the SSH account, auth mode, and server folder.",
+                    "If hosted connection tests fail, verify FTP/SFTP protocol, host, port, account, and server folder.",
                     "If installs look wrong, compare with the Technical Log before rebuilding the executable.",
                 ]
             ),
@@ -324,3 +354,31 @@ class AboutTab(ctk.CTkFrame):
 
         if Path(DEFAULT_DATA_DIR).is_dir():
             os.startfile(str(DEFAULT_DATA_DIR))
+
+    def _copy_support_info(self) -> None:
+        report = self.app.build_support_report()
+        self.clipboard_clear()
+        self.clipboard_append(report)
+        messagebox.showinfo(
+            "Support Info Copied",
+            "Redacted support info was copied to the clipboard. Review it before posting publicly.",
+            parent=self.winfo_toplevel(),
+        )
+
+    def _save_support_info(self) -> None:
+        report = self.app.build_support_report()
+        path = filedialog.asksaveasfilename(
+            parent=self.winfo_toplevel(),
+            title="Save Support Info",
+            defaultextension=".txt",
+            filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
+            initialfile="windrose-support-info.txt",
+        )
+        if not path:
+            return
+        Path(path).write_text(report, encoding="utf-8")
+        messagebox.showinfo(
+            "Support Info Saved",
+            "Redacted support info was saved. Review it before posting publicly.",
+            parent=self.winfo_toplevel(),
+        )

@@ -47,6 +47,37 @@ def test_normalize_remote_endpoint_preserves_explicit_ports_and_supports_host_fo
     assert default_port_for_protocol("ftp") == 21
 
 
+def test_remote_profile_normalized_for_connection_trims_fields_and_keeps_explicit_port():
+    profile = RemoteProfile(
+        profile_id="p1",
+        name="  Nitrado  ",
+        protocol="ftp",
+        host="  ms2084.gamedata.io:2121  ",
+        port="21",
+        username="  user123  ",
+        auth_mode="key",
+        private_key_path=" C:/Users/test/.ssh/id_rsa ",
+        remote_root_dir=" . ",
+        remote_mods_dir=" R5\\Content\\Paks\\~mods ",
+        remote_server_description_path=" R5\\ServerDescription.json ",
+        remote_save_root=" R5\\Saved ",
+        restart_command=" restart ",
+    )
+
+    normalized = profile.normalized_for_connection()
+
+    assert normalized.name == "Nitrado"
+    assert normalized.protocol == "ftp"
+    assert normalized.host == "ms2084.gamedata.io"
+    assert normalized.port == 2121
+    assert normalized.username == "user123"
+    assert normalized.auth_mode == "password"
+    assert normalized.private_key_path == ""
+    assert normalized.remote_root_dir == "."
+    assert normalized.remote_mods_dir == "R5/Content/Paks/~mods"
+    assert normalized.restart_command == ""
+
+
 def test_remote_provider_factory_routes_by_protocol(monkeypatch):
     calls: list[str] = []
 

@@ -155,6 +155,19 @@ def test_detect_framework_state_checks_rcon_version_dll_and_generated_settings(t
     assert state["rcon_missing_password"] is False
 
 
+def test_detect_framework_state_marks_rcon_version_dll_without_settings_as_pending(tmp_path):
+    root = tmp_path / "WindroseServer"
+    win64 = root / "R5" / "Binaries" / "Win64"
+    win64.mkdir(parents=True)
+    (win64 / "version.dll").write_bytes(b"dll")
+
+    state = detect_framework_state(root)
+
+    assert state["rcon_mod"] is True
+    assert state["rcon_configured"] is False
+    assert state["rcon_missing_password"] is False
+
+
 def test_detect_framework_state_checks_rcon_and_windrose_plus(tmp_path):
     root = tmp_path / "WindroseServer"
     mods = root / "R5" / "Binaries" / "Win64" / "ue4ss" / "Mods"

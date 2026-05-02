@@ -2336,7 +2336,14 @@ class ServerTab(ctk.CTkFrame):
                 messagebox.showerror("Invalid Endpoint", "Host / IP and port must be valid.")
                 return
             _apply_profile_fields(profile)
-            status.configure(text="Testing hosted connection...", text_color="#95a5a6")
+            status.configure(
+                text=(
+                    f"Testing {normalize_remote_protocol(profile.protocol).upper()} "
+                    f"{profile.host or '(host not set)'}:{profile.port} "
+                    f"as {profile.username or '(username not set)'}..."
+                ),
+                text_color="#95a5a6",
+            )
 
             def _work() -> None:
                 ok, message = self.app.remote_deployer.test_connection(profile)
@@ -2346,6 +2353,7 @@ class ServerTab(ctk.CTkFrame):
                     if not status.winfo_exists():
                         return
                     last_diagnostics["text"] = diagnostics_text
+                    self.app.set_last_hosted_diagnostics(diagnostics_text)
                     copy_diagnostics_btn.configure(state="normal")
                     status.configure(
                         text=message,

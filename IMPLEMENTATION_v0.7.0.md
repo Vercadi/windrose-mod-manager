@@ -2,7 +2,7 @@
 
 ## Release Goal
 
-`v0.7.0` should add practical load-order control without turning the manager into a pak editor.
+`v0.7.0` should add practical load-order control without turning the manager into a pak editor and without depending on `retoc`.
 
 The user-facing model should be simple:
 
@@ -11,7 +11,7 @@ The user-facing model should be simple:
 - original archives are never modified
 - companion files are always kept together
 
-This release should build on the deep inspection/conflict groundwork, but load-order control must stay useful even when deep inspection is unavailable.
+This release should focus on safe filename-prefix-based ordering for managed mods. Deep asset inspection is deferred unless a later release proves it is needed and low-risk.
 
 ## Non-Goals
 
@@ -23,6 +23,8 @@ Do not implement:
 - arbitrary user scripts for ordering
 - load-order promises that are not backed by Windrose/UE behavior
 - automatic conflict resolution without user review
+- `retoc` integration
+- deep `.pak/.utoc/.ucas` asset inspection
 
 ## User Experience
 
@@ -158,38 +160,28 @@ If remote rename is not supported safely by the provider abstraction, implement 
 
 ## Conflict Awareness
 
-Deep inspection with `retoc` should improve conflict confidence, but it should not be required for basic priority control.
+Conflict awareness in this release should stay filename/target based.
 
 States:
 
 - `filename conflict`
-- `same asset touched`
 - `load order may decide winner`
-- `deep inspection unavailable`
+- `same deployed filename`
+- `same loose-file target`
 
 Wording must avoid overclaiming. The app can help users control priority, but it should not claim every conflict is safely solved.
 
-## Retoc Role
+## Deep Inspection Deferred
 
-`retoc` should be optional for this release.
+Do not add `retoc` in `v0.7.0`.
 
-Use it for:
+Reason:
 
-- listing assets inside `.pak`
-- listing assets inside `.utoc/.ucas`
-- building cached asset manifests
-- improving conflict detection
+- load order can be useful without unpacking or inspecting pak contents
+- adding external toolchain setup increases support cost
+- the manager should first prove the simpler priority/deployed-filename model
 
-Do not require it for:
-
-- normal install
-- normal uninstall
-- priority rename/redeploy
-
-Failure mode:
-
-- show `Deep inspection unavailable`
-- keep basic load-order controls available
+If asset-level inspection returns later, treat it as a separate release and keep it optional.
 
 ## Implementation Slices
 
@@ -253,15 +245,6 @@ Acceptance:
 - user never needs to manually rename files
 - filename details are visible but secondary
 
-### Slice 6 - Retoc Inspection Cache
-
-Add optional deep inspection cache if `retoc` is configured.
-
-Acceptance:
-
-- conflicts can show asset-level hints where available
-- missing `retoc` does not block load-order controls
-
 ## Tests
 
 Automated tests should cover:
@@ -273,7 +256,6 @@ Automated tests should cover:
 - collision detection
 - rollback behavior
 - hosted upload-new/delete-old plan
-- retoc unavailable behavior
 
 Manual smoke tests should cover:
 
@@ -286,7 +268,7 @@ Manual smoke tests should cover:
 7. Attempt a collision and confirm it is blocked before writes.
 8. Hosted priority change over SFTP.
 9. Hosted priority change over FTP if supported.
-10. Verify basic install/uninstall still works without `retoc`.
+10. Verify basic install/uninstall is unaffected.
 
 ## Release Criteria
 
@@ -298,6 +280,7 @@ Ship only when:
 - old manifests load
 - priority changes are previewed and tracked
 - normal install/uninstall remains unaffected
+- no external `retoc` setup is required
 
 Do not ship if:
 

@@ -198,13 +198,14 @@ class BackupsTab(ctk.CTkFrame):
         if len(items) > len(visible_items):
             self._add_show_more_row(row_index=len(visible_items), shown=len(visible_items), total=len(items))
 
-        self._all_backups = sorted(self.app.backup.list_backups(), key=lambda item: item.timestamp, reverse=True)
-        self._selected_backup_ids.intersection_update({record.backup_id for record in self._all_backups})
         if self._advanced_visible:
+            self._all_backups = sorted(self.app.backup.list_backups(), key=lambda item: item.timestamp, reverse=True)
+            self._selected_backup_ids.intersection_update({record.backup_id for record in self._all_backups})
             self._render_backup_rows()
 
         shown_text = f"{len(visible_items)} shown / " if len(items) > len(visible_items) else ""
-        self._summary_label.configure(text=f"{shown_text}{len(items)} activity items | {len(self._all_backups)} raw backups")
+        raw_text = f"{len(self._all_backups)} raw backups" if self._advanced_visible else "raw backups hidden"
+        self._summary_label.configure(text=f"{shown_text}{len(items)} activity items | {raw_text}")
 
     def _on_filter_changed(self) -> None:
         self._timeline_visible_limit = _TIMELINE_INITIAL_LIMIT
@@ -355,6 +356,8 @@ class BackupsTab(ctk.CTkFrame):
         if self._advanced_visible:
             self._advanced_frame.grid()
             self._advanced_btn.configure(text="Hide Raw Backup Copies")
+            self._all_backups = sorted(self.app.backup.list_backups(), key=lambda item: item.timestamp, reverse=True)
+            self._selected_backup_ids.intersection_update({record.backup_id for record in self._all_backups})
             self._render_backup_rows()
         else:
             self._advanced_frame.grid_remove()

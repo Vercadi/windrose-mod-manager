@@ -193,6 +193,7 @@ def _join_remote(root: str, rel: str) -> str:
 
 def remote_connection_diagnostics(profile: RemoteProfile) -> str:
     """Return non-secret connection context suitable for support copy/paste."""
+    profile = profile.normalized_for_connection()
     protocol = normalize_remote_protocol(profile.protocol).upper()
     parts = [
         f"Tried {protocol} {profile.host or '(host not set)'}:{profile.port} as {profile.username or '(username not set)'}.",
@@ -213,6 +214,7 @@ class RemoteDeploymentService:
         self.provider_factory = provider_factory or create_remote_provider
 
     def test_connection(self, profile: RemoteProfile) -> tuple[bool, str]:
+        profile = profile.normalized_for_connection()
         provider: RemoteProvider | None = None
         try:
             provider = self.provider_factory(profile)
@@ -285,6 +287,7 @@ class RemoteDeploymentService:
                 provider.close()
 
     def list_remote_files(self, profile: RemoteProfile, remote_dir: str | None = None) -> list[str]:
+        profile = profile.normalized_for_connection()
         target_dir = remote_dir or profile.resolved_mods_dir()
         if not target_dir:
             raise ValueError("Set Server Folder, enter '.', or fill the Mods Folder Override first.")
@@ -299,6 +302,7 @@ class RemoteDeploymentService:
             provider.close()
 
     def deploy(self, plan: RemoteDeploymentPlan, profile: RemoteProfile) -> RemoteDeploymentResult:
+        profile = profile.normalized_for_connection()
         result = RemoteDeploymentResult(warnings=list(plan.warnings))
         if not plan.valid:
             result.failed.extend(plan.warnings or ["Remote deployment plan is invalid."])
@@ -328,6 +332,7 @@ class RemoteDeploymentService:
         return result
 
     def delete_remote_files(self, profile: RemoteProfile, remote_paths: list[str]) -> tuple[list[str], list[str]]:
+        profile = profile.normalized_for_connection()
         deleted: list[str] = []
         failed: list[str] = []
         provider = self.provider_factory(profile)
@@ -345,6 +350,7 @@ class RemoteDeploymentService:
         return deleted, failed
 
     def restart_remote(self, profile: RemoteProfile) -> tuple[bool, str]:
+        profile = profile.normalized_for_connection()
         if not profile.supports_remote_execute():
             return False, "Restart commands are only available for SFTP/SSH profiles. FTP supports file access only."
         if not profile.restart_command.strip():

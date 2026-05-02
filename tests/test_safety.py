@@ -900,6 +900,46 @@ class TestServerSyncDuplicateNames:
 
         assert [mod.mod_id for mod in result] == [missing.mod_id]
 
+    def test_hosted_sync_actions_ignore_server_only_framework_client_records(self):
+        rcon = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="WindroseRCON",
+            source_archive="WindroseRCON.zip",
+            install_kind="rcon_mod",
+            targets=["client"],
+            installed_files=["C:/client/R5/Binaries/Win64/version.dll"],
+        )
+        windrose_plus = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="WindrosePlus",
+            source_archive="windrose-plus.zip",
+            install_kind="windrose_plus",
+            targets=["client"],
+            installed_files=["C:/client/WindrosePlus/Scripts/main.lua"],
+        )
+
+        service = ServerSyncService()
+
+        assert service.compare_hosted([rcon, windrose_plus], []).items == []
+        assert service.client_mods_missing_from_hosted([rcon, windrose_plus], []) == []
+
+    def test_server_only_frameworks_are_available_for_explanatory_notes(self):
+        windrose_plus = ModInstall(
+            mod_id=generate_mod_id(),
+            display_name="WindrosePlus",
+            source_archive="windrose-plus.zip",
+            install_kind="windrose_plus",
+            targets=["dedicated_server"],
+            installed_files=["D:/server/WindrosePlus/Scripts/main.lua"],
+        )
+
+        result = ServerSyncService().server_only_frameworks_for_target(
+            [windrose_plus],
+            target="dedicated_server",
+        )
+
+        assert [mod.display_name for mod in result] == ["WindrosePlus"]
+
 
 class TestRecoveryTimelineDedupe:
     def test_config_save_history_suppresses_duplicate_backup_entry(self, tmp_path):

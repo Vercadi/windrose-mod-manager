@@ -426,7 +426,12 @@ class DashboardTab(ctk.CTkFrame):
         else:
             rcon_status = "Not installed"
             if state.rcon_mod:
-                rcon_status = "Installed, password needs review" if state.rcon_missing_password else "Installed"
+                if not state.rcon_configured:
+                    rcon_status = "Installed, waiting for generated settings.ini"
+                elif state.rcon_missing_password:
+                    rcon_status = "Installed, password needs review"
+                else:
+                    rcon_status = "Installed"
             self._framework_section(
                 parent,
                 "RCON",
@@ -967,6 +972,14 @@ class DashboardTab(ctk.CTkFrame):
                 notes.append(f"{len(server_only) - 25} more hosted-only file(s) omitted from this preview.")
         else:
             missing = self.app.server_sync.client_mods_missing_from_local(mods, target=target)
+            framework_tools = self.app.server_sync.server_only_frameworks_for_target(mods, target=target)
+            for mod in framework_tools[:10]:
+                notes.append(
+                    f"{mod.display_name}: server-side framework tooling on {self._target_label(target)}; "
+                    "not offered for client sync."
+                )
+            if len(framework_tools) > 10:
+                notes.append(f"{len(framework_tools) - 10} more server-side framework tool(s) omitted from this preview.")
             server_only_mods = self.app.server_sync.server_mods_missing_from_client(mods, target=target)
             for mod in server_only_mods[:25]:
                 notes.append(f"{mod.display_name}: installed on {self._target_label(target)} only. Review before uninstalling.")
@@ -1285,6 +1298,14 @@ class DashboardTab(ctk.CTkFrame):
         client_installed = bool(getattr(client_state, "rcon_mod", False))
         server_states = {key: state for key, state in states.items() if key != "client"}
         installed = cls._framework_target_names(server_states, "rcon_mod")
+        settings_pending = [
+            target
+            for target, state in zip(
+                ["Local", "Dedicated"],
+                [server_states.get("server"), server_states.get("dedicated_server")],
+            )
+            if state and state.rcon_mod and not state.rcon_configured
+        ]
         needs_password = cls._framework_target_names(server_states, "rcon_missing_password")
         parts = []
         if installed:
@@ -1293,6 +1314,8 @@ class DashboardTab(ctk.CTkFrame):
             parts.append("Wrong target: Client")
         if not parts:
             return "Not installed"
+        if settings_pending:
+            parts.append(f"Settings pending: {', '.join(settings_pending)}")
         if needs_password:
             parts.append(f"Password review: {', '.join(needs_password)}")
         return " | ".join(parts)

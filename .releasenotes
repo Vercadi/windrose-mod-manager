@@ -1,32 +1,33 @@
-## Windrose Mod Manager v0.6.3
+## Windrose Mod Manager v0.6.4
 
-Windrose Mod Manager v0.6.3 is a small hosted-server diagnostics and support cleanup release.
+Windrose Mod Manager v0.6.4 is a small stabilization and support-quality release after the hosted/framework updates.
 
 ### Highlights
 
-- Improved hosted FTP/Nitrado troubleshooting messages.
-- DNS / bad hostname, FTP timeout, FTP login failure, wrong protocol, and remote path failures now produce clearer separate errors.
-- Hosted connection tests now include non-secret diagnostics: protocol, host, port, username, server folder, and overrides.
-- Added `Copy Diagnostics` in Hosted Server Setup for easier support reporting without passwords/private keys.
-- Hosted Setup now makes Nitrado FTP usage clearer: use FTP Credentials and port 21, not Query/RCON/Game ports.
-- Slightly increased FTP connect timeout from 10 seconds to 15 seconds.
-- Cleaned one framework-status wording issue around UE4SS repair/reinstall source archives.
+- Added redacted Support Info export from the Help tab.
+- Support Info includes app version, frozen/dev state, target summary, hosted profile context, recent activity, log tail, manifest counts, framework state, and last hosted diagnostics.
+- Hosted profiles now trim hidden whitespace from host, username, and path fields before tests/saves.
+- Hosted setup now shows the normalized FTP/SFTP protocol, host, port, and username before connecting.
+- Dashboard and Frameworks wording now distinguishes RCON `version.dll` installed from RCON fully configured with generated `windrosercon/settings.ini`.
+- Compare/sync now treats server-only framework tooling separately and does not offer client sync actions for intentional server-only packages.
+- Activity keeps long histories lighter and avoids raw backup scans until the raw backup browser is opened.
 
 ### Notes
 
-- This is intentionally narrow. It does not add FTPS, Nexus downloading, load order, or new framework controls.
-- Existing SFTP profiles are still supported.
-- `Copy Diagnostics` intentionally excludes passwords and private key contents.
+- This is intentionally narrow. It does not add FTPS, Nexus downloading, load order, retoc, configurable overhaul, or RCON admin commands.
+- Existing FTP and SFTP hosted profiles remain supported.
+- Support Info redacts hosted passwords, private key paths/contents, common token/password fields, and Windows usernames in local paths where practical.
 
 ### Validation
 
 - `python -m compileall windrose_deployer -q`
-- `python -m pytest -q` -> `218 passed`
+- `python -m pytest -q` -> `226 passed`
+- `git diff --check`
 
 ### SHA256
 
-`A53A07C3C0686682088F367711FAFB5E1AA614C39F1CFDA6AC18D6642A9FAADF`
+`4402424522D998E86A1870B51711ABAEB8560118D6C81821A0085452E2F075BC`
 
 ### Full Changelog
 
-https://github.com/Vercadi/windrose-mod-manager/compare/v0.6.2...v0.6.3
+https://github.com/Vercadi/windrose-mod-manager/compare/v0.6.3...v0.6.4

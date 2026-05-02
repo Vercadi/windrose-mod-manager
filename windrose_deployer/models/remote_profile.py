@@ -139,23 +139,48 @@ class RemoteProfile:
     def supports_remote_execute(self) -> bool:
         return normalize_remote_protocol(self.protocol) == "sftp"
 
+    def normalized_for_connection(self) -> "RemoteProfile":
+        """Return a trimmed, protocol-aware copy used for tests and saves."""
+        host, port, resolved_protocol = normalize_remote_endpoint(
+            self.host,
+            self.port,
+            protocol=self.protocol,
+        )
+        return RemoteProfile(
+            profile_id=self.profile_id,
+            name=(self.name or "Remote Profile").strip() or "Remote Profile",
+            protocol=resolved_protocol,
+            host=host,
+            port=port,
+            username=(self.username or "").strip(),
+            auth_mode=(self.auth_mode or "password").strip() if resolved_protocol == "sftp" else "password",
+            password=self.password,
+            private_key_path=(self.private_key_path or "").strip() if resolved_protocol == "sftp" else "",
+            remote_root_dir=self._normalize_remote_path(self.remote_root_dir),
+            remote_mods_dir=self._normalize_remote_path(self.remote_mods_dir),
+            remote_server_description_path=self._normalize_remote_path(self.remote_server_description_path),
+            remote_save_root=self._normalize_remote_path(self.remote_save_root),
+            restart_command=(self.restart_command or "").strip() if resolved_protocol == "sftp" else "",
+        )
+
     def to_dict(self) -> dict:
-        protocol = normalize_remote_protocol(self.protocol)
+        normalized = self.normalized_for_connection()
+        protocol = normalize_remote_protocol(normalized.protocol)
         return {
-            "profile_id": self.profile_id,
-            "name": self.name,
+            "profile_id": normalized.profile_id,
+            "name": normalized.name,
             "protocol": protocol,
-            "host": self.host,
-            "port": self.port,
-            "username": self.username,
-            "auth_mode": self.auth_mode if protocol == "sftp" else "password",
-            "password": self.password,
-            "private_key_path": self.private_key_path if protocol == "sftp" else "",
-            "remote_root_dir": self.remote_root_dir,
-            "remote_mods_dir": self.remote_mods_dir,
-            "remote_server_description_path": self.remote_server_description_path,
-            "remote_save_root": self.remote_save_root,
-            "restart_command": self.restart_command if protocol == "sftp" else "",
+            "host": normalized.host,
+            "port": normalized.port,
+            "username": normalized.username,
+            "auth_mode": normalized.auth_mode if protocol == "sftp" else "password",
+            "password": normalized.password,
+            "private_key_path": normalized.private_key_path if protocol == "sftp" else "",
+            "remote_root_dir": normalized.remote_root_dir,
+            "remote_mods_dir": normalized.remote_mods_dir,
+            "remote_server_description_path": normalized.remote_server_description_path,
+            "remote_save_root": normalized.remote_save_root,
+            "restart_command": normalized.restart_command if protocol == "sftp" else "",
         }
 
     @classmethod

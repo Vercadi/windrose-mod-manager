@@ -386,32 +386,62 @@ This should stay convenience-focused until the RCON path is proven reliable.
 
 ---
 
-## v0.7 - Deep Mod Understanding & Load Order
+## v0.6.4 - Stabilization and Support Cleanup
+
+Detailed implementation plan lives in `IMPLEMENTATION_v0.6.4.md`.
+
+This should be a low-risk support-quality release before starting load order.
+
+- [ ] Add redacted support info export:
+  - app version
+  - target summary
+  - hosted profile protocol/host/port only
+  - recent log/activity summary
+  - framework state summary
+- [ ] Polish hosted setup normalization and guidance:
+  - trim hidden whitespace in host/user/path fields
+  - show normalized host/port/protocol before testing
+  - keep connection failures distinct from remote path failures
+  - keep Nitrado wording focused on FTP Credentials and port 21
+- [ ] Tighten framework status consistency:
+  - UE4SS runtime vs UE4SS mods
+  - RCON `version.dll` before generated settings exist
+  - WindrosePlus package/install/rebuild/dashboard state
+- [ ] Make compare/sync wording clearer for server-only framework tooling
+- [ ] Keep Activity rendering capped/lightweight for large histories
+
+---
+
+## v0.7 - Managed Load Order
 
 Detailed implementation plan lives in `IMPLEMENTATION_v0.7.0.md`.
 
-This release line should make the app better at understanding what mods actually touch, without editing other authors' mods.
+This release should add practical load-order control without pak editing and without `retoc`.
 
-### Retoc-powered inspection
-- [ ] Add optional `retoc` tool setup:
-  - user-supplied path first
-  - optional bundled copy later only if license/packaging notices are handled
-- [ ] Use `retoc` for deep inspection where possible:
-  - list files/assets inside `.pak`
-  - list files/assets inside `.utoc/.ucas`
-  - cache asset-path manifests per archive/hash
-- [ ] Keep basic install/uninstall usable without `retoc`
-- [ ] Surface `retoc` failures as inspection limitations, not install blockers unless the action requires deep inspection
+### Load-order model
+- [ ] Expose managed priority instead of manual filename editing:
+  - Low
+  - Normal
+  - High
+- [ ] Map priorities to safe backend filename prefixes, for example:
+  - `010_`
+  - `050_`
+  - `090_`
+- [ ] Preserve original archive files unchanged
+- [ ] Preserve `_P` by default; do not add `_P` removal as normal UI
+- [ ] Rename `.pak/.utoc/.ucas` companion groups together
+- [ ] Store original filename, deployed filename, priority, target, and companion metadata in the manifest
+- [ ] Preview load-order changes before applying
+- [ ] Back up and track deployed-file rename/redeploy operations
 
-### Asset-level conflict awareness
-- [ ] Move beyond filename-only conflict guesses where deep inspection data exists
-- [ ] Show when multiple mods touch the same asset path
+### Conflict awareness
+- [ ] Keep conflict awareness filename/target based in this release
 - [ ] Group conflicts by:
   - target
-  - asset path
+  - deployed filename
   - installed/archive source
 - [ ] Keep wording careful:
-  - `same asset touched`
+  - `same deployed filename`
   - `load order may decide winner`
   - `review recommended`
 
@@ -449,6 +479,14 @@ This release line should make the app better at understanding what mods actually
   - stronger selected/active state
   - conflict count and dependency warnings visible without opening logs
 - [ ] Keep technical logs secondary and expandable, not dominant in the main workspace
+
+---
+
+## Future Deep Inspection
+
+Do not include `retoc` in v0.7.
+
+If deeper pak/asset inspection becomes necessary later, treat it as a separate optional feature after managed load order is stable. It should not block normal install, uninstall, or load-order priority controls.
 
 ---
 
