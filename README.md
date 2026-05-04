@@ -4,6 +4,11 @@ A Windows desktop app for modding **Windrose** safely across the client, the loc
 
 **[Nexus Mods Page](https://www.nexusmods.com/windrose/mods/29)** | **[GitHub](https://github.com/Vercadi/windrose-mod-manager)**
 
+Planning and release notes live under [docs/](docs/):
+[Roadmap](docs/planning/ROADMAP.md) |
+[Latest release notes](docs/releases/latest_release_notes.md) |
+[Nexus post drafts](docs/releases/nexus/)
+
 ## What It Does
 
 Windrose Mod Manager is built around three practical jobs:
@@ -125,6 +130,9 @@ python -m pytest -q
 ```text
 windrose-mod-manager/
   app.py
+  docs/
+    planning/
+    releases/
   requirements.txt
   windrose_deployer/
     __init__.py
@@ -198,6 +206,10 @@ python -m PyInstaller windrose_mod_deployer.spec --noconfirm
 The packaged app is written to `dist/Windrose Mod Manager/`.
 
 When packaged, the app stores its working data under `%LOCALAPPDATA%/WindroseModDeployer/` instead of the repo directory.
+
+## Planning Docs
+
+Developer planning, implementation briefs, audit notes, and Nexus release drafts are kept in [docs/](docs/) so the repository root stays focused on the app source and user-facing project files.
 
 ## Known Limitations
 
