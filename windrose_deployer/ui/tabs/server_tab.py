@@ -64,6 +64,7 @@ class ServerTab(ctk.CTkFrame):
         self._field_labels: list[ctk.CTkLabel] = []
         self._field_inputs: list[object] = []
         self._status_boxes: list[ctk.CTkTextbox] = []
+        self._wrap_labels: list[ctk.CTkLabel] = []
         self._hosted_dashboard_state = "Not configured"
         self._hosted_framework_summary = "Unknown"
         self._hosted_dashboard_profile_id: str | None = None
@@ -235,6 +236,7 @@ class ServerTab(ctk.CTkFrame):
             font=self.app.ui_font("small"),
         )
         self._server_hint_label.grid(row=save_row + 1, column=1, sticky="w", padx=4, pady=(0, 6))
+        self._register_wrap_label(self._server_hint_label, margin=8)
 
     # ---- World Description section ----
 
@@ -383,6 +385,7 @@ class ServerTab(ctk.CTkFrame):
             font=self.app.ui_font("body"),
         )
         self._dashboard_summary_label.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 4))
+        self._register_wrap_label(self._dashboard_summary_label)
         self._dashboard_counts_label = ctk.CTkLabel(
             dashboard_card,
             text="",
@@ -392,6 +395,7 @@ class ServerTab(ctk.CTkFrame):
             font=self.app.ui_font("small"),
         )
         self._dashboard_counts_label.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
+        self._register_wrap_label(self._dashboard_counts_label)
         dashboard_actions = ctk.CTkFrame(dashboard_card, fg_color="transparent")
         dashboard_actions.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 10))
         self._dashboard_backup_btn = ctk.CTkButton(
@@ -485,6 +489,7 @@ class ServerTab(ctk.CTkFrame):
             font=self.app.ui_font("body"),
         )
         self._source_summary_label.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
+        self._register_wrap_label(self._source_summary_label)
         self._status_label = ctk.CTkLabel(
             source_card,
             text="",
@@ -493,6 +498,7 @@ class ServerTab(ctk.CTkFrame):
             font=self.app.ui_font("small"),
         )
         self._status_label.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 8))
+        self._register_wrap_label(self._status_label)
         inventory_card = ctk.CTkFrame(frame)
         inventory_card.grid(row=2, column=0, sticky="ew", pady=(0, 6))
         inventory_card.grid_columnconfigure(0, weight=1)
@@ -500,7 +506,7 @@ class ServerTab(ctk.CTkFrame):
             inventory_card, text="Server Mods", font=self.app.ui_font("card_title")
         )
         self._inventory_title_label.grid(row=0, column=0, sticky="w", padx=10, pady=(10, 4))
-        self._inventory_box = ctk.CTkTextbox(inventory_card, height=112, font=self.app.ui_font("mono"))
+        self._inventory_box = ctk.CTkTextbox(inventory_card, height=112, font=self.app.ui_font("mono"), wrap="char")
         self._inventory_box.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
         self._inventory_box.configure(state="disabled")
         self._inventory_btn = ctk.CTkButton(
@@ -532,7 +538,8 @@ class ServerTab(ctk.CTkFrame):
             font=self.app.ui_font("small"),
         )
         self._sync_hint_label.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
-        self._sync_box = ctk.CTkTextbox(sync_card, height=126, font=self.app.ui_font("mono"))
+        self._register_wrap_label(self._sync_hint_label)
+        self._sync_box = ctk.CTkTextbox(sync_card, height=126, font=self.app.ui_font("mono"), wrap="char")
         self._sync_box.grid(row=2, column=0, sticky="ew", padx=10, pady=(0, 6))
         self._sync_box.configure(state="disabled")
         self._compare_btn = ctk.CTkButton(
@@ -553,7 +560,7 @@ class ServerTab(ctk.CTkFrame):
         ctk.CTkLabel(apply_card, text="Apply Summary", font=self.app.ui_font("card_title")).grid(
             row=0, column=0, sticky="w", padx=10, pady=(10, 4)
         )
-        self._apply_box = ctk.CTkTextbox(apply_card, height=108, font=self.app.ui_font("mono"))
+        self._apply_box = ctk.CTkTextbox(apply_card, height=108, font=self.app.ui_font("mono"), wrap="char")
         self._apply_box.grid(row=1, column=0, sticky="ew", padx=10, pady=(0, 6))
         self._apply_box.configure(state="disabled")
         self._confirm_var = tk.BooleanVar(value=False)
@@ -573,6 +580,7 @@ class ServerTab(ctk.CTkFrame):
             font=self.app.ui_font("small"),
         )
         self._confirm_hint.grid(row=3, column=0, sticky="ew", padx=10, pady=(0, 6))
+        self._register_wrap_label(self._confirm_hint)
         action_row = ctk.CTkFrame(apply_card, fg_color="transparent")
         action_row.grid(row=4, column=0, sticky="ew", padx=10, pady=(0, 8))
         self._apply_btn = ctk.CTkButton(
@@ -1242,6 +1250,17 @@ class ServerTab(ctk.CTkFrame):
         box.insert("1.0", text)
         box.configure(state="disabled")
 
+    def _register_wrap_label(self, label: ctk.CTkLabel, *, margin: int = 24, minimum: int = 160) -> None:
+        self._wrap_labels.append(label)
+
+        def _fit(event=None) -> None:
+            width = getattr(event, "width", 0) or label.winfo_width()
+            if width > 1:
+                label.configure(wraplength=max(minimum, width - margin))
+
+        label.bind("<Configure>", _fit, add="+")
+        self.after_idle(_fit)
+
     def _set_result(self, text: str, *, level: str = "info") -> None:
         colors = {
             "success": "#2d8a4e",
@@ -1256,15 +1275,15 @@ class ServerTab(ctk.CTkFrame):
         self._source_switch.configure(font=self.app.ui_font("body"), height=tokens.toolbar_button_height)
         self._remote_profile_label.configure(font=self.app.ui_font("body"))
         self._remote_profile_menu.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)
-        self._source_summary_label.configure(font=self.app.ui_font("body"), wraplength=tokens.panel_wrap)
-        self._status_label.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
-        self._dashboard_summary_label.configure(font=self.app.ui_font("body"), wraplength=tokens.panel_wrap)
-        self._dashboard_counts_label.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
+        self._source_summary_label.configure(font=self.app.ui_font("body"))
+        self._status_label.configure(font=self.app.ui_font("small"))
+        self._dashboard_summary_label.configure(font=self.app.ui_font("body"))
+        self._dashboard_counts_label.configure(font=self.app.ui_font("small"))
         self._server_hint_label.configure(font=self.app.ui_font("small"))
         self._world_info_label.configure(font=self.app.ui_font("small"))
-        self._sync_hint_label.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
+        self._sync_hint_label.configure(font=self.app.ui_font("small"))
         self._confirm_check.configure(font=self.app.ui_font("body"))
-        self._confirm_hint.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
+        self._confirm_hint.configure(font=self.app.ui_font("small"))
         for label in self._field_labels:
             try:
                 label.configure(font=self.app.ui_font("body"))
@@ -1282,7 +1301,14 @@ class ServerTab(ctk.CTkFrame):
                 pass
         for box in self._status_boxes:
             try:
-                box.configure(font=self.app.ui_font("mono"))
+                box.configure(font=self.app.ui_font("mono"), wrap="char")
+            except Exception:
+                pass
+        for label in self._wrap_labels:
+            try:
+                width = label.winfo_width()
+                if width > 1:
+                    label.configure(wraplength=max(160, width - 24))
             except Exception:
                 pass
 

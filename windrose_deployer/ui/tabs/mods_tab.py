@@ -122,6 +122,7 @@ class ModsTab(ctk.CTkFrame):
         self._expanded_mod_ids: set[str] = set()
         self._archive_component_selections: dict[str, set[str]] = {}
         self._mod_component_selections: dict[str, set[str]] = {}
+        self._wrap_labels: list[ctk.CTkLabel] = []
 
         self._search_var = ctk.StringVar()
         self._search_var.trace_add("write", lambda *_args: self._refresh_library_ui(refresh_applied=False))
@@ -191,6 +192,7 @@ class ModsTab(ctk.CTkFrame):
             font=self.app.ui_font("small"),
         )
         self._result_label.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 6))
+        self._register_wrap_label(self._result_label)
 
     def _build_workspace(self) -> None:
         self._panes = tk.PanedWindow(
@@ -383,6 +385,7 @@ class ModsTab(ctk.CTkFrame):
             font=self.app.ui_font("small"),
         )
         self._archive_hint_label.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
+        self._register_wrap_label(self._archive_hint_label)
 
         self._library_list = ctk.CTkScrollableFrame(panel)
         self._library_list.grid(row=3, column=0, sticky="nsew", padx=8, pady=(0, 8))
@@ -408,6 +411,7 @@ class ModsTab(ctk.CTkFrame):
             font=self.app.ui_font("small"),
         )
         self._detail_hint.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
+        self._register_wrap_label(self._detail_hint)
 
         self._installed_box = self._add_text_section(panel, 3, "Active State", 78)
         self._review_box = self._add_text_section(panel, 4, "Review", 78)
@@ -861,6 +865,17 @@ class ModsTab(ctk.CTkFrame):
         widget.insert("1.0", text)
         widget.configure(state="disabled")
 
+    def _register_wrap_label(self, label: ctk.CTkLabel, *, margin: int = 24, minimum: int = 160) -> None:
+        self._wrap_labels.append(label)
+
+        def _fit(event=None) -> None:
+            width = getattr(event, "width", 0) or label.winfo_width()
+            if width > 1:
+                label.configure(wraplength=max(minimum, width - margin))
+
+        label.bind("<Configure>", _fit, add="+")
+        self.after_idle(_fit)
+
     def _set_result(self, text: str, *, level: str = "info") -> None:
         colors = {
             "success": "#2d8a4e",
@@ -974,13 +989,20 @@ class ModsTab(ctk.CTkFrame):
     def apply_ui_preferences(self) -> None:
         tokens = self.app.ui_tokens
         self._summary_label.configure(font=self.app.ui_font("small"))
-        self._result_label.configure(font=self.app.ui_font("small"), wraplength=tokens.detail_wrap)
+        self._result_label.configure(font=self.app.ui_font("small"))
         self._applied_summary_label.configure(font=self.app.ui_font("small"))
         self._selected_archives_label.configure(font=self.app.ui_font("small"))
         self._selected_mods_label.configure(font=self.app.ui_font("small"))
-        self._archive_hint_label.configure(font=self.app.ui_font("small"), wraplength=tokens.panel_wrap)
+        self._archive_hint_label.configure(font=self.app.ui_font("small"))
         self._detail_meta.configure(font=self.app.ui_font("body"))
-        self._detail_hint.configure(font=self.app.ui_font("small"), wraplength=tokens.detail_wrap)
+        self._detail_hint.configure(font=self.app.ui_font("small"))
+        for label in self._wrap_labels:
+            try:
+                width = label.winfo_width()
+                if width > 1:
+                    label.configure(wraplength=max(160, width - 24))
+            except Exception:
+                pass
         self._search_entry.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)
         self._filter_menu.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height, width=156)
         self._scope_switch.configure(font=self.app.ui_font("body"), height=tokens.toolbar_button_height)
@@ -1538,6 +1560,7 @@ class ModsTab(ctk.CTkFrame):
                 font=self.app.ui_font("small"),
             )
             empty.grid(row=0, column=0, sticky="ew", pady=(4, 8))
+            self._register_wrap_label(empty)
             self._applied_widgets.append(empty)
             self._update_selection_state()
             return
