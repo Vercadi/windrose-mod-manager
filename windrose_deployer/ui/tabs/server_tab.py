@@ -1254,9 +1254,14 @@ class ServerTab(ctk.CTkFrame):
         self._wrap_labels.append(label)
 
         def _fit(event=None) -> None:
-            width = getattr(event, "width", 0) or label.winfo_width()
-            if width > 1:
-                label.configure(wraplength=max(minimum, width - margin))
+            try:
+                if not label.winfo_exists():
+                    return
+                width = getattr(event, "width", 0) or label.winfo_width()
+                if width > 1:
+                    label.configure(wraplength=max(minimum, width - margin))
+            except Exception:
+                return
 
         label.bind("<Configure>", _fit, add="+")
         self.after_idle(_fit)
