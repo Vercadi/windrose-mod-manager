@@ -72,7 +72,7 @@ class BackupsTab(ctk.CTkFrame):
             font=self.app.ui_font("body"),
             fg_color="#555555",
             hover_color="#666666",
-            command=self.app._server_tab._on_backup_now,
+            command=self.app.backup_active_server_now,
         )
         backup_btn.grid(row=0, column=3, sticky="e", padx=(0, 8))
         self._action_buttons.append(backup_btn)

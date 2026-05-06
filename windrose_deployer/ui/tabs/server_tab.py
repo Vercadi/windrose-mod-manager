@@ -2450,7 +2450,7 @@ class ServerTab(ctk.CTkFrame):
     def open_hosted_install_dialog(self, archive_path: str | Path | None) -> None:
         selected_path = Path(archive_path) if archive_path else None
         if selected_path is None:
-            active = self.app._mods_tab.selected_archive_path()
+            active = self.app._ensure_mods_tab().selected_archive_path()
             selected_path = Path(active) if active else None
         if selected_path is None or not selected_path.is_file():
             self._set_result("Choose an archive in Library first.", level="info")

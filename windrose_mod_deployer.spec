@@ -11,6 +11,10 @@ block_cipher = None
 import customtkinter
 ctk_path = os.path.dirname(customtkinter.__file__)
 
+from windrose_deployer import __version__
+
+APP_BUNDLE_NAME = f"Windrose Mod Manager {__version__}"
+
 # Try to locate tkdnd for drag-and-drop support
 tkdnd_datas = []
 try:
@@ -52,7 +56,7 @@ exe = EXE(
     a.scripts,
     [],
     exclude_binaries=True,
-    name='Windrose Mod Manager',
+    name=APP_BUNDLE_NAME,
     debug=False,
     bootloader_ignore_signals=False,
     strip=False,
@@ -71,5 +75,5 @@ coll = COLLECT(
     strip=False,
     upx=False,
     upx_exclude=[],
-    name='Windrose Mod Manager',
+    name=APP_BUNDLE_NAME,
 )

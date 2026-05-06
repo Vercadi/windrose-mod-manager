@@ -4499,7 +4499,7 @@ class ModsTab(ctk.CTkFrame):
 
     def _on_compare_with_server(self) -> None:
         self.app._tabview.set("Server")
-        self.app._server_tab.compare_now()
+        self.app._ensure_server_tab().compare_now()
 
     def _do_install(
         self,

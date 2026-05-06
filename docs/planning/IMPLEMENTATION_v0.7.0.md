@@ -6,8 +6,10 @@
 
 This release should focus on:
 
+- correct `0.7.0` build/version identity before test packages go out
 - visible startup feedback
 - true lazy UI construction
+- visible first-tab loading feedback so lazy tabs do not look blank or broken
 - app-wide inline status/result feedback
 - clearer Dashboard entry points
 - simpler Mods screen wording and scanability
@@ -64,9 +66,18 @@ Conan Exiles Enhanced Manager patterns worth borrowing:
 - Centralize UI colors and state helpers so tabs stop inventing their own muted text, card borders, and action colors.
 - Borrow the structure and interaction model, not the Conan palette verbatim; Windrose should keep its own restrained identity.
 
+Post-review findings from the Windrose/Conan comparison:
+
+- The current package still identifies as `0.6.6` because `windrose_deployer.__version__` was not bumped. Treat version identity as a release-blocking item before the next tester build.
+- True lazy construction is now partly in place, but it shifts cost onto first tab selection. Source smoke timing showed first-open costs around `680 ms` for Mods, `745 ms` for Server, `454 ms` for Activity, `240 ms` for Settings, and `118 ms` for Help. Second visits were effectively instant.
+- First tab selection needs a visible loading placeholder and/or idle prewarm. Otherwise a lazy tab can feel blank or frozen even when startup is faster.
+- Dashboard still reads like an operations/status console. Borrow Conan's information hierarchy: short summary, task shortcuts, compact state, and a testable `Needs Attention` helper.
+- Windrose primary wording is too technical in several places. Keep technical language in details, support info, and dialogs; primary screens should use user-facing words like `Install`, `Active Mods`, `Inactive Mods`, `Hosted Server`, `Server Folder`, and `Needs Attention`.
+- Dashboard/process refresh still does synchronous Windows process checks. These should be cached or moved behind background refresh so first render and manual refresh do not hitch.
+
 ## Current Baseline
 
-Recent startup logs show:
+Original v0.7 planning baseline showed:
 
 - service setup is usually under `50 ms`
 - `_initial_load` is usually around `300-350 ms`
@@ -75,9 +86,54 @@ Recent startup logs show:
 - `ModsTab` is the largest UI surface and still loads its library during `__init__`
 - Dashboard currently reaches into `ServerTab` internals, which makes true lazy Server construction harder
 
-The best v0.7 performance work is startup shell + true lazy tab construction + deferred Mods loading.
+Current post-lazy baseline:
+
+- startup now constructs Dashboard only
+- source startup is roughly under `1 second` with configured paths in local smoke runs
+- first tab open is the visible lag point, especially Mods and Server
+- `ModsTab` still loads its library during tab construction, so first Mods open pays that cost
+- `ServerTab` still builds a large combined local/dedicated/hosted editor surface on first open
+- Dashboard no longer has to construct Server for basic overview, but it still needs a clearer home-screen information model
+
+The best remaining v0.7 performance work is loading placeholders + idle prewarm + deferred heavy refresh inside Mods/Server + cached/background dashboard checks.
 
 The Conan manager already proves the desired direction in a simpler app shape: `LazyTabController`, startup messages, a banner-state helper, and a `Needs Attention` helper are all testable without creating Tk widgets. Windrose should use the same kind of small helper seams, adapted to its richer archive/framework/hosted model.
+
+## Revised Implementation Order
+
+Do this order for the next v0.7 work:
+
+1. Release identity and test-build hygiene.
+2. First-tab loading placeholders and no-blank lazy tab transitions.
+3. Idle prewarm for expensive tabs after Dashboard is interactive.
+4. Move dashboard process/runtime checks behind cache/background refresh.
+5. Dashboard simplification and `Needs Attention`.
+6. Mods first-load/deferred render cleanup.
+7. Server/Hosted wording and layout cleanup.
+8. App-wide wording consistency and inline result polish.
+
+Cut rule:
+
+- If time is tight, ship version identity, no-blank lazy tabs, idle prewarm, background dashboard checks, and the external UE4SS user path first. Dashboard/wording polish can continue in `v0.7.1` if needed.
+
+## Slice 0 - Release Identity and Test Build Hygiene
+
+Goal:
+
+- make every tester build clearly identify the new v0.7 line
+
+Implement:
+
+- bump `windrose_deployer.__version__` before packaging v0.7 builds
+- use a test-build version such as `0.7.0-preview.1` if the build is not ready for public release
+- include the version in the window title, logs, support diagnostics, and packaged zip/exe naming where practical
+- make release notes and update-check wording match the packaged build
+
+Acceptance:
+
+- the test exe no longer says `0.6.6`
+- testers can report the exact build from the title/support info
+- old and new zip/exe artifacts are hard to confuse
 
 ## Slice 1 - Startup Loading Shell
 
@@ -134,16 +190,18 @@ Construct on first open:
 
 Rules:
 
-- first open can briefly show `Loading...`
+- first open must show a visible `Loading...` or `Preparing...` placeholder before constructing the tab body
 - tab construction must be idempotent
 - cross-tab calls must create needed tabs safely or use lightweight app-level helpers
 - no duplicate refresh storms
+- after Dashboard is interactive, idle-prewarm Mods and Server if the UI thread is idle enough to do so without blocking the initial window
 
 Acceptance:
 
 - startup no longer constructs every heavy tab
 - each tab still refreshes correctly when opened
 - tests prove each lazy tab factory runs once
+- first tab selection never leaves a blank tab while widgets are being built
 
 ## Slice 3 - Dashboard as Friendly Home
 
@@ -153,12 +211,12 @@ Goal:
 
 Improve Dashboard with clearer task shortcuts:
 
-- `Install mods`
-- `Manage active mods`
-- `Set up hosted server`
-- `Check client/server match`
-- `Restore vanilla`
-- `Open support info`
+- `Install Mods`
+- `Manage Active Mods`
+- `Set Up Hosted Server`
+- `Check Client/Server Match`
+- `Restore Vanilla`
+- `Support Info`
 
 Keep status cards compact:
 
@@ -183,18 +241,21 @@ Rules:
 - no duplicate text from Server/Activity
 - Dashboard can link to details instead of showing everything
 - Dashboard should not require full ServerTab/ModsTab construction for basic state
+- replace verbose status copy such as `Operations home for Windrose client...` with a short product/status summary
+- make `Needs Attention` the main place for actionable warnings: missing hosted profile, missing framework/runtime, source archive missing, drift detected, path not configured, external UE4SS state unclear
 
 Acceptance:
 
 - user can understand "what should I do next?" from Dashboard
 - Dashboard first render does not require heavy tabs where avoidable
 - `Needs Attention` is generated by a testable helper, not buried in widget code
+- routine dashboard refresh does not run slow process checks synchronously on the UI path
 
 ## Slice 4 - Deferred Mods Loading
 
 Goal:
 
-- Mods should not slow app launch before the user opens Mods
+- Mods should not slow app launch, and first Mods open should not feel broken
 
 Implement:
 
@@ -203,11 +264,14 @@ Implement:
 - cache library and manifest/history snapshots for one render pass
 - avoid repeated `manifest.list_mods()` and `manifest.list_history()` scans in row loops
 - keep Refresh behavior explicit and correct
+- show `Loading active mods...` and `Loading inactive mods...` before rendering lists
+- consider splitting shell construction from data refresh so the first tab click paints immediately
 
 Acceptance:
 
 - app startup is not dominated by Mods UI/library rendering
 - first Mods open loads correctly and shows progress if needed
+- repeated Mods refreshes avoid unnecessary full row rebuilds where possible
 
 ## Slice 5 - Mods Screen Wording and Scanability
 
@@ -246,6 +310,32 @@ Acceptance:
 
 - users can scan large lists faster
 - empty panels explain the next step
+
+## Slice 5.5 - Server and Hosted Surface Cleanup
+
+Goal:
+
+- make the Server tab feel like a task surface instead of one large configuration document
+
+Implement:
+
+- keep the source selector, but visually separate `Overview`, `Settings`, `World`, `Mods/Compare`, and `Hosted` concerns
+- shorten toolbar labels where possible:
+  - `Load Current Settings` -> `Load Settings`
+  - `Hosted Setup` -> `Hosted`
+  - `Test Connection` stays as-is
+- move long explanations out of primary cards and into inline details/help
+- keep the external UE4SS state visible but concise:
+  - `UE4SS: Provided by host`
+  - `UE4SS: Managed outside the app`
+  - `UE4SS: Missing or not verified`
+- avoid forcing users to read provider/runtime caveats unless the current target actually needs them
+
+Acceptance:
+
+- a hosted user can see the next setup step without reading paragraphs
+- local/dedicated users are not distracted by hosted-only copy
+- external UE4SS is understandable without replacing a working provider setup
 
 ## Slice 6 - Hosted Setup Guidance
 
@@ -493,27 +583,30 @@ Always run:
 ## Manual Smoke Checklist
 
 1. Cold-launch app.
-2. Confirm loading shell/status appears quickly.
-3. Confirm the app-level banner shows startup and routine action results.
-4. Confirm Dashboard loads and shows useful actions.
-5. Open Mods first time and verify lists load correctly.
-6. Open Server first time and verify settings/hosted setup still work.
-7. Open Activity first time and verify backups/history render.
-8. Install a normal pak mod.
-9. Install/uninstall a UE4SS/framework mod.
-10. Run hosted setup test with FTP profile.
-11. Run hosted setup test with SFTP profile.
-12. Trigger a path-missing hosted error and verify wording.
-13. Confirm Compact/Default/Large UI sizes do not clip primary controls.
-14. Confirm Restore Vanilla still previews and refreshes Dashboard/Mods.
-15. Confirm support export still redacts secrets.
+2. Confirm the title/support info show the intended `0.7.0` build identity.
+3. Confirm loading shell/status appears quickly.
+4. Confirm the app-level banner shows startup and routine action results.
+5. Confirm Dashboard loads and shows useful actions.
+6. Open Mods first time and verify a loading state appears before lists render.
+7. Open Server first time and verify a loading state appears before settings/hosted setup render.
+8. Open Activity first time and verify backups/history render.
+9. Install a normal pak mod.
+10. Install/uninstall a UE4SS/framework mod.
+11. Run hosted setup test with FTP profile.
+12. Run hosted setup test with SFTP profile.
+13. Trigger a path-missing hosted error and verify wording.
+14. Confirm Compact/Default/Large UI sizes do not clip primary controls.
+15. Confirm Restore Vanilla still previews and refreshes Dashboard/Mods.
+16. Confirm support export still redacts secrets.
 
 ## Release Criteria
 
 Ship only when:
 
+- the packaged app clearly identifies itself as the intended `0.7.0` build
 - startup gives immediate visible feedback
 - heavy tabs are no longer all constructed before first view where feasible
+- first-open Mods/Server/Activity transitions show visible loading instead of blank content
 - Dashboard feels useful as a home screen
 - Mods empty states and labels are clearer
 - Hosted setup wording is easier to follow
@@ -522,6 +615,7 @@ Ship only when:
 
 Do not ship if:
 
+- the packaged build still says `0.6.6`
 - lazy construction causes broken cross-tab refreshes
 - the loading shell hides real startup exceptions
 - Mods/Server first-open behavior feels broken

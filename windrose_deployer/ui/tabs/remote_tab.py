@@ -601,7 +601,7 @@ class RemoteTab(ctk.CTkFrame):
 
         current_label = self._archive_var.get()
         if current_label not in values:
-            preferred = self.app._mods_tab.selected_archive_path()
+            preferred = self.app._ensure_mods_tab().selected_archive_path()
             preferred_label = self._archive_labels_by_path.get(str(preferred)) if preferred else None
             self._archive_var.set(preferred_label or values[0])
 
@@ -643,7 +643,7 @@ class RemoteTab(ctk.CTkFrame):
             self._on_profile_selected()
 
     def refresh_archives(self) -> None:
-        entries = self.app._mods_tab.library_entries()
+        entries = self.app._ensure_mods_tab().library_entries()
         archive_paths = [str(Path(entry["path"])) for entry in entries if Path(entry["path"]).is_file()]
 
         self._archive_labels = {}
@@ -654,7 +654,7 @@ class RemoteTab(ctk.CTkFrame):
             self._archive_labels_by_path[archive_path] = label
 
         values = list(self._archive_labels.keys()) or ["(none)"]
-        preferred = self.app._mods_tab.selected_archive_path()
+        preferred = self.app._ensure_mods_tab().selected_archive_path()
         preferred_label = self._archive_labels_by_path.get(str(preferred)) if preferred else None
         if preferred_label:
             self._archive_var.set(preferred_label)

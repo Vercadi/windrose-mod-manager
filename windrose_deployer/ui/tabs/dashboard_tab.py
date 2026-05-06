@@ -302,11 +302,11 @@ class DashboardTab(ctk.CTkFrame):
             fg="#555555", hover="#666666",
         )
         self._add_action_button(
-            actions, row=0, column=2, text="Open Server Folder", command=self.app._server_tab._open_active_server_folder,
+            actions, row=0, column=2, text="Open Server Folder", command=self.app.open_active_server_folder,
             fg="#555555", hover="#666666",
         )
         self._add_action_button(
-            actions, row=0, column=3, text="Back Up Now", command=self.app._server_tab._on_backup_now,
+            actions, row=0, column=3, text="Back Up Now", command=self.app.backup_active_server_now,
             fg="#555555", hover="#666666",
         )
         self._add_action_button(
@@ -710,7 +710,7 @@ class DashboardTab(ctk.CTkFrame):
     def _repair_ue4ss_runtime(self, _root: Path, target_label: str, set_result) -> None:
         entry = next(
             (
-                item for item in self.app._mods_tab.library_entries()
+                item for item in self.app._ensure_mods_tab().library_entries()
                 if item.get("install_kind") == "ue4ss_runtime" and Path(str(item.get("path", ""))).is_file()
             ),
             None,
@@ -721,7 +721,7 @@ class DashboardTab(ctk.CTkFrame):
         archive_path = Path(str(entry["path"]))
         if not self.app.confirm_action("routine", "Repair UE4SS Runtime", f"Install/repair UE4SS runtime from:\n{archive_path.name}"):
             return
-        self.app._mods_tab._install_path_with_preset(archive_path, self._framework_target_preset(target_label))
+        self.app._ensure_mods_tab()._install_path_with_preset(archive_path, self._framework_target_preset(target_label))
         self.refresh_view()
         set_result("UE4SS runtime repair/install started from the available source archive.", "#2d8a4e")
 
@@ -815,7 +815,7 @@ class DashboardTab(ctk.CTkFrame):
 
     def _run_compare(self) -> None:
         self._set_server_target_from_dashboard(refresh_inventory=False)
-        self.app._server_tab.compare_now()
+        self.app._ensure_server_tab().compare_now()
 
     def _open_full_compare(self) -> None:
         self._set_server_target_from_dashboard(refresh_inventory=False)
@@ -827,12 +827,12 @@ class DashboardTab(ctk.CTkFrame):
 
     def _set_server_target_from_dashboard(self, *, refresh_inventory: bool = False) -> str:
         target = self._dashboard_target_key()
-        self.app._server_tab.set_source_for_compare(target, refresh_inventory=refresh_inventory)
+        self.app._ensure_server_tab().set_source_for_compare(target, refresh_inventory=refresh_inventory)
         return target
 
     def _review_sync_actions(self) -> None:
         target = self._set_server_target_from_dashboard(refresh_inventory=False)
-        server_tab = self.app._server_tab
+        server_tab = self.app._ensure_server_tab()
         if server_tab.last_compare_target() != target or server_tab.last_compare_report() is None:
             messagebox.showinfo("Run Compare First", "Run Compare for the selected target before reviewing sync actions.")
             return
@@ -1066,7 +1066,7 @@ class DashboardTab(ctk.CTkFrame):
             base["reason"] = "Selected bundle components; use full compare/install review to avoid uploading extra pak files."
             return base
         if target == "hosted":
-            profile = self.app._server_tab._selected_remote_profile()
+            profile = self.app._ensure_server_tab()._selected_remote_profile()
             if profile is None:
                 base["reason"] = "No hosted profile selected."
                 return base
@@ -1079,7 +1079,7 @@ class DashboardTab(ctk.CTkFrame):
             return base
 
         target_enum = InstallTarget.SERVER if target == "server" else InstallTarget.DEDICATED_SERVER
-        plan, error = self.app._mods_tab._prepare_install_target(info, mod.display_name, target_enum, None)
+        plan, error = self.app._ensure_mods_tab()._prepare_install_target(info, mod.display_name, target_enum, None)
         if plan is None:
             base["reason"] = error or "Install plan is not valid."
             return base
@@ -1103,7 +1103,7 @@ class DashboardTab(ctk.CTkFrame):
         failed = 0
         for action in actions:
             try:
-                ok = self.app._mods_tab._run_install_preset(
+                ok = self.app._ensure_mods_tab()._run_install_preset(
                     action["info"],
                     action["name"],
                     action["preset"],
@@ -1121,11 +1121,12 @@ class DashboardTab(ctk.CTkFrame):
         )
         apply_btn.configure(state="normal", text="Apply Selected")
         self._set_server_target_from_dashboard(refresh_inventory=False)
-        self.app._server_tab.compare_now()
+        self.app._ensure_server_tab().compare_now()
         self.refresh_view()
 
     def _apply_hosted_sync_actions(self, actions: list[dict], dialog, status, apply_btn) -> None:
-        profile = self.app._server_tab._selected_remote_profile()
+        server_tab = self.app._ensure_server_tab()
+        profile = server_tab._selected_remote_profile()
         if profile is None:
             status.configure(text="No hosted profile selected.", text_color="#c0392b")
             apply_btn.configure(state="normal", text="Apply Selected")
@@ -1145,7 +1146,7 @@ class DashboardTab(ctk.CTkFrame):
                         failed_messages.extend(result.failed[:2])
                     else:
                         success += 1
-                        self.app._server_tab._record_hosted_upload(
+                        server_tab._record_hosted_upload(
                             archive_path=action.get("archive"),
                             display_name=action["name"],
                             profile=profile,
@@ -1168,9 +1169,9 @@ class DashboardTab(ctk.CTkFrame):
                 status.configure(text=text, text_color="#2d8a4e" if success and not failed else "#e67e22")
                 if apply_btn.winfo_exists():
                     apply_btn.configure(state="normal", text="Apply Selected")
-                self.app._server_tab._refresh_server_inventory()
+                server_tab._refresh_server_inventory()
                 self._set_server_target_from_dashboard(refresh_inventory=False)
-                self.app._server_tab.compare_now()
+                server_tab.compare_now()
                 self.refresh_view()
 
             self.app.dispatch_to_ui(_show)
@@ -1197,15 +1198,15 @@ class DashboardTab(ctk.CTkFrame):
 
     def _open_client_mods_folder(self) -> None:
         if not self._open_folder(self.app.paths.client_mods):
-            self.app._server_tab._set_result("Client mods folder is not configured.", level="warning")
+            self.app.set_server_status_result("Client mods folder is not configured.", level="warning")
 
     def _open_local_server_mods_folder(self) -> None:
         if not self._open_folder(self.app.paths.server_mods):
-            self.app._server_tab._set_result("Local server mods folder is not configured.", level="warning")
+            self.app.set_server_status_result("Local server mods folder is not configured.", level="warning")
 
     def _open_dedicated_server_mods_folder(self) -> None:
         if not self._open_folder(self.app.paths.dedicated_server_mods):
-            self.app._server_tab._set_result("Dedicated server mods folder is not configured.", level="warning")
+            self.app.set_server_status_result("Dedicated server mods folder is not configured.", level="warning")
 
     def apply_ui_preferences(self) -> None:
         self._title.configure(font=self.app.ui_font("title"))
@@ -1227,17 +1228,16 @@ class DashboardTab(ctk.CTkFrame):
             button.configure(font=self.app.ui_font("body"), height=self.app.ui_tokens.compact_button_height)
 
     def refresh_view(self) -> None:
-        server_tab = self.app._server_tab
-        counts = server_tab._dashboard_target_counts()
-        source_label = "Hosted Server" if server_tab._source_var.get() == "hosted" else server_tab._active_local_label()
-        active_world = server_tab._world_display_name(server_tab._world_config)
-        hosted_profile = server_tab._selected_remote_profile()
-        hosted_name = hosted_profile.name if hosted_profile is not None else "Not selected"
+        overview = self.app.dashboard_overview()
+        counts = overview["counts"]
+        source_label = overview["source_label"]
+        active_world = overview["active_world"]
+        hosted_name = overview["hosted_name"]
 
-        client_state = self._status_text(self.app.is_game_running(), configured=True)
+        client_state = self._status_text(self.app.cached_is_game_running(), configured=True)
         local_state = self._server_status_text("server")
         dedicated_state = self._server_status_text("dedicated_server")
-        hosted_state = server_tab._hosted_dashboard_state
+        hosted_state = overview["hosted_state"]
         framework_states = self.app.framework_state.all_local_states(
             self.app.paths,
             external_ue4ss_targets=self.app.preferences.external_ue4ss_targets,
@@ -1251,12 +1251,12 @@ class DashboardTab(ctk.CTkFrame):
 
         self._setup_values["source"].configure(text=source_label)
         self._setup_values["world"].configure(text=active_world)
-        self._setup_values["profile"].configure(text=hosted_name if server_tab._source_var.get() == "hosted" else "N/A")
-        self._setup_values["apply"].configure(text=server_tab._last_apply_text())
-        self._setup_values["restart"].configure(text=server_tab._last_restart_text())
-        self._setup_values["backup"].configure(text=server_tab._last_backup_text())
+        self._setup_values["profile"].configure(text=hosted_name if overview["source_key"] == "hosted" else "N/A")
+        self._setup_values["apply"].configure(text=overview["last_apply"])
+        self._setup_values["restart"].configure(text=overview["last_restart"])
+        self._setup_values["backup"].configure(text=overview["last_backup"])
 
-        compare_state, compare_summary = server_tab.dashboard_parity_state()
+        compare_state, compare_summary = overview["parity_state"], overview["parity_summary"]
         drift_warnings = getattr(self.app, "manifest_drift_warnings", lambda: [])()
         state_text, state_color = {
             "clean": ("Compare looks clean", "#2d8a4e"),
@@ -1272,8 +1272,10 @@ class DashboardTab(ctk.CTkFrame):
             self._drift_label.configure(text=f"Drift detected: {count} managed mod issue(s). Open Mods or Activity to review.")
         else:
             self._drift_label.configure(text="")
-        can_review_sync = (
-            server_tab.last_compare_target() == self._dashboard_target_key()
+        server_tab = self.app._server_tab if self.app._tab_constructed("Server") else None
+        can_review_sync = bool(
+            server_tab
+            and server_tab.last_compare_target() == self._dashboard_target_key()
             and server_tab.last_compare_report() is not None
             and server_tab.last_compare_report().review_needed > 0
         )
@@ -1289,14 +1291,14 @@ class DashboardTab(ctk.CTkFrame):
         configured = bool(self.app.paths.server_root if target == "server" else self.app.paths.dedicated_server_root)
         if not configured:
             return "Not configured"
-        running = self.app.is_server_process_running()
+        running = self.app.cached_is_server_process_running()
         if not running:
             return "Configured"
         if self.app.paths.server_root and not self.app.paths.dedicated_server_root and target == "server":
             return "Running"
         if self.app.paths.dedicated_server_root and not self.app.paths.server_root and target == "dedicated_server":
             return "Running"
-        active_target = self.app._server_tab._source_var.get()
+        active_target = self.app.dashboard_source_key()
         if active_target == target:
             return "Running"
         return "Configured"

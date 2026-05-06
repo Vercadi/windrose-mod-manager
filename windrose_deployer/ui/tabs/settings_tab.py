@@ -667,7 +667,7 @@ class SettingsTab(ctk.CTkFrame):
 
     def _open_hosted_profile_manager(self) -> None:
         self.app._tabview.set("Server")
-        self.app._server_tab.open_hosted_setup()
+        self.app._ensure_server_tab().open_hosted_setup()
 
     def _on_ui_size_changed(self, selected: str) -> None:
         label = selected or self._ui_size_var.get()

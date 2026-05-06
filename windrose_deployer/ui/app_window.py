@@ -24,6 +24,7 @@ from .. import __app_name__, __version__
 from ..core.backup_manager import BackupManager
 from ..core.discovery import discover_all, reconcile_paths
 from ..core.integrity_service import IntegrityService
+from ..core.lazy_tabs import LazyTabController
 from ..core.framework_state_service import FrameworkStateService
 from ..core.framework_config_service import FrameworkConfigService
 from ..core.installer import Installer
@@ -45,6 +46,7 @@ from ..core.world_config_service import WorldConfigService
 from ..models.app_preferences import AppPreferences, EXTERNAL_UE4SS_TARGET_VALUES
 from ..models.app_paths import AppPaths
 from ..models.deployment_record import DeploymentRecord
+from ..models.mod_install import expand_target_values
 from ..utils.json_io import read_json, write_json
 from ..utils.filesystem import ensure_dir
 from .ui_tokens import UiTokens, ui_tokens_for_size
@@ -90,6 +92,8 @@ class AppWindow(ctk.CTk):
         self._ui_call_queue: queue.Queue = queue.Queue()
         self._process_names_cache: set[str] = set()
         self._process_names_cache_at = 0.0
+        self._process_names_cache_ready = False
+        self._process_names_refreshing = False
         self._manifest_drift_warnings: list[str] = []
         self._last_hosted_diagnostics = ""
 
@@ -174,6 +178,7 @@ class AppWindow(ctk.CTk):
         ensure_dir(DEFAULT_BACKUP_DIR)
 
         setup_logging(log_dir=DEFAULT_DATA_DIR)
+        log.info("Starting %s v%s", __app_name__, __version__)
         self._log_startup_timing("_init_services.setup_logging", stage_started)
 
         stage_started = time.perf_counter()
@@ -320,6 +325,10 @@ class AppWindow(ctk.CTk):
                 font=self.ui_font("small"),
                 height=self.ui_tokens.compact_button_height,
             )
+        if "_tab_loading_labels" in self.__dict__:
+            for label in self._tab_loading_labels.values():
+                if label.winfo_exists():
+                    label.configure(font=self.ui_font("body"))
         if "_recovery_tab" in self.__dict__ and self._recovery_tab is not None:
             self._recovery_tab.apply_ui_preferences()
         self.update_idletasks()
@@ -394,10 +403,7 @@ class AppWindow(ctk.CTk):
         except Exception as exc:
             log.warning("Could not record app action %s: %s", action, exc)
 
-    def _running_process_names(self) -> set[str]:
-        now = time.monotonic()
-        if now - self._process_names_cache_at < 2.0 and self._process_names_cache:
-            return set(self._process_names_cache)
+    def _query_running_process_names(self) -> set[str]:
         try:
             startupinfo = None
             creationflags = getattr(subprocess, "CREATE_NO_WINDOW", 0)
@@ -421,12 +427,47 @@ class AppWindow(ctk.CTk):
                 first = line.split('","', 1)[0].strip('"')
                 if first:
                     names.add(first.lower())
-            self._process_names_cache = names
-            self._process_names_cache_at = now
             return names
         except Exception as exc:
             log.warning("Could not query running processes: %s", exc)
             return set()
+
+    def _store_process_names_cache(self, names: set[str]) -> None:
+        self._process_names_cache = set(names)
+        self._process_names_cache_at = time.monotonic()
+        self._process_names_cache_ready = True
+
+    def _running_process_names(self) -> set[str]:
+        now = time.monotonic()
+        if self._process_names_cache_ready and now - self._process_names_cache_at < 2.0:
+            return set(self._process_names_cache)
+        names = self._query_running_process_names()
+        self._store_process_names_cache(names)
+        return names
+
+    def _cached_process_names(self) -> set[str]:
+        now = time.monotonic()
+        if not self._process_names_cache_ready or now - self._process_names_cache_at >= 2.0:
+            self._request_process_names_refresh()
+        return set(self._process_names_cache)
+
+    def _request_process_names_refresh(self) -> None:
+        if self._process_names_refreshing:
+            return
+        self._process_names_refreshing = True
+
+        def _work() -> None:
+            names = self._query_running_process_names()
+
+            def _apply() -> None:
+                self._store_process_names_cache(names)
+                self._process_names_refreshing = False
+                if self._tab_constructed("Dashboard") and self._tabview.get() == "Dashboard":
+                    self._dashboard_tab.refresh_view()
+
+            self.dispatch_to_ui(_apply)
+
+        threading.Thread(target=_work, daemon=True).start()
 
     def is_game_running(self) -> bool:
         names = self._running_process_names()
@@ -434,6 +475,14 @@ class AppWindow(ctk.CTk):
 
     def is_server_process_running(self) -> bool:
         names = self._running_process_names()
+        return any(name in names for name in {"windroseserver.exe", "windroseserver-win64-shipping.exe"})
+
+    def cached_is_game_running(self) -> bool:
+        names = self._cached_process_names()
+        return any(name in names for name in {"windrose.exe", "eosauthlauncher.exe"})
+
+    def cached_is_server_process_running(self) -> bool:
+        names = self._cached_process_names()
         return any(name in names for name in {"windroseserver.exe", "windroseserver-win64-shipping.exe"})
 
     # ---------------------------------------------------------- UI
@@ -444,6 +493,8 @@ class AppWindow(ctk.CTk):
         self._recovery_window = None
         self._recovery_tab = None
         self._loaded_tabs: set[str] = set()
+        self._tab_loading_frames: dict[str, ctk.CTkFrame] = {}
+        self._tab_loading_labels: dict[str, ctk.CTkLabel] = {}
 
         self._build_update_banner()
         self._build_status_banner()
@@ -463,26 +514,67 @@ class AppWindow(ctk.CTk):
         tab_settings = self._tabview.add("Settings")
         tab_help = self._tabview.add("Help")
 
-        for tab in (tab_dashboard, tab_mods, tab_server, tab_activity, tab_settings, tab_help):
+        self._tab_hosts = {
+            "Dashboard": tab_dashboard,
+            "Mods": tab_mods,
+            "Server": tab_server,
+            "Activity": tab_activity,
+            "Settings": tab_settings,
+            "Help": tab_help,
+        }
+
+        for tab in self._tab_hosts.values():
             tab.grid_columnconfigure(0, weight=1)
             tab.grid_rowconfigure(0, weight=1)
+        for tab_name in ("Mods", "Server", "Activity", "Settings", "Help"):
+            self._show_tab_loading_placeholder(tab_name)
 
-        from .tabs.backups_tab import BackupsTab
+        self._lazy_tabs = LazyTabController(
+            {
+                "Dashboard": self._construct_dashboard_tab,
+                "Mods": self._construct_mods_tab,
+                "Server": self._construct_server_tab,
+                "Activity": self._construct_activity_tab,
+                "Settings": self._construct_settings_tab,
+                "Help": self._construct_help_tab,
+            }
+        )
+        self._dashboard_tab = self._lazy_tabs.ensure("Dashboard")
+
+        self._build_launch_bar(self._main_host)
+        self._pump_ui_queue()
+        self._tabview.set("Dashboard")
+        self._bind_shortcuts()
+        self.refresh_ui_preferences()
+
+    def _construct_dashboard_tab(self):
         from .tabs.dashboard_tab import DashboardTab
+
+        tab = DashboardTab(self._tab_hosts["Dashboard"], app=self)
+        tab.grid(row=0, column=0, sticky="nsew")
+        self._dashboard_tab = tab
+        return tab
+
+    def _construct_mods_tab(self):
         from .tabs.mods_tab import ModsTab
+
+        tab = ModsTab(self._tab_hosts["Mods"], app=self)
+        tab.grid(row=0, column=0, sticky="nsew")
+        self._mods_tab = tab
+        return tab
+
+    def _construct_server_tab(self):
         from .tabs.server_tab import ServerTab
-        from .tabs.settings_tab import SettingsTab
-        from .tabs.about_tab import AboutTab
 
-        self._mods_tab = ModsTab(tab_mods, app=self)
-        self._mods_tab.grid(row=0, column=0, sticky="nsew")
+        tab = ServerTab(self._tab_hosts["Server"], app=self, defer_initial_refresh=True)
+        tab.grid(row=0, column=0, sticky="nsew")
+        self._server_tab = tab
+        return tab
 
-        self._server_tab = ServerTab(tab_server, app=self, defer_initial_refresh=True)
-        self._server_tab.grid(row=0, column=0, sticky="nsew")
+    def _construct_activity_tab(self):
+        from .tabs.backups_tab import BackupsTab
 
-        self._dashboard_tab = DashboardTab(tab_dashboard, app=self)
-        self._dashboard_tab.grid(row=0, column=0, sticky="nsew")
-
+        tab_activity = self._tab_hosts["Activity"]
         tab_activity.grid_rowconfigure(0, weight=1)
         tab_activity.grid_rowconfigure(1, weight=0)
         activity_host = ctk.CTkFrame(tab_activity, fg_color="transparent")
@@ -496,32 +588,103 @@ class AppWindow(ctk.CTk):
         status_host.grid(row=1, column=0, sticky="ew")
         status_host.grid_columnconfigure(0, weight=1)
         status_host.grid_rowconfigure(0, weight=1)
-
-        self._settings_tab = SettingsTab(tab_settings, app=self)
-        self._settings_tab.grid(row=0, column=0, sticky="nsew")
-
-        self._about_tab = AboutTab(tab_help, app=self)
-        self._about_tab.grid(row=0, column=0, sticky="nsew")
-
-        self._build_launch_bar(self._main_host)
-
         self._status = StatusPanel(
             status_host,
             height=180,
             collapsed=True,
         )
         self._status.grid(row=0, column=0, sticky="nsew")
-        self._pump_ui_queue()
-        self._tabview.set("Dashboard")
-        self._bind_shortcuts()
-        self.refresh_ui_preferences()
+        return self._recovery_tab
 
-    def _on_tab_changed(self, tab_name: str) -> None:
+    def _construct_settings_tab(self):
+        from .tabs.settings_tab import SettingsTab
+
+        tab = SettingsTab(self._tab_hosts["Settings"], app=self)
+        tab.grid(row=0, column=0, sticky="nsew")
+        self._settings_tab = tab
+        return tab
+
+    def _construct_help_tab(self):
+        from .tabs.about_tab import AboutTab
+
+        tab = AboutTab(self._tab_hosts["Help"], app=self)
+        tab.grid(row=0, column=0, sticky="nsew")
+        self._about_tab = tab
+        return tab
+
+    def _ensure_tab(self, tab_name: str):
+        if not self._tab_constructed(tab_name):
+            self._show_tab_loading_placeholder(tab_name)
+            if tab_name != "Dashboard" and "tk" in self.__dict__:
+                self.update_idletasks()
+        tab = self._lazy_tabs.ensure(tab_name)
+        self._clear_tab_loading_placeholder(tab_name)
+        return tab
+
+    def _show_tab_loading_placeholder(self, tab_name: str, message: str | None = None) -> None:
+        if tab_name == "Dashboard" or "_tab_hosts" not in self.__dict__:
+            return
+        if tab_name not in self._tab_hosts:
+            return
+        if "_tab_loading_frames" not in self.__dict__:
+            return
+        frame = self._tab_loading_frames.get(tab_name)
+        if frame is not None and frame.winfo_exists():
+            label = self._tab_loading_labels.get(tab_name)
+            if label is not None and label.winfo_exists():
+                label.configure(text=message or f"Preparing {tab_name}...")
+            frame.grid(row=0, column=0, sticky="nsew")
+            return
+        host = self._tab_hosts[tab_name]
+        frame = ctk.CTkFrame(host, fg_color="transparent")
+        frame.grid(row=0, column=0, sticky="nsew")
+        frame.grid_columnconfigure(0, weight=1)
+        frame.grid_rowconfigure(0, weight=1)
+        label = ctk.CTkLabel(
+            frame,
+            text=message or f"Preparing {tab_name}...",
+            font=self.ui_font("body"),
+            text_color="#95a5a6",
+        )
+        label.grid(row=0, column=0, sticky="")
+        self._tab_loading_frames[tab_name] = frame
+        self._tab_loading_labels[tab_name] = label
+
+    def _clear_tab_loading_placeholder(self, tab_name: str) -> None:
+        if "_tab_loading_frames" not in self.__dict__:
+            return
+        frame = self._tab_loading_frames.pop(tab_name, None)
+        self._tab_loading_labels.pop(tab_name, None)
+        if frame is not None and frame.winfo_exists():
+            frame.destroy()
+
+    def _tab_constructed(self, tab_name: str) -> bool:
+        return "_lazy_tabs" in self.__dict__ and self._lazy_tabs.is_constructed(tab_name)
+
+    def _ensure_mods_tab(self):
+        return self._ensure_tab("Mods")
+
+    def _ensure_server_tab(self):
+        return self._ensure_tab("Server")
+
+    def _ensure_activity_tab(self):
+        return self._ensure_tab("Activity")
+
+    def _ensure_settings_tab(self):
+        return self._ensure_tab("Settings")
+
+    def _ensure_help_tab(self):
+        return self._ensure_tab("Help")
+
+    def _on_tab_changed(self, tab_name: str | None = None) -> None:
+        tab_name = tab_name or self._tabview.get()
         if tab_name not in self._loaded_tabs:
+            self._show_tab_loading_placeholder(tab_name)
             self._refresh_tab(tab_name)
             self._loaded_tabs.add(tab_name)
 
     def _refresh_tab(self, tab_name: str) -> None:
+        self._ensure_tab(tab_name)
         if tab_name == "Dashboard":
             self._dashboard_tab.refresh_view()
         elif tab_name == "Mods":
@@ -876,16 +1039,126 @@ class AppWindow(ctk.CTk):
         check_for_update(__version__, self._show_update_banner)
         self._log_startup_timing("_initial_load.schedule_update_check", stage_started)
         self.after(300, self._maybe_show_welcome)
+        self.after(1200, self._prewarm_lazy_tabs)
+
+    def _prewarm_lazy_tabs(self) -> None:
+        self._prewarm_next_lazy_tab(("Mods", "Server"), 0)
+
+    def _prewarm_next_lazy_tab(self, tab_names: tuple[str, ...], index: int) -> None:
+        if index >= len(tab_names) or not self.winfo_exists():
+            return
+        tab_name = tab_names[index]
+        if self._tabview.get() == "Dashboard" and not self._tab_constructed(tab_name):
+            started = time.perf_counter()
+            log.info("Prewarming lazy tab: %s", tab_name)
+            self._ensure_tab(tab_name)
+            self._log_startup_timing(f"_lazy_prewarm.{tab_name}", started)
+        self.after(700, lambda: self._prewarm_next_lazy_tab(tab_names, index + 1))
 
     # ---------------------------------------------------------- cross-tab helpers
+
+    def dashboard_overview(self) -> dict:
+        source_key = self.dashboard_source_key()
+        if self._tab_constructed("Server"):
+            server_tab = self._server_tab
+            hosted_profile = server_tab._selected_remote_profile()
+            parity_state, parity_summary = server_tab.dashboard_parity_state()
+            return {
+                "counts": server_tab._dashboard_target_counts(),
+                "source_key": source_key,
+                "source_label": "Hosted Server" if source_key == "hosted" else server_tab._active_local_label(),
+                "active_world": server_tab._world_display_name(server_tab._world_config),
+                "hosted_name": hosted_profile.name if hosted_profile is not None else "Not selected",
+                "hosted_state": server_tab._hosted_dashboard_state,
+                "last_apply": server_tab._last_apply_text(),
+                "last_restart": server_tab._last_restart_text(),
+                "last_backup": server_tab._last_backup_text(),
+                "parity_state": parity_state,
+                "parity_summary": parity_summary,
+            }
+        hosted_profiles = self.remote_profiles.list_profiles()
+        return {
+            "counts": self._dashboard_target_counts(),
+            "source_key": source_key,
+            "source_label": "Dedicated Server",
+            "active_world": "(not loaded)",
+            "hosted_name": hosted_profiles[0].name if hosted_profiles else "Not selected",
+            "hosted_state": "Configured" if hosted_profiles else "Not configured",
+            "last_apply": self._last_apply_text(),
+            "last_restart": self._last_restart_text(),
+            "last_backup": self._last_backup_text(),
+            "parity_state": "not_run",
+            "parity_summary": "No compare run yet",
+        }
+
+    def dashboard_source_key(self) -> str:
+        if self._tab_constructed("Server"):
+            return self._server_tab._source_var.get()
+        return "dedicated_server"
+
+    def _dashboard_target_counts(self) -> dict[str, int]:
+        counts = {"client": 0, "server": 0, "dedicated_server": 0, "hosted": 0}
+        for mod in self.manifest.list_mods():
+            targets = expand_target_values(mod.targets)
+            if not targets and getattr(mod, "target", "") == "hosted":
+                targets = {"hosted"}
+            for key in counts:
+                if key in targets:
+                    counts[key] += 1
+        return counts
+
+    def _last_backup_text(self) -> str:
+        backups = sorted(self.backup.list_backups(), key=lambda item: item.timestamp, reverse=True)
+        if not backups:
+            return "No backups yet"
+        latest = backups[0]
+        return f"{latest.category.replace('_', ' ').title()} @ {latest.timestamp[:19].replace('T', ' ')}"
+
+    def _last_apply_text(self) -> str:
+        actions = {
+            "save_server_config",
+            "save_world_config",
+            "save_remote_server_config",
+            "save_remote_world_config",
+        }
+        for record in reversed(self.manifest.list_history()):
+            if record.action in actions:
+                label = record.action.replace("_", " ")
+                return f"{label.title()} @ {record.timestamp[:19].replace('T', ' ')}"
+        return "No recent apply actions"
+
+    def _last_restart_text(self) -> str:
+        actions = {
+            "hosted_restart",
+            "launch_server",
+        }
+        for record in reversed(self.manifest.list_history()):
+            if record.action in actions:
+                label = record.action.replace("_", " ")
+                return f"{label.title()} @ {record.timestamp[:19].replace('T', ' ')}"
+        return "No restart or launch yet"
+
+    def open_active_server_folder(self) -> None:
+        self._ensure_server_tab()._open_active_server_folder()
+
+    def backup_active_server_now(self) -> None:
+        self._ensure_server_tab()._on_backup_now()
+
+    def set_server_status_result(self, text: str, *, level: str = "info") -> None:
+        if self._tab_constructed("Server"):
+            self._server_tab._set_result(text, level=level)
+            return
+        kind = "warning" if level == "warning" else "error" if level == "error" else "info"
+        self.show_banner(kind, text)
 
     def refresh_installed_tab(self) -> None:
         if "_dashboard_tab" in self.__dict__:
             self._dashboard_tab.refresh_view()
-        self._mods_tab.refresh_view()
+        if self._tab_constructed("Mods"):
+            self._mods_tab.refresh_view()
         if self._tabview.get() == "Server":
-            self._server_tab.refresh_view()
-        else:
+            self._ensure_server_tab().refresh_view()
+        elif self._tab_constructed("Server"):
             self._server_tab.refresh_remote_profiles()
         if self._recovery_tab is not None and ("Activity" in self._loaded_tabs or self._tabview.get() == "Activity"):
             self._recovery_tab.refresh()
@@ -900,10 +1173,11 @@ class AppWindow(ctk.CTk):
     def refresh_mods_tab(self) -> None:
         if "_dashboard_tab" in self.__dict__:
             self._dashboard_tab.refresh_view()
-        self._mods_tab.refresh_view()
+        if self._tab_constructed("Mods"):
+            self._mods_tab.refresh_view()
         if self._tabview.get() == "Server":
-            self._server_tab.refresh_view()
-        else:
+            self._ensure_server_tab().refresh_view()
+        elif self._tab_constructed("Server"):
             self._server_tab.refresh_remote_profiles()
         self._update_mod_badge()
 
@@ -1145,10 +1419,13 @@ class AppWindow(ctk.CTk):
         )
 
     def open_remote_deploy(self, archive_path: str | Path | None = None) -> None:
-        self._server_tab.open_hosted_install_dialog(archive_path)
+        if archive_path is None:
+            self._ensure_mods_tab()
+        self._ensure_server_tab().open_hosted_install_dialog(archive_path)
 
     def refresh_remote_profile_views(self) -> None:
-        self._server_tab.refresh_remote_profiles()
+        if self._tab_constructed("Server"):
+            self._server_tab.refresh_remote_profiles()
 
     def _update_mod_badge(self) -> None:
         count = len(self.manifest.list_mods())
@@ -1172,7 +1449,7 @@ class AppWindow(ctk.CTk):
 
     def _bind_shortcuts(self) -> None:
         self.bind("<F5>", lambda _event: self._refresh_active_view())
-        self.bind("<Control-o>", lambda _event: self._mods_tab.import_archives())
+        self.bind("<Control-o>", lambda _event: self._ensure_mods_tab().import_archives())
         self.bind("<Control-r>", lambda _event: self._refresh_active_view())
         self.bind("<Control-Shift-R>", lambda _event: self.open_recovery_center())
 
@@ -1244,16 +1521,17 @@ class AppWindow(ctk.CTk):
         def _go_library() -> None:
             self._tabview.set("Mods")
             _close_dialog()
-            self._mods_tab.import_archives()
+            self._ensure_mods_tab().import_archives()
 
         def _go_server() -> None:
             self._tabview.set("Server")
             _close_dialog()
-            self._server_tab.open_hosted_setup()
+            self._ensure_server_tab().open_hosted_setup()
 
         def _go_settings() -> None:
             self._tabview.set("Settings")
             _close_dialog()
+            self._ensure_settings_tab()
 
         ctk.CTkButton(
             action_frame,
