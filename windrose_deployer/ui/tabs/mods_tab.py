@@ -122,7 +122,7 @@ class ModsTab(ctk.CTkFrame):
         self._expanded_mod_ids: set[str] = set()
         self._archive_component_selections: dict[str, set[str]] = {}
         self._mod_component_selections: dict[str, set[str]] = {}
-        self._wrap_labels: list[ctk.CTkLabel] = []
+        self._wrap_labels: dict[ctk.CTkLabel, tuple[int, int]] = {}
 
         self._search_var = ctk.StringVar()
         self._search_var.trace_add("write", lambda *_args: self._refresh_library_ui(refresh_applied=False))
@@ -866,15 +866,20 @@ class ModsTab(ctk.CTkFrame):
         widget.configure(state="disabled")
 
     def _register_wrap_label(self, label: ctk.CTkLabel, *, margin: int = 24, minimum: int = 160) -> None:
-        self._wrap_labels.append(label)
+        self._wrap_labels[label] = (margin, minimum)
 
         def _fit(event=None) -> None:
             try:
                 if not label.winfo_exists():
                     return
-                width = getattr(event, "width", 0) or label.winfo_width()
+                parent = label.master
+                width = parent.winfo_width() if parent is not None else 0
+                if width <= 1:
+                    width = getattr(event, "width", 0) or label.winfo_width()
                 if width > 1:
-                    label.configure(wraplength=max(minimum, width - margin))
+                    desired = max(minimum, width - margin)
+                    if int(float(label.cget("wraplength") or 0)) != desired:
+                        label.configure(wraplength=desired)
             except Exception:
                 return
 
@@ -1001,11 +1006,19 @@ class ModsTab(ctk.CTkFrame):
         self._archive_hint_label.configure(font=self.app.ui_font("small"))
         self._detail_meta.configure(font=self.app.ui_font("body"))
         self._detail_hint.configure(font=self.app.ui_font("small"))
-        for label in self._wrap_labels:
+        self._wrap_labels = {
+            label: settings
+            for label, settings in self._wrap_labels.items()
+            if label.winfo_exists()
+        }
+        for label, (margin, minimum) in self._wrap_labels.items():
             try:
-                width = label.winfo_width()
+                parent = label.master
+                width = parent.winfo_width() if parent is not None else label.winfo_width()
                 if width > 1:
-                    label.configure(wraplength=max(160, width - 24))
+                    desired = max(minimum, width - margin)
+                    if int(float(label.cget("wraplength") or 0)) != desired:
+                        label.configure(wraplength=desired)
             except Exception:
                 pass
         self._search_entry.configure(font=self.app.ui_font("body"), height=tokens.compact_button_height)

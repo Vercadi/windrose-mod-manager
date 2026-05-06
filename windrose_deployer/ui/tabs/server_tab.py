@@ -64,7 +64,7 @@ class ServerTab(ctk.CTkFrame):
         self._field_labels: list[ctk.CTkLabel] = []
         self._field_inputs: list[object] = []
         self._status_boxes: list[ctk.CTkTextbox] = []
-        self._wrap_labels: list[ctk.CTkLabel] = []
+        self._wrap_labels: dict[ctk.CTkLabel, tuple[int, int]] = {}
         self._hosted_dashboard_state = "Not configured"
         self._hosted_framework_summary = "Unknown"
         self._hosted_dashboard_profile_id: str | None = None
@@ -1251,15 +1251,20 @@ class ServerTab(ctk.CTkFrame):
         box.configure(state="disabled")
 
     def _register_wrap_label(self, label: ctk.CTkLabel, *, margin: int = 24, minimum: int = 160) -> None:
-        self._wrap_labels.append(label)
+        self._wrap_labels[label] = (margin, minimum)
 
         def _fit(event=None) -> None:
             try:
                 if not label.winfo_exists():
                     return
-                width = getattr(event, "width", 0) or label.winfo_width()
+                parent = label.master
+                width = parent.winfo_width() if parent is not None else 0
+                if width <= 1:
+                    width = getattr(event, "width", 0) or label.winfo_width()
                 if width > 1:
-                    label.configure(wraplength=max(minimum, width - margin))
+                    desired = max(minimum, width - margin)
+                    if int(float(label.cget("wraplength") or 0)) != desired:
+                        label.configure(wraplength=desired)
             except Exception:
                 return
 
@@ -1309,11 +1314,19 @@ class ServerTab(ctk.CTkFrame):
                 box.configure(font=self.app.ui_font("mono"), wrap="char")
             except Exception:
                 pass
-        for label in self._wrap_labels:
+        self._wrap_labels = {
+            label: settings
+            for label, settings in self._wrap_labels.items()
+            if label.winfo_exists()
+        }
+        for label, (margin, minimum) in self._wrap_labels.items():
             try:
-                width = label.winfo_width()
+                parent = label.master
+                width = parent.winfo_width() if parent is not None else label.winfo_width()
                 if width > 1:
-                    label.configure(wraplength=max(160, width - 24))
+                    desired = max(minimum, width - margin)
+                    if int(float(label.cget("wraplength") or 0)) != desired:
+                        label.configure(wraplength=desired)
             except Exception:
                 pass
 
