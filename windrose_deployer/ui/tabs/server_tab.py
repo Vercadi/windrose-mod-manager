@@ -646,6 +646,8 @@ class ServerTab(ctk.CTkFrame):
             label = profile.name
             if profile.host:
                 label = f"{profile.name} [{profile.host}]"
+            if profile.ue4ss_managed_externally:
+                label = f"{label} [UE4SS external]"
             self._remote_profile_labels[label] = profile.profile_id
             values.append(label)
         self._remote_profile_menu.configure(values=values)
@@ -969,7 +971,10 @@ class ServerTab(ctk.CTkFrame):
     def _active_framework_summary(self) -> str:
         if self._source_var.get() == "hosted":
             return self._hosted_framework_summary
-        state = self.app.framework_state.local_state(self._active_local_root())
+        state = self.app.framework_state.local_state(
+            self._active_local_root(),
+            ue4ss_external=self.app.is_ue4ss_marked_external(self._active_local_target()),
+        )
         return state.summary
 
     def _open_active_server_folder(self) -> None:
@@ -1052,6 +1057,8 @@ class ServerTab(ctk.CTkFrame):
                     f"Host: {profile.host}:{profile.port}\n"
                     f"Server Folder: {profile.remote_root_dir or '(not set)'}"
                 )
+                if profile.ue4ss_managed_externally:
+                    text += "\nUE4SS: managed by host/provider"
         else:
             label = self._active_local_label()
             text = (
@@ -1156,7 +1163,11 @@ class ServerTab(ctk.CTkFrame):
             target=self._active_local_target(),
         )
         text = self._local_server_inventory_text(server_mods, label, snapshot)
-        text = f"{text}\n\nFrameworks:\n  {self.app.framework_state.local_state(self._active_local_root()).summary}"
+        framework_state = self.app.framework_state.local_state(
+            self._active_local_root(),
+            ue4ss_external=self.app.is_ue4ss_marked_external(self._active_local_target()),
+        )
+        text = f"{text}\n\nFrameworks:\n  {framework_state.summary}"
         self._set_status_box(self._inventory_box, text)
 
     @staticmethod
@@ -2009,6 +2020,7 @@ class ServerTab(ctk.CTkFrame):
             "restart": ctk.StringVar(value=current.restart_command),
         }
         auth_var = ctk.StringVar(value=current.auth_mode or "password")
+        external_ue4ss_var = tk.BooleanVar(value=bool(current.ue4ss_managed_externally))
         ctk.CTkLabel(body, text="Hosted Server Setup", font=ctk.CTkFont(size=18, weight="bold")).grid(
             row=0, column=0, sticky="w", padx=8, pady=(8, 6)
         )
@@ -2104,7 +2116,25 @@ class ServerTab(ctk.CTkFrame):
             text="Example: /home/container, C:/Games/WindroseServer, or '.' when the login already lands inside the server folder",
             justify="left",
             text_color="#95a5a6",
-        ).grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
+        ).grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 6))
+        ctk.CTkCheckBox(
+            root_card,
+            text="UE4SS is managed by host/provider",
+            variable=external_ue4ss_var,
+            onvalue=True,
+            offvalue=False,
+            font=self.app.ui_font("body"),
+        ).grid(row=3, column=0, columnspan=2, sticky="w", padx=12, pady=(0, 4))
+        ctk.CTkLabel(
+            root_card,
+            text=(
+                "Use this when your provider or manual setup already has a working UE4SS runtime, "
+                "including an experimental GitHub build. The manager will allow UE4SS mods without replacing it."
+            ),
+            justify="left",
+            wraplength=520,
+            text_color="#95a5a6",
+        ).grid(row=4, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
 
         overrides = ctk.CTkFrame(body)
         overrides.grid(row=4, column=0, sticky="ew", padx=8, pady=(0, 8))
@@ -2183,6 +2213,7 @@ class ServerTab(ctk.CTkFrame):
                 remote_server_description_path=vars_map["server_desc"].get().strip(),
                 remote_save_root=vars_map["save_root"].get().strip(),
                 restart_command=vars_map["restart"].get().strip() if resolved_protocol == "sftp" else "",
+                ue4ss_managed_externally=bool(external_ue4ss_var.get()),
             )
             profile.apply_root_defaults(overwrite=False)
             return profile
@@ -2228,6 +2259,7 @@ class ServerTab(ctk.CTkFrame):
             vars_map["server_desc"].set(profile.remote_server_description_path)
             vars_map["save_root"].set(profile.remote_save_root)
             vars_map["restart"].set(profile.restart_command)
+            external_ue4ss_var.set(bool(profile.ue4ss_managed_externally))
             if profile.supports_key_auth():
                 auth_var.set(profile.auth_mode or "password")
                 vars_map["key"].set(profile.private_key_path)
@@ -2458,19 +2490,39 @@ class ServerTab(ctk.CTkFrame):
         variant_menu.grid(row=3, column=1, sticky="ew", padx=8, pady=4)
         preview = ctk.CTkTextbox(body, height=220, font=ctk.CTkFont(family="Consolas", size=11))
         preview.grid(row=4, column=0, columnspan=2, sticky="nsew", padx=8, pady=(8, 8))
-        preview_lines = [
-            f"Archive: {selected_path.name}",
-            f"Type: {info.archive_type.value}",
-            f"Install kind: {info.install_kind.replace('_', ' ')}",
-            f"Files: {info.total_files}",
-        ]
-        if info.likely_destinations:
-            preview_lines.append(f"Destination: {', '.join(info.likely_destinations)}")
-        if info.warnings or info.dependency_warnings:
-            preview_lines.append("")
-            preview_lines.extend(info.warnings)
-            preview_lines.extend(info.dependency_warnings)
-        preview.insert("1.0", "\n".join(preview_lines) + "\n")
+
+        def _selected_dialog_profile() -> RemoteProfile | None:
+            return self.app.remote_profiles.get_profile(self._remote_profile_labels.get(profile_var.get(), ""))
+
+        def _preview_lines_for(current_profile: RemoteProfile | None) -> list[str]:
+            lines = [
+                f"Archive: {selected_path.name}",
+                f"Type: {info.archive_type.value}",
+                f"Install kind: {info.install_kind.replace('_', ' ')}",
+                f"Files: {info.total_files}",
+            ]
+            if info.likely_destinations:
+                lines.append(f"Destination: {', '.join(info.likely_destinations)}")
+            if current_profile and current_profile.ue4ss_managed_externally and info.install_kind in {"ue4ss_mod", "windrose_plus"}:
+                lines.append("")
+                lines.append(
+                    "UE4SS is marked as managed by host/provider for this profile. "
+                    "The manager will upload this mod without installing or replacing UE4SS runtime files."
+                )
+            if info.warnings or info.dependency_warnings:
+                lines.append("")
+                lines.extend(info.warnings)
+                lines.extend(info.dependency_warnings)
+            return lines
+
+        def _refresh_preview(_choice: str | None = None) -> None:
+            preview.configure(state="normal")
+            preview.delete("1.0", "end")
+            preview.insert("1.0", "\n".join(_preview_lines_for(_selected_dialog_profile())) + "\n")
+            preview.configure(state="disabled")
+
+        profile_menu.configure(command=_refresh_preview)
+        _refresh_preview()
         preview.configure(state="disabled")
         status = ctk.CTkLabel(body, text="", text_color="#95a5a6", justify="left", wraplength=470)
         status.grid(row=5, column=0, columnspan=2, sticky="ew", padx=8, pady=(0, 8))
@@ -2491,6 +2543,10 @@ class ServerTab(ctk.CTkFrame):
                 return
             selected_variant = None if variant_var.get() == "(none)" else variant_var.get()
             plan = plan_remote_deployment(info, chosen_profile, selected_variant=selected_variant, mod_name=selected_path.stem)
+            if chosen_profile.ue4ss_managed_externally and info.install_kind in {"ue4ss_mod", "windrose_plus"}:
+                plan.warnings.append(
+                    "UE4SS is marked as managed by host/provider. Hosted upload will not install or replace UE4SS runtime files."
+                )
             if not plan.valid:
                 messagebox.showerror("Hosted Install Error", "\n".join(plan.warnings))
                 return

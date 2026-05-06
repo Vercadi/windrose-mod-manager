@@ -71,6 +71,7 @@ class RemoteProfile:
     remote_server_description_path: str = ""
     remote_save_root: str = ""
     restart_command: str = ""
+    ue4ss_managed_externally: bool = False
 
     @staticmethod
     def _normalize_remote_path(value: str) -> str:
@@ -161,6 +162,7 @@ class RemoteProfile:
             remote_server_description_path=self._normalize_remote_path(self.remote_server_description_path),
             remote_save_root=self._normalize_remote_path(self.remote_save_root),
             restart_command=(self.restart_command or "").strip() if resolved_protocol == "sftp" else "",
+            ue4ss_managed_externally=bool(self.ue4ss_managed_externally),
         )
 
     def to_dict(self) -> dict:
@@ -181,6 +183,7 @@ class RemoteProfile:
             "remote_server_description_path": normalized.remote_server_description_path,
             "remote_save_root": normalized.remote_save_root,
             "restart_command": normalized.restart_command if protocol == "sftp" else "",
+            "ue4ss_managed_externally": bool(normalized.ue4ss_managed_externally),
         }
 
     @classmethod
@@ -206,4 +209,5 @@ class RemoteProfile:
             remote_server_description_path=data.get("remote_server_description_path", ""),
             remote_save_root=data.get("remote_save_root", ""),
             restart_command=data.get("restart_command", "") if resolved_protocol == "sftp" else "",
+            ue4ss_managed_externally=bool(data.get("ue4ss_managed_externally", False)),
         )

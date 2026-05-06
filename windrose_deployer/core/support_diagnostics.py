@@ -147,6 +147,8 @@ class SupportDiagnosticsService:
                 rows.append(f"  Server Settings Override: {normalized.remote_server_description_path}")
             if normalized.remote_save_root:
                 rows.append(f"  World Saves Override: {normalized.remote_save_root}")
+            if normalized.ue4ss_managed_externally:
+                rows.append("  UE4SS: managed by host/provider")
         return "\n".join(rows)
 
     @staticmethod
@@ -184,7 +186,9 @@ class SupportDiagnosticsService:
         if not state.configured:
             return "not configured"
         parts = []
-        if state.ue4ss_runtime:
+        if state.ue4ss_external:
+            parts.append("UE4SS external")
+        elif state.ue4ss_runtime:
             parts.append("UE4SS partial" if state.ue4ss_partial else "UE4SS")
         elif state.ue4ss_partial:
             parts.append("UE4SS runtime missing")

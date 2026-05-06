@@ -62,6 +62,7 @@ def test_remote_profile_normalized_for_connection_trims_fields_and_keeps_explici
         remote_server_description_path=" R5\\ServerDescription.json ",
         remote_save_root=" R5\\Saved ",
         restart_command=" restart ",
+        ue4ss_managed_externally=True,
     )
 
     normalized = profile.normalized_for_connection()
@@ -76,6 +77,25 @@ def test_remote_profile_normalized_for_connection_trims_fields_and_keeps_explici
     assert normalized.remote_root_dir == "."
     assert normalized.remote_mods_dir == "R5/Content/Paks/~mods"
     assert normalized.restart_command == ""
+    assert normalized.ue4ss_managed_externally is True
+
+
+def test_remote_profile_external_ue4ss_round_trips_through_store(tmp_path):
+    data_dir = tmp_path / "data"
+    store = RemoteProfileStore(data_dir)
+    store.upsert(
+        RemoteProfile(
+            profile_id="p1",
+            name="Bisect",
+            host="panel.example",
+            ue4ss_managed_externally=True,
+        )
+    )
+
+    reloaded = RemoteProfileStore(data_dir).get_profile("p1")
+
+    assert reloaded is not None
+    assert reloaded.ue4ss_managed_externally is True
 
 
 def test_remote_provider_factory_routes_by_protocol(monkeypatch):

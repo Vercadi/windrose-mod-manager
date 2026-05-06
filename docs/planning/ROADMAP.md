@@ -466,81 +466,155 @@ This should be a focused cleanup/safety release before `v0.7` load order.
 
 ---
 
-## v0.7 - Managed Load Order
+## v0.7 - UI/UX and Startup Polish
 
 Detailed implementation plan lives in `IMPLEMENTATION_v0.7.0.md`.
 
-This release should add practical load-order control without pak editing and without `retoc`.
+This release should make the app faster to open, easier to understand, and more helpful in normal client/server/hosted workflows. Load order is deferred until there is stronger evidence Windrose users need it.
 
-### Load-order model
-- [ ] Expose managed priority instead of manual filename editing:
-  - Low
-  - Normal
-  - High
-- [ ] Map priorities to safe backend filename prefixes, for example:
-  - `010_`
-  - `050_`
-  - `090_`
-- [ ] Preserve original archive files unchanged
-- [ ] Preserve `_P` by default; do not add `_P` removal as normal UI
-- [ ] Rename `.pak/.utoc/.ucas` companion groups together
-- [ ] Store original filename, deployed filename, priority, target, and companion metadata in the manifest
-- [ ] Preview load-order changes before applying
-- [ ] Back up and track deployed-file rename/redeploy operations
+### UX / performance foundation
+- [ ] Add an app-native startup loading shell so users see immediate feedback instead of a blank delay
+- [ ] Add an app-level status/result banner for startup, routine success, warnings, and long-running action state
+- [ ] Keep PyInstaller splash out of the default build unless a future packaging test proves it is safe for the onedir Tk app
+- [ ] Introduce a small, testable lazy-tab controller patterned after the Conan Exiles manager
+- [ ] Move from refresh-lazy tabs to construction-lazy tabs where safe:
+  - Dashboard first
+  - Mods on first open
+  - Server on first open
+  - Activity on first open
+  - Settings/Help on first open
+- [ ] Decouple Dashboard summary data from full `ServerTab` construction where needed
+- [ ] Defer Mods library loading/rendering until the Mods tab is first opened
+- [ ] Add focused startup timing logs:
+  - shell
+  - dashboard build
+  - mods tab build
+  - mods library load
+  - active/inactive mod render
+  - server/activity tab build
 
-### Conflict awareness
-- [ ] Keep conflict awareness filename/target based in this release
-- [ ] Group conflicts by:
-  - target
-  - deployed filename
-  - installed/archive source
-- [ ] Keep wording careful:
-  - `same deployed filename`
-  - `load order may decide winner`
-  - `review recommended`
+### Dashboard as friendly home
+- [ ] Borrow the Conan manager's home-screen structure where it fits Windrose:
+  - short summary
+  - task shortcuts
+  - compact target/status cards
+  - Needs Attention
+  - support-info access
+- [ ] Add clearer task shortcuts:
+  - Install mods
+  - Manage active mods
+  - Set up hosted server
+  - Check client/server match
+  - Restore vanilla
+  - Open support info
+- [ ] Keep status cards compact and action-oriented
+- [ ] Add a small testable `Needs Attention` helper for drift, missing archives, hosted path issues, and framework/server-only notes
+- [ ] Avoid long technical summaries in primary cards
 
-### Load order management, not patching
-- [ ] Do not patch or mutate third-party pak contents in place
-- [ ] Expose load order as a simple managed priority, not manual filename editing
-- [ ] Support explicit load order for managed pak/io-store groups by controlling deployed file name prefixes where Windrose/UE load behavior allows it
-- [ ] Map priority to backend-managed prefixes, for example:
-  - `010_`
-  - `050_`
-  - `090_`
-- [ ] Preserve the original filename after the managed prefix by default
-- [ ] Do not special-case `_P` removal in the normal workflow
-- [ ] Keep original archive files unchanged
-- [ ] Rename companion files together:
-  - `.pak`
-  - `.utoc`
-  - `.ucas`
-- [ ] Store original filename, deployed filename, priority, target, and companion group in manifest/history
-- [ ] Preview load-order changes before applying
-- [ ] Back up and track any deployed-file rename/redeploy operation in manifest/history
-- [ ] Preserve recovery path so users can return to the previous deployed order
-- [ ] Keep any advanced filename override out of the default UI unless real compatibility cases prove it is needed
-
-### UI refresh tied to real data
-- [ ] Rework the Mods workspace around clearer data states:
-  - Installed / Applied
-  - Available Archives
-  - Conflicts
-  - Load Order
-- [ ] Avoid a purely visual redesign before the load-order/conflict model exists
+### Mods wording and scanability
+- [ ] Keep primary user terms consistent:
+  - Active Mods
+  - Inactive Mods
+  - Client
+  - Local Server
+  - Dedicated Server
+  - Hosted Server
 - [ ] Make large mod lists easier to scan:
   - denser rows
   - clearer badges
   - stronger selected/active state
-  - conflict count and dependency warnings visible without opening logs
+  - framework/server-only state visible without opening logs
+- [ ] Improve empty states:
+  - Active Mods explains how to install a mod
+  - Inactive Mods explains drag/drop and Add
+  - Hosted inventory explains profile/refresh
+- [ ] Avoid clipped buttons in Compact, Default, and Large UI sizes
+
+### Hosted setup guidance
+- [ ] Present hosted setup as a guided flow:
+  - Choose protocol
+  - Enter FTP/SFTP credentials
+  - Test connection
+  - Detect paths
+  - Save profile
+- [ ] Group hosted setup visually into:
+  - Connection
+  - Server Paths
+  - Actions
+  - Hosted Results
+- [ ] Keep Nitrado/FTP wording clear:
+  - FTP port is usually 21
+  - Query/Game/RCON ports are not FTP ports
+  - Host field should contain only the hostname, not a web panel URL
+- [ ] Distinguish connection failures from path failures
+
+### Inline results and wording cleanup
+- [ ] Add a small banner-state/helper layer so routine results do not need modal popups
+- [ ] Prefer inline result banners for routine success
+- [ ] Keep popups for destructive confirmation, real errors, and conflict decisions
+- [ ] Rewrite common errors to include:
+  - what failed
+  - likely cause
+  - next action
+- [ ] Align wording:
+  - `archive` -> `inactive mod` in primary UI
+  - `applied` -> `active` in primary UI
+  - `remote` -> `hosted` in primary UI
+  - `source root` -> `server folder` in primary UI
 - [ ] Keep technical logs secondary and expandable, not dominant in the main workspace
+
+### UI feedback and action states
+- [ ] Add visible loading states for expensive refreshes:
+  - Loading active mods
+  - Loading inactive mods
+  - Refreshing hosted files
+  - Checking dashboard status
+- [ ] Add busy button states for long-running actions:
+  - Installing
+  - Uninstalling
+  - Testing connection
+  - Refreshing
+  - Restoring
+- [ ] Show progress text for multi-item actions:
+  - `Installing 2 of 7...`
+  - `Uninstalling Expanded Horizons...`
+- [ ] Add a compact Dashboard recent-actions mini-feed with only the last few relevant actions
+- [ ] Add a persistent `Needs Attention` area for actionable warnings:
+  - missing source archive
+  - FTP path missing
+  - drift detected
+  - server-only framework difference
+  - hosted profile not configured
+- [ ] Add short toast-style messages only for small transient results like copied diagnostics or opened folders
+- [ ] If this grows too large, keep loading states, busy buttons, and inline banners in v0.7, then split recent-actions polish to v0.7.1
+
+### Accessibility and density polish
+- [ ] Centralize the Windrose palette/card/input/list styling so tabs do not invent colors independently
+- [ ] Borrow Conan's structure and consistency, not its bronze palette verbatim
+- [ ] Improve contrast for muted small text where needed
+- [ ] Keep status colors readable on dark background
+- [ ] Use short section helper text instead of long paragraphs
+- [ ] Verify Compact/Default/Large UI sizes still fit primary controls
+
+### Optional v0.7.x framework UX support
+- [ ] Add `External UE4SS detected` / `UE4SS managed by host` state where practical
+- [ ] Let users mark a target as `UE4SS installed externally`
+- [ ] Improve detection for common GitHub UE4SS release layouts
+- [ ] Add provider guidance:
+  - `If your provider supports UE4SS in its panel, enable it there first.`
+  - `BisectHosting: enable UE4SS from the server Startup panel when available.`
+- [ ] Do not force-install or replace UE4SS if a hosted provider already has a working runtime
+- [ ] If this grows beyond wording/state/detection, split it to `v0.7.1`
 
 ---
 
-## Future Deep Inspection
+## Future Load Order / Deep Inspection
 
-Do not include `retoc` in v0.7.
+Do not include load order or `retoc` in v0.7.
 
-If deeper pak/asset inspection becomes necessary later, treat it as a separate optional feature after managed load order is stable. It should not block normal install, uninstall, or load-order priority controls.
+Load order is deferred until there is stronger evidence Windrose users need it. If implemented later, prefer a managed priority/prefix model where the app controls deployed filename prefixes and keeps `.pak/.utoc/.ucas` companions together.
+
+If deeper pak/asset inspection becomes necessary later, treat it as a separate optional feature after normal manager workflows are stable.
 
 ---
 

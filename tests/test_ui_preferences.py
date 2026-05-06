@@ -27,6 +27,7 @@ class TestAppPreferences:
             "ui_size": "compact",
             "confirmation_mode": "reduced",
             "show_welcome": True,
+            "external_ue4ss_targets": [],
         }
 
     def test_show_welcome_round_trips(self):
@@ -40,6 +41,16 @@ class TestAppPreferences:
 
         assert prefs.show_welcome is False
         assert prefs.to_dict()["show_welcome"] is False
+
+    def test_external_ue4ss_targets_round_trip_and_normalize(self):
+        prefs = AppPreferences.from_dict(
+            {
+                "external_ue4ss_targets": ["dedicated_server", "bad-target", "client"],
+            }
+        )
+
+        assert prefs.external_ue4ss_targets == ("client", "dedicated_server")
+        assert prefs.to_dict()["external_ue4ss_targets"] == ["client", "dedicated_server"]
 
 
 class TestUiTokens:

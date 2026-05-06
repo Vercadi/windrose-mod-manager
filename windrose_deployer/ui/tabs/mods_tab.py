@@ -20,7 +20,6 @@ from ...core.archive_inspector import inspect_archive
 from ...core.conflict_detector import check_plan_conflicts
 from ...core.deployment_planner import plan_deployment
 from ...core.framework_deployment_planner import is_server_only_framework_install_kind
-from ...core.framework_detector import detect_framework_state
 from ...core.live_mod_inventory import (
     LiveModsFolderSnapshot,
     bundle_live_file_names,
@@ -4008,9 +4007,16 @@ class ModsTab(ctk.CTkFrame):
                 InstallTarget.SERVER: paths.server_root,
                 InstallTarget.DEDICATED_SERVER: paths.dedicated_server_root,
             }.get(target)
-            framework_state = detect_framework_state(framework_root)
-            if not framework_state.get("ue4ss_runtime", False):
+            framework_state = self.app.framework_state.local_state(
+                framework_root,
+                ue4ss_external=self.app.is_ue4ss_marked_external(target.value),
+            )
+            if not framework_state.ue4ss_runtime:
                 plan.warnings.append("Likely depends on UE4SS, but that runtime was not detected for this target.")
+            elif framework_state.ue4ss_external:
+                plan.warnings.append(
+                    "UE4SS is marked external for this target. The manager will install the mod without replacing that runtime."
+                )
         return plan, None
 
     def _run_install_preset(

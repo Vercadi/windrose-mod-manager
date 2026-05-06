@@ -382,7 +382,11 @@ class DashboardTab(ctk.CTkFrame):
             for widget in content.winfo_children():
                 widget.destroy()
             root = self._framework_target_root(target_var.get())
-            state = self.app.framework_state.local_state(root)
+            target_key = self._framework_target_key(target_var.get())
+            state = self.app.framework_state.local_state(
+                root,
+                ue4ss_external=self.app.is_ue4ss_marked_external(target_key),
+            )
             self._render_framework_dialog_content(content, target_var.get(), root, state, set_result, refresh_content=render)
 
         ctk.CTkOptionMenu(
@@ -410,17 +414,42 @@ class DashboardTab(ctk.CTkFrame):
             [("Restore Vanilla...", lambda target=self._framework_target_key(target_label): self.app.open_restore_vanilla_dialog(target))],
         )
 
+        target_key = self._framework_target_key(target_label)
         ue4ss_actions = []
         if self._known_config_exists(root, "ue4ss_settings"):
             ue4ss_actions.append(("Edit UE4SS Settings", lambda r=root: self._open_known_config_editor(r, "ue4ss_settings", set_result)))
         ue4ss_actions.append(("Repair / Reinstall Runtime", lambda r=root, t=target_label: self._repair_ue4ss_runtime(r, t, set_result)))
+
+        def toggle_external() -> None:
+            next_value = not self.app.is_ue4ss_marked_external(target_key)
+            self.app.set_ue4ss_marked_external(target_key, next_value)
+            if next_value:
+                set_result(
+                    f"{target_label} UE4SS is now marked external/host-managed. The manager will allow UE4SS mods without replacing it.",
+                    "#2d8a4e",
+                )
+            else:
+                set_result(f"{target_label} UE4SS external mark cleared.", "#95a5a6")
+            if refresh_content:
+                refresh_content()
+
+        ue4ss_actions.append((
+            "Clear External UE4SS Mark" if state.ue4ss_external else "Mark UE4SS External",
+            toggle_external,
+        ))
+        status_text = "Marked external/host-managed" if state.ue4ss_external else ("Installed" if state.ue4ss_runtime else "Missing")
         self._framework_section(
             parent,
             "UE4SS Runtime",
             [
-                f"Status: {'Installed' if state.ue4ss_runtime else 'Missing'}" + (" (partial)" if state.ue4ss_partial else ""),
+                f"Status: {status_text}" + (" (partial)" if state.ue4ss_partial else ""),
                 "Runtime path: R5\\Binaries\\Win64",
-                "UE4SS-settings.ini changes require a restart." if state.ue4ss_runtime else "Install or repair the runtime before editing runtime settings.",
+                (
+                    "The runtime is provided outside the manager; keep using the host/provider or manual setup that works."
+                    if state.ue4ss_external
+                    else "UE4SS-settings.ini changes require a restart." if state.ue4ss_runtime
+                    else "Install or repair the runtime before editing runtime settings."
+                ),
             ],
             ue4ss_actions,
         )
@@ -1209,7 +1238,10 @@ class DashboardTab(ctk.CTkFrame):
         local_state = self._server_status_text("server")
         dedicated_state = self._server_status_text("dedicated_server")
         hosted_state = server_tab._hosted_dashboard_state
-        framework_states = self.app.framework_state.all_local_states(self.app.paths)
+        framework_states = self.app.framework_state.all_local_states(
+            self.app.paths,
+            external_ue4ss_targets=self.app.preferences.external_ue4ss_targets,
+        )
 
         self._set_state_label(self._status_values["client"], client_state)
         self._set_state_label(self._status_values["server"], local_state)
@@ -1299,11 +1331,23 @@ class DashboardTab(ctk.CTkFrame):
 
     @classmethod
     def _ue4ss_text(cls, states: dict) -> str:
-        installed = cls._framework_target_names(states, "ue4ss_runtime")
+        labels = {
+            "client": "Client",
+            "server": "Local",
+            "dedicated_server": "Dedicated",
+        }
+        installed = [
+            labels[key]
+            for key, state in states.items()
+            if getattr(state, "ue4ss_runtime", False) and not getattr(state, "ue4ss_external", False)
+        ]
+        external = cls._framework_target_names(states, "ue4ss_external")
         partial = cls._framework_target_names(states, "ue4ss_partial")
         parts = []
         if installed:
             parts.append(", ".join(installed))
+        if external:
+            parts.append(f"External: {', '.join(external)}")
         if partial:
             label = "Review" if installed else "Runtime missing"
             parts.append(f"{label}: {', '.join(partial)}")

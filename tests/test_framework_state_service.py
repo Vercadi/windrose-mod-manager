@@ -63,6 +63,38 @@ def test_remote_framework_state_checks_ue4ss_rcon_and_windroseplus():
     assert state.summary == "UE4SS + RCON + WindrosePlus"
 
 
+def test_local_framework_state_can_mark_ue4ss_external(tmp_path):
+    service = FrameworkStateService()
+
+    state = service.local_state(tmp_path / "WindroseServer", ue4ss_external=True)
+
+    assert state.configured is True
+    assert state.ue4ss_runtime is True
+    assert state.ue4ss_external is True
+    assert state.ue4ss_partial is False
+    assert state.summary == "UE4SS external"
+
+
+def test_remote_framework_state_allows_host_managed_ue4ss_without_root():
+    def provider_factory(_profile):
+        raise AssertionError("external UE4SS profile should not need remote probing without a root")
+
+    profile = RemoteProfile(
+        profile_id="p1",
+        name="Bisect",
+        ue4ss_managed_externally=True,
+    )
+    service = FrameworkStateService(provider_factory=provider_factory)
+
+    state = service.remote_state(profile)
+
+    assert state.configured is True
+    assert state.checked is True
+    assert state.ue4ss_runtime is True
+    assert state.ue4ss_external is True
+    assert state.summary == "UE4SS external"
+
+
 def test_remote_framework_state_checks_windroseplus_package_files():
     profile = RemoteProfile(
         profile_id="p1",
@@ -133,3 +165,13 @@ def test_dashboard_rcon_text_marks_settings_pending():
     }
 
     assert DashboardTab._rcon_text(states) == "Local | Settings pending: Local"
+
+
+def test_dashboard_ue4ss_text_labels_external_targets():
+    states = {
+        "client": FrameworkTargetState(configured=True, ue4ss_runtime=True),
+        "server": FrameworkTargetState(configured=True, ue4ss_runtime=True, ue4ss_external=True),
+        "dedicated_server": FrameworkTargetState(configured=True),
+    }
+
+    assert DashboardTab._ue4ss_text(states) == "Client | External: Local"

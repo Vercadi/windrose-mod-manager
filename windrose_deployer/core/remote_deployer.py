@@ -206,6 +206,8 @@ def remote_connection_diagnostics(profile: RemoteProfile) -> str:
         parts.append(f"Server Settings Override: {profile.remote_server_description_path.strip()}")
     if profile.remote_save_root.strip():
         parts.append(f"World Saves Override: {profile.remote_save_root.strip()}")
+    if profile.ue4ss_managed_externally:
+        parts.append("UE4SS: managed by host/provider")
     return " | ".join(parts)
 
 

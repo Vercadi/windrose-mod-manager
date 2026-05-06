@@ -15,6 +15,7 @@ from .remote_provider_factory import create_remote_provider
 class FrameworkTargetState:
     configured: bool = False
     ue4ss_runtime: bool = False
+    ue4ss_external: bool = False
     ue4ss_partial: bool = False
     rcon_mod: bool = False
     rcon_configured: bool = False
@@ -37,7 +38,9 @@ class FrameworkTargetState:
         if not self.checked:
             return "Unknown"
         bits = []
-        if self.ue4ss_runtime:
+        if self.ue4ss_external:
+            bits.append("UE4SS external")
+        elif self.ue4ss_runtime:
             bits.append("UE4SS partial" if self.ue4ss_partial else "UE4SS")
         if self.rcon_mod:
             bits.append("RCON missing password" if self.rcon_missing_password else "RCON")
@@ -57,12 +60,15 @@ class FrameworkStateService:
     def __init__(self, provider_factory=None):
         self.provider_factory = provider_factory or create_remote_provider
 
-    def local_state(self, root: Path | None) -> FrameworkTargetState:
+    def local_state(self, root: Path | None, *, ue4ss_external: bool = False) -> FrameworkTargetState:
         raw = detect_framework_state(root)
+        configured = bool(raw.get("configured"))
+        external = bool(ue4ss_external and configured)
         return FrameworkTargetState(
-            configured=bool(raw.get("configured")),
-            ue4ss_runtime=bool(raw.get("ue4ss_runtime")),
-            ue4ss_partial=bool(raw.get("ue4ss_partial")),
+            configured=configured,
+            ue4ss_runtime=bool(raw.get("ue4ss_runtime")) or external,
+            ue4ss_external=external,
+            ue4ss_partial=False if external else bool(raw.get("ue4ss_partial")),
             rcon_mod=bool(raw.get("rcon_mod")),
             rcon_configured=bool(raw.get("rcon_configured")),
             rcon_missing_password=bool(raw.get("rcon_missing_password")),
@@ -76,15 +82,33 @@ class FrameworkStateService:
             windrose_plus_partial=bool(raw.get("windrose_plus_partial")),
         )
 
-    def all_local_states(self, paths: AppPaths) -> dict[str, FrameworkTargetState]:
+    def all_local_states(
+        self,
+        paths: AppPaths,
+        *,
+        external_ue4ss_targets: tuple[str, ...] | list[str] | set[str] = (),
+    ) -> dict[str, FrameworkTargetState]:
+        external_targets = set(external_ue4ss_targets or ())
         return {
-            "client": self.local_state(paths.client_root),
-            "server": self.local_state(paths.server_root),
-            "dedicated_server": self.local_state(paths.dedicated_server_root),
+            "client": self.local_state(paths.client_root, ue4ss_external="client" in external_targets),
+            "server": self.local_state(paths.server_root, ue4ss_external="server" in external_targets),
+            "dedicated_server": self.local_state(
+                paths.dedicated_server_root,
+                ue4ss_external="dedicated_server" in external_targets,
+            ),
         }
 
     def remote_state(self, profile: RemoteProfile) -> FrameworkTargetState:
         root = profile.normalized_root_dir()
+        external = bool(profile.ue4ss_managed_externally)
+        if external and not root:
+            return FrameworkTargetState(
+                configured=True,
+                checked=True,
+                ue4ss_runtime=True,
+                ue4ss_external=True,
+                warning="UE4SS is marked as managed by host/provider.",
+            )
         if not root:
             return FrameworkTargetState(configured=False, checked=False, warning="Server Folder is not configured.")
 
@@ -134,8 +158,11 @@ class FrameworkStateService:
             )
             return FrameworkTargetState(
                 configured=True,
-                ue4ss_runtime=runtime,
-                ue4ss_partial=(runtime and not (runtime_injector_present and runtime_core_present)) or (ue4ss_mods_present and not runtime),
+                ue4ss_runtime=runtime or external,
+                ue4ss_external=external,
+                ue4ss_partial=False if external else (
+                    (runtime and not (runtime_injector_present and runtime_core_present)) or (ue4ss_mods_present and not runtime)
+                ),
                 rcon_mod=rcon_installed,
                 rcon_configured=provider.path_exists(paths["rcon_settings"]) or provider.path_exists(paths["rcon_legacy_settings"]),
                 rcon_missing_password=False,

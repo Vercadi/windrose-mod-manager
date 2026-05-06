@@ -42,12 +42,13 @@ from ..core.server_sync_service import ServerSyncService
 from ..core.support_diagnostics import SupportDiagnosticsService
 from ..core.update_checker import ReleaseInfo, check_for_update, download_release_asset
 from ..core.world_config_service import WorldConfigService
-from ..models.app_preferences import AppPreferences
+from ..models.app_preferences import AppPreferences, EXTERNAL_UE4SS_TARGET_VALUES
 from ..models.app_paths import AppPaths
 from ..models.deployment_record import DeploymentRecord
 from ..utils.json_io import read_json, write_json
 from ..utils.filesystem import ensure_dir
 from .ui_tokens import UiTokens, ui_tokens_for_size
+from .ui_state import banner
 from .widgets.status_panel import StatusPanel
 
 log = logging.getLogger(__name__)
@@ -313,6 +314,12 @@ class AppWindow(ctk.CTk):
             self._about_tab.apply_ui_preferences()
         if "_status" in self.__dict__:
             self._status.apply_ui_preferences(self)
+        if "_status_banner_label" in self.__dict__:
+            self._status_banner_label.configure(font=self.ui_font("small"))
+            self._status_banner_close.configure(
+                font=self.ui_font("small"),
+                height=self.ui_tokens.compact_button_height,
+            )
         if "_recovery_tab" in self.__dict__ and self._recovery_tab is not None:
             self._recovery_tab.apply_ui_preferences()
         self.update_idletasks()
@@ -335,6 +342,28 @@ class AppWindow(ctk.CTk):
         if mode == "destructive_only":
             return category == "bulk"
         return False
+
+    def is_ue4ss_marked_external(self, target: str) -> bool:
+        return str(target or "") in set(self.preferences.normalized().external_ue4ss_targets)
+
+    def set_ue4ss_marked_external(self, target: str, enabled: bool) -> None:
+        target_key = str(target or "")
+        if target_key not in EXTERNAL_UE4SS_TARGET_VALUES:
+            return
+        current = set(self.preferences.normalized().external_ue4ss_targets)
+        if enabled:
+            current.add(target_key)
+        else:
+            current.discard(target_key)
+        self.preferences.external_ue4ss_targets = tuple(
+            key for key in EXTERNAL_UE4SS_TARGET_VALUES if key in current
+        )
+        self.preferences = self.preferences.normalized()
+        self.save_settings()
+        if "_dashboard_tab" in self.__dict__:
+            self._dashboard_tab.refresh_view()
+        if "_server_tab" in self.__dict__:
+            self._server_tab.refresh_view()
 
     def confirm_action(self, category: str, title: str, message: str) -> bool:
         if not self.should_confirm(category):
@@ -411,15 +440,16 @@ class AppWindow(ctk.CTk):
 
     def _build_ui(self) -> None:
         self.grid_columnconfigure(0, weight=1)
-        self.grid_rowconfigure(1, weight=1)
+        self.grid_rowconfigure(2, weight=1)
         self._recovery_window = None
         self._recovery_tab = None
         self._loaded_tabs: set[str] = set()
 
         self._build_update_banner()
+        self._build_status_banner()
 
         self._main_host = ctk.CTkFrame(self, fg_color="transparent")
-        self._main_host.grid(row=1, column=0, sticky="nsew", padx=8, pady=(8, 8))
+        self._main_host.grid(row=2, column=0, sticky="nsew", padx=8, pady=(8, 8))
         self._main_host.grid_columnconfigure(0, weight=1)
         self._main_host.grid_rowconfigure(0, weight=1)
 
@@ -521,6 +551,51 @@ class AppWindow(ctk.CTk):
             pass
         if self.winfo_exists():
             self.after(50, self._pump_ui_queue)
+
+    # ---------------------------------------------------------- status banner
+
+    def _build_status_banner(self) -> None:
+        self._status_banner_state = banner("info", "Starting Windrose Mod Manager...")
+        self._status_banner_frame = ctk.CTkFrame(
+            self,
+            fg_color=self._status_banner_state.background,
+            height=34,
+            corner_radius=0,
+        )
+        self._status_banner_frame.grid(row=1, column=0, sticky="ew", padx=0, pady=0)
+        self._status_banner_frame.grid_columnconfigure(0, weight=1)
+        self._status_banner_label = ctk.CTkLabel(
+            self._status_banner_frame,
+            text=self._status_banner_state.message,
+            font=self.ui_font("small"),
+            text_color=self._status_banner_state.foreground,
+            anchor="w",
+        )
+        self._status_banner_label.grid(row=0, column=0, sticky="ew", padx=12, pady=6)
+        self._status_banner_close = ctk.CTkButton(
+            self._status_banner_frame,
+            text="Close",
+            width=74,
+            height=self.ui_tokens.compact_button_height,
+            font=self.ui_font("small"),
+            fg_color="#34495e",
+            hover_color="#2c3e50",
+            command=self.clear_banner,
+        )
+        self._status_banner_close.grid(row=0, column=1, sticky="e", padx=12, pady=4)
+
+    def show_banner(self, kind: str, message: str) -> None:
+        if "_status_banner_frame" not in self.__dict__:
+            return
+        state = banner(kind, message)
+        self._status_banner_state = state
+        self._status_banner_frame.configure(fg_color=state.background)
+        self._status_banner_label.configure(text=state.message, text_color=state.foreground)
+        self._status_banner_frame.grid(row=1, column=0, sticky="ew", padx=0, pady=0)
+
+    def clear_banner(self) -> None:
+        if "_status_banner_frame" in self.__dict__:
+            self._status_banner_frame.grid_remove()
 
     # ---------------------------------------------------------- update banner
 
@@ -791,6 +866,7 @@ class AppWindow(ctk.CTk):
         if "_dashboard_tab" in self.__dict__:
             self._dashboard_tab.refresh_view()
             self._loaded_tabs.add("Dashboard")
+        self.show_banner("success", "Ready. Dashboard and configured paths are loaded.")
         self._log_startup_timing("_initial_load.refresh_initial_tab", stage_started)
         stage_started = time.perf_counter()
         self.after(400, self._warn_on_manifest_drift)
