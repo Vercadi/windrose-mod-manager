@@ -928,7 +928,7 @@ class ServerTab(ctk.CTkFrame):
         counts = self._dashboard_target_counts()
         active_world = self._world_display_name(self._world_config)
         source_label = "Hosted Server" if self._source_var.get() == "hosted" else self._active_local_label()
-        client_state = "Running" if self.app.is_game_running() else "Not running"
+        client_state = "Running" if self.app.cached_is_game_running() else "Not running"
         if self._source_var.get() == "hosted":
             hosted_state = self._hosted_dashboard_state
             server_line = f"Hosted Server: {hosted_state}"
@@ -939,7 +939,7 @@ class ServerTab(ctk.CTkFrame):
             hosted_state = self._hosted_dashboard_state
             dedicated_state = (
                 "Running"
-                if self.app.is_server_process_running()
+                if self.app.cached_is_server_process_running()
                 else ("Configured" if self.app.paths.dedicated_server_root else "Not configured")
             )
             server_line = f"Dedicated Server: {dedicated_state}"

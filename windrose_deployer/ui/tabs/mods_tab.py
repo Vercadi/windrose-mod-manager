@@ -96,7 +96,7 @@ _INSTALL_PRESETS = [
 
 
 class ModsTab(ctk.CTkFrame):
-    def __init__(self, master, app: "AppWindow", **kwargs):
+    def __init__(self, master, app: "AppWindow", *, defer_initial_load: bool = False, **kwargs):
         super().__init__(master, **kwargs)
         self.app = app
         self._current_info: Optional[ArchiveInfo] = None
@@ -137,7 +137,8 @@ class ModsTab(ctk.CTkFrame):
 
         self._build_toolbar()
         self._build_workspace()
-        self._load_library()
+        if not defer_initial_load:
+            self._load_library()
         self._register_dnd()
 
     def _build_toolbar(self) -> None:

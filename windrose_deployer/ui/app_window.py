@@ -95,6 +95,8 @@ class AppWindow(ctk.CTk):
         self._process_names_cache_ready = False
         self._process_names_refreshing = False
         self._manifest_drift_warnings: list[str] = []
+        self._manifest_drift_scan_started = False
+        self._manifest_drift_scan_retries = 0
         self._last_hosted_diagnostics = ""
 
         # Inject tkdnd so all widgets get drop_target_register / dnd_bind
@@ -462,8 +464,11 @@ class AppWindow(ctk.CTk):
             def _apply() -> None:
                 self._store_process_names_cache(names)
                 self._process_names_refreshing = False
-                if self._tab_constructed("Dashboard") and self._tabview.get() == "Dashboard":
+                current_tab = self._tabview.get() if "_tabview" in self.__dict__ else ""
+                if self._tab_constructed("Dashboard") and current_tab == "Dashboard":
                     self._dashboard_tab.refresh_view()
+                elif self._tab_constructed("Server") and current_tab == "Server":
+                    self._server_tab._refresh_dashboard()
 
             self.dispatch_to_ui(_apply)
 
@@ -558,7 +563,7 @@ class AppWindow(ctk.CTk):
     def _construct_mods_tab(self):
         from .tabs.mods_tab import ModsTab
 
-        tab = ModsTab(self._tab_hosts["Mods"], app=self)
+        tab = ModsTab(self._tab_hosts["Mods"], app=self, defer_initial_load=True)
         tab.grid(row=0, column=0, sticky="nsew")
         self._mods_tab = tab
         return tab
@@ -1032,7 +1037,7 @@ class AppWindow(ctk.CTk):
         self.show_banner("success", "Ready. Dashboard and configured paths are loaded.")
         self._log_startup_timing("_initial_load.refresh_initial_tab", stage_started)
         stage_started = time.perf_counter()
-        self.after(400, self._warn_on_manifest_drift)
+        self.after(6000, self._warn_on_manifest_drift)
         self._log_startup_timing("_initial_load.defer_manifest_drift_scan", stage_started)
 
         stage_started = time.perf_counter()
@@ -1042,7 +1047,7 @@ class AppWindow(ctk.CTk):
         self.after(1200, self._prewarm_lazy_tabs)
 
     def _prewarm_lazy_tabs(self) -> None:
-        self._prewarm_next_lazy_tab(("Mods", "Server"), 0)
+        self._prewarm_next_lazy_tab(("Mods",), 0)
 
     def _prewarm_next_lazy_tab(self, tab_names: tuple[str, ...], index: int) -> None:
         if index >= len(tab_names) or not self.winfo_exists():
@@ -1435,11 +1440,22 @@ class AppWindow(ctk.CTk):
             self._mod_count_label.configure(text="")
 
     def _warn_on_manifest_drift(self) -> None:
+        if self._manifest_drift_scan_started or not self.winfo_exists():
+            return
+        current_tab = self._tabview.get() if "_tabview" in self.__dict__ else ""
+        if current_tab != "Dashboard" and self._manifest_drift_scan_retries < 6:
+            self._manifest_drift_scan_retries += 1
+            self.after(5000, self._warn_on_manifest_drift)
+            return
+        self._manifest_drift_scan_started = True
+
         def _work() -> None:
             drift_warnings = self.integrity.scan_manifest_drift(self.manifest.list_mods())
             for warning in drift_warnings:
                 log.warning("Managed mod drift detected: %s", warning)
             def _show() -> None:
+                if not self.winfo_exists():
+                    return
                 self._manifest_drift_warnings = list(drift_warnings)
                 if "_dashboard_tab" in self.__dict__:
                     self._dashboard_tab.refresh_view()
