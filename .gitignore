@@ -30,6 +30,8 @@ data/app_state.json
 data/app_state.v*.bak.json
 data/settings.json
 data/archive_library.json
+data/archives/
+data/profiles.json
 data/remote_profiles.json
 data/*.log
 backups/installs/

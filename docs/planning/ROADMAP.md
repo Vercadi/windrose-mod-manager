@@ -618,43 +618,138 @@ If deeper pak/asset inspection becomes necessary later, treat it as a separate o
 
 ---
 
-## v0.8 - Nexus Updates & Download Integration
+## v0.7.1 to v0.9 - Archive Intelligence, Config Safety, and Profiles
 
-This should be a staged Nexus integration, not a silent auto-update system.
+Detailed implementation plan lives in `IMPLEMENTATION_v0.7.1_to_v0.9.md`.
 
-### Update available checks
-- [ ] Use stored Nexus metadata to check for newer files:
-  - game domain
-  - mod ID
-  - file ID
-  - installed/downloaded version
-  - last checked timestamp
-- [ ] Show clear states:
-  - `update available`
-  - `up to date`
-  - `not configured`
-  - `check failed`
-- [ ] Cache results and respect rate limits
-- [ ] Do not scrape Nexus pages when API metadata is missing
+The next releases should improve the Windrose-specific manager experience before adding platform API integrations. The app should stay source-agnostic: inspect the archive, explain what it found, preview the install, then deploy safely to client, local server, dedicated server, or hosted server targets.
 
-### Nexus account/API compliance
-- [ ] Register the app with Nexus before public API-based download features
-- [ ] Do not rely on personal API keys for public users except development/testing
-- [ ] Send proper Nexus API request headers:
-  - application name
-  - application version
-- [ ] Store tokens/keys securely before enabling broad Nexus download support
+### v0.7.1 - Public introduction polish
+- [ ] Add an archive summary panel:
+  - pak count
+  - companion Unreal asset count
+  - variant groups
+  - loose/config/manifest files
+  - UE4SS mod/runtime detection
+  - mixed layout warnings
+- [ ] Polish the variant picker:
+  - clear title and helper text
+  - clean filenames
+  - cancel stops the install cleanly
+  - only the chosen variant is installed
+- [ ] Add a compact pre-install/pre-upload report:
+  - target
+  - selected variant/components
+  - file list
+  - destination preview
+  - UE4SS status
+  - overwrite/conflict risk
+- [ ] Add `Copy Diagnostics` with secrets redacted
+- [ ] Shorten clipped or overlong primary UI wording
 
-### User-authorized downloads
-- [ ] Add one-click/manual-confirmed update download where Nexus API support and user account permissions allow it
-- [ ] Keep downloads user-initiated:
-  - no silent background mod replacement
-  - no automatic install without preview
-- [ ] After download, route through the existing archive review/install workflow
-- [ ] Support fallback flow:
-  - open Nexus page
-  - user downloads manually
-  - user imports archive into manager
+### v0.8.0 - Archive intelligence and deployment confidence
+- [ ] Add explicit archive layout adapters:
+  - standard pak archive
+  - multi-pak bundle
+  - multi-variant pak archive
+  - UE4SS mod archive
+  - UE4SS runtime archive
+  - shim-like UE4SS runtime archive
+  - config-only archive
+  - mixed archive
+- [ ] Generalize selection for complex archives:
+  - choose variants
+  - choose optional components
+  - keep `.pak`, `.utoc`, and `.ucas` companions together
+- [ ] Store richer install metadata:
+  - archive hash
+  - detected layout kind
+  - selected variant/components
+  - installed files
+  - target roots
+- [ ] Add conflict and risk review before writes:
+  - managed overwrite
+  - unmanaged overwrite
+  - missing target path
+  - missing or external UE4SS
+  - hosted path not verified
+- [ ] Improve compare/sync so ambiguous variant/component archives require manual review
+
+### v0.8.1 - Config center
+- [ ] Add a central or clearly grouped config surface for:
+  - Client
+  - Local Server
+  - Dedicated Server
+  - Hosted Server
+  - UE4SS
+  - WindrosePlus
+  - RCON
+- [ ] Detect and edit known config files:
+  - `UE4SS-settings.ini`
+  - UE4SS `mods.txt`
+  - UE4SS mod `enabled.txt`
+  - UE4SS mod `settings.ini`
+  - WindroseRCON `settings.ini`
+  - WindrosePlus `.json`
+  - WindrosePlus override `.ini` files
+- [ ] Back up before every config write
+- [ ] Validate JSON before save and apply INI sanity checks where practical
+- [ ] Show restart/rebuild requirements clearly
+- [ ] Support hosted known-config download/edit/upload where provider access allows it
+
+### v0.8.2 - Server operations and world safety
+- [ ] Add a compact local/dedicated server control strip:
+  - selected server folder
+  - launch target
+  - process/server state
+  - start/stop/restart
+  - open folder
+- [ ] Add a testable warning center for server issues:
+  - server running while editing config
+  - active world mismatch
+  - missing generated config
+  - direct connection loopback address
+  - high player count
+  - missing or external UE4SS state
+- [ ] Improve world workflows:
+  - discovered world list
+  - set selected world active
+  - import world folder
+  - create initial/new world where safe
+  - backup/restore selected world settings
+  - move world to trash instead of hard delete
+- [ ] Add first-run provisioning guidance for local/dedicated server folders with missing generated config
+- [ ] Improve logbook support:
+  - live tail known server log files
+  - keyword filter
+  - export logs
+  - include recent relevant lines in diagnostics
+- [ ] Research app-local scheduled backups/restarts for local/dedicated targets only
+
+### v0.9.0 - Profiles, presets, and optional runtime bridge
+- [ ] Add narrow Windrose profiles:
+  - Client only
+  - Local test server
+  - Dedicated server
+  - Hosted server
+- [ ] Export/import profiles without secrets
+- [ ] Preserve selected variants/components in profiles
+- [ ] Add guided presets for common setups:
+  - hosted UE4SS external
+  - manual UE4SS local
+  - local test server
+  - dedicated server parity baseline
+  - WindrosePlus rebuild workflow
+  - local server with scheduled backups
+  - dedicated server with world/config safety checks
+- [ ] Research an optional UE4SS runtime bridge for in-game status/config/admin support after manager-side config is stable
+
+### Deferred platform integration
+- [ ] Nexus metadata/update checks are still valuable, but come after archive intelligence and config safety
+- [ ] Use official Nexus API rules when revisited
+- [ ] Keep downloads user-authorized and preview-first
+- [ ] Route every downloaded archive through the same review/install workflow
+- [ ] Online provider search/install is deferred until source-agnostic archive review is stable
 
 ---
 

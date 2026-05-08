@@ -19,6 +19,8 @@ from .target_resolver import resolve_pak_target, resolve_loose_target, strip_arc
 
 log = logging.getLogger(__name__)
 
+ALL_VARIANTS = "All variants"
+
 
 @dataclass
 class PlannedFile:
@@ -91,7 +93,7 @@ def plan_deployment(
         return plan
 
     _plan_paks(info, plan, pak_targets, selected_variant, selected_entries)
-    _plan_companions(info, plan, pak_targets, selected_entries)
+    _plan_companions(info, plan, pak_targets, selected_variant, selected_entries)
     _plan_loose(info, plan, loose_targets, selected_entries)
 
     if plan.file_count == 0:
@@ -110,7 +112,11 @@ def _plan_paks(
 ) -> None:
     entries_to_deploy: list[ArchiveEntry] = []
 
-    if info.has_variants and selected_variant:
+    if selected_entries:
+        entries_to_deploy = [entry for entry in info.pak_entries if entry.path in selected_entries]
+    elif info.has_variants and _is_all_variants_selection(selected_variant):
+        entries_to_deploy = list(info.pak_entries)
+    elif info.has_variants and selected_variant:
         for group in info.variant_groups:
             for v in group.variants:
                 if PurePosixPath(v.path).name == selected_variant:
@@ -129,9 +135,6 @@ def _plan_paks(
         ]
     else:
         entries_to_deploy = list(info.pak_entries)
-
-    if selected_entries:
-        entries_to_deploy = [entry for entry in entries_to_deploy if entry.path in selected_entries]
 
     for entry in entries_to_deploy:
         filename = PurePosixPath(entry.path).name
@@ -182,6 +185,7 @@ def _plan_companions(
     info: ArchiveInfo,
     plan: DeploymentPlan,
     pak_targets: list[Path],
+    selected_variant: Optional[str],
     selected_entries: Optional[set[str]],
 ) -> None:
     selected_stems: set[str] = set()
@@ -190,8 +194,11 @@ def _plan_companions(
             PurePosixPath(path).stem
             for path in selected_entries
         }
+    elif info.has_variants:
+        selected_paks = _selected_pak_entries_for_companions(info, selected_variant)
+        selected_stems = {PurePosixPath(entry.path).stem for entry in selected_paks}
     for entry in info.companion_entries:
-        if selected_entries and entry.path not in selected_entries and PurePosixPath(entry.path).stem not in selected_stems:
+        if selected_stems and PurePosixPath(entry.path).stem not in selected_stems:
             continue
         filename = PurePosixPath(entry.path).name
         for tgt in pak_targets:
@@ -200,6 +207,34 @@ def _plan_companions(
                 dest_path=tgt / filename,
                 is_pak=True,
             ))
+
+
+def _selected_pak_entries_for_companions(
+    info: ArchiveInfo,
+    selected_variant: Optional[str],
+) -> list[ArchiveEntry]:
+    if not info.has_variants:
+        return list(info.pak_entries)
+
+    if _is_all_variants_selection(selected_variant):
+        return list(info.pak_entries)
+
+    variant_entries = {entry.path for group in info.variant_groups for entry in group.variants}
+    selected: list[ArchiveEntry] = [
+        entry for entry in info.pak_entries if entry.path not in variant_entries
+    ]
+    if selected_variant:
+        selected.extend(
+            entry
+            for group in info.variant_groups
+            for entry in group.variants
+            if PurePosixPath(entry.path).name == selected_variant
+        )
+    return selected
+
+
+def _is_all_variants_selection(selected_variant: Optional[str]) -> bool:
+    return str(selected_variant or "").strip().lower() == ALL_VARIANTS.lower()
 
 
 def _plan_loose(

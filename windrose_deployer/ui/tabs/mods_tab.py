@@ -18,8 +18,9 @@ from ...core.archive_handler import SUPPORTED_EXTENSIONS
 from ...core.archive_library_service import manager_owned_archive_path, should_copy_archive_to_library
 from ...core.archive_inspector import inspect_archive
 from ...core.conflict_detector import check_plan_conflicts
-from ...core.deployment_planner import plan_deployment
+from ...core.deployment_planner import ALL_VARIANTS, plan_deployment
 from ...core.framework_deployment_planner import is_server_only_framework_install_kind
+from ...core.install_report import archive_summary_lines, build_local_install_report
 from ...core.live_mod_inventory import (
     LiveModsFolderSnapshot,
     bundle_live_file_names,
@@ -397,10 +398,25 @@ class ModsTab(ctk.CTkFrame):
         panel.pack(fill="both", expand=True)
         panel.grid_columnconfigure(0, weight=1)
 
+        detail_top = ctk.CTkFrame(panel, fg_color="transparent")
+        detail_top.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 2))
+        detail_top.grid_columnconfigure(0, weight=1)
         self._detail_header = ctk.CTkLabel(
-            panel, text="Select a mod", font=self.app.ui_font("detail_title"), anchor="w"
+            detail_top, text="Select a mod", font=self.app.ui_font("detail_title"), anchor="w"
         )
-        self._detail_header.grid(row=0, column=0, sticky="ew", padx=12, pady=(12, 2))
+        self._detail_header.grid(row=0, column=0, sticky="ew")
+        copy_diagnostics_btn = ctk.CTkButton(
+            detail_top,
+            text="Copy Diagnostics",
+            width=138,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#555555",
+            hover_color="#666666",
+            command=self._copy_current_diagnostics,
+        )
+        copy_diagnostics_btn.grid(row=0, column=1, sticky="e", padx=(8, 0))
+        self._action_buttons.append(copy_diagnostics_btn)
         self._detail_meta = ctk.CTkLabel(panel, text="", anchor="w", justify="left", text_color="#95a5a6", font=self.app.ui_font("body"))
         self._detail_meta.grid(row=1, column=0, sticky="ew", padx=12, pady=(0, 10))
         self._detail_hint = ctk.CTkLabel(
@@ -414,9 +430,10 @@ class ModsTab(ctk.CTkFrame):
         self._detail_hint.grid(row=2, column=0, sticky="ew", padx=12, pady=(0, 8))
         self._register_wrap_label(self._detail_hint)
 
-        self._installed_box = self._add_text_section(panel, 3, "Active State", 78)
-        self._review_box = self._add_text_section(panel, 4, "Review", 78)
-        self._preview_box = self._add_text_section(panel, 5, "Contents", 120)
+        self._summary_box = self._add_text_section(panel, 3, "Archive Summary", 92)
+        self._installed_box = self._add_text_section(panel, 4, "Active State", 78)
+        self._review_box = self._add_text_section(panel, 5, "Install Preview", 110)
+        self._preview_box = self._add_text_section(panel, 6, "Contents", 120)
 
     def _add_text_section(self, parent, row: int, title: str, height: int) -> ctk.CTkTextbox:
         card = ctk.CTkFrame(parent)
@@ -567,6 +584,43 @@ class ModsTab(ctk.CTkFrame):
 
         if normalized_count:
             log.info("Normalized %s combined client/local installs into separate target records", normalized_count)
+
+    def _remove_duplicate_manifest_installs(self) -> int:
+        grouped: dict[tuple, list[ModInstall]] = defaultdict(list)
+        for mod in self.app.manifest.list_mods():
+            if not mod.installed_files:
+                continue
+            key = (
+                tuple(sorted(self._effective_targets(mod))),
+                self._source_identity(mod.source_archive),
+                mod.selected_variant or "",
+                tuple(sorted(mod.component_map.keys())),
+                tuple(sorted(str(self._canonical_installed_path(path)).lower() for path in mod.installed_files)),
+            )
+            grouped[key].append(mod)
+
+        removed = 0
+        for duplicates in grouped.values():
+            if len(duplicates) <= 1:
+                continue
+            keep = max(duplicates, key=lambda item: item.install_time or "")
+            for duplicate in duplicates:
+                if duplicate.mod_id == keep.mod_id:
+                    continue
+                self.app.manifest.remove_mod(duplicate.mod_id)
+                removed += 1
+        if removed:
+            log.info("Removed %s duplicate manifest install row(s)", removed)
+        return removed
+
+    @staticmethod
+    def _source_identity(source_archive: str | Path | None) -> str:
+        if not source_archive:
+            return ""
+        try:
+            return str(Path(source_archive).resolve()).lower()
+        except Exception:
+            return str(source_archive).lower()
 
     @staticmethod
     def _effective_targets(mod: ModInstall) -> set[str]:
@@ -895,6 +949,24 @@ class ModsTab(ctk.CTkFrame):
             "info": "#95a5a6",
         }
         self._result_label.configure(text=text, text_color=colors.get(level, "#95a5a6"))
+
+    def _copy_current_diagnostics(self) -> None:
+        if self._current_info is not None:
+            selected = Path(self._current_info.archive_path)
+            text = "\n".join(
+                [
+                    f"Current archive: {selected.name}",
+                    *archive_summary_lines(self._current_info),
+                    "",
+                    "Install preview:",
+                    self._build_install_review(self._current_info),
+                ]
+            )
+            self.app.set_last_install_plan_diagnostics(text)
+        report = self.app.build_support_report()
+        self.clipboard_clear()
+        self.clipboard_append(report)
+        self._set_result("Diagnostics copied. Review before posting publicly.", level="success")
 
     def _update_selection_state(self) -> None:
         archive_count = len(self._selected_archive_paths)
@@ -1461,16 +1533,23 @@ class ModsTab(ctk.CTkFrame):
 
     def _show_applied_menu(self, event, mod: ModInstall) -> None:
         menu = tk.Menu(self, tearoff=0)
+        selected_mods, selected_live = self._selected_applied_context(mod=mod)
         if mod.source_archive:
             menu.add_command(label="Inspect", command=lambda p=Path(mod.source_archive): self._inspect_archive(p))
         if mod.source_archive and Path(mod.source_archive).is_file():
-            install_menu = self._build_install_menu(menu, Path(mod.source_archive))
+            install_menu = self._build_active_mod_install_menu(menu, [mod])
             menu.add_cascade(label="Install To...", menu=install_menu)
+        installable_selected = [
+            item for item in selected_mods
+            if item.source_archive and Path(item.source_archive).is_file()
+        ]
+        if len(installable_selected) > 1:
+            selected_install_menu = self._build_active_mod_install_menu(menu, installable_selected, include_hosted=False)
+            menu.add_cascade(label="Install Selected To...", menu=selected_install_menu)
         if mod.source_archive and Path(mod.source_archive).is_file():
             menu.add_command(label="Reinstall", command=self._on_reinstall)
             menu.add_command(label="Repair", command=self._on_repair)
         menu.add_command(label="Uninstall", command=self._on_uninstall)
-        selected_mods, selected_live = self._selected_applied_context(mod=mod)
         if len(selected_mods) + len(selected_live) > 1:
             menu.add_command(label="Uninstall Selected", command=self._on_uninstall_selected_mods)
         menu.add_separator()
@@ -1550,6 +1629,11 @@ class ModsTab(ctk.CTkFrame):
             mod for mod in self.app.manifest.list_mods()
             if self._scope_matches_targets(self._effective_targets(mod))
         ]
+        if self._remove_duplicate_manifest_installs():
+            mods = [
+                mod for mod in self.app.manifest.list_mods()
+                if self._scope_matches_targets(self._effective_targets(mod))
+            ]
         live_snapshots = self._live_snapshots(mods)
         self._live_file_bundle_members = {}
         self._live_file_bundle_meta = {}
@@ -2571,6 +2655,101 @@ class ModsTab(ctk.CTkFrame):
             )
         return menu
 
+    def _build_active_mod_install_menu(self, parent, mods: list[ModInstall], *, include_hosted: bool = True) -> tk.Menu:
+        menu = tk.Menu(parent, tearoff=0)
+        install_kinds = [mod.install_kind for mod in mods]
+        for key, label, _detail in _INSTALL_PRESETS:
+            if not include_hosted and key == "hosted":
+                continue
+            if not self._install_preset_allowed_for_kinds(key, install_kinds):
+                continue
+            menu.add_command(
+                label=label,
+                command=lambda selected=tuple(mods), preset=key: self._install_active_mods_with_preset(
+                    list(selected),
+                    preset,
+                ),
+            )
+        return menu
+
+    def _install_active_mods_with_preset(self, mods: list[ModInstall], preset_key: str) -> None:
+        installable = [
+            mod for mod in mods
+            if mod.source_archive and Path(mod.source_archive).is_file()
+        ]
+        if not installable:
+            self._set_result("No selected active mods have an available source archive.", level="warning")
+            return
+        if len(installable) == 1:
+            self._install_active_mod_with_preset(installable[0], preset_key, quiet=False)
+            return
+        self._install_active_mod_batch(installable, preset_key)
+
+    def _install_active_mod_with_preset(self, mod: ModInstall, preset_key: str, *, quiet: bool) -> bool:
+        archive_path = Path(mod.source_archive)
+        if preset_key == "hosted":
+            self.app.open_remote_deploy(archive_path)
+            if not quiet:
+                self._set_result(f"Opened the hosted upload flow for {archive_path.name}.", level="info")
+            return True
+        try:
+            info = inspect_archive(archive_path)
+        except Exception as exc:
+            if not quiet:
+                self._set_result(f"Could not inspect {archive_path.name}: {exc}", level="error")
+            return False
+        selected_entries = set(mod.component_map.keys()) if mod.component_map else None
+        selected_variant = mod.selected_variant or None
+        if info.has_variants and selected_variant is None and not selected_entries:
+            selected_variant = self._prompt_variant_choice(info)
+            if not selected_variant:
+                return False
+        return self._run_install_preset(
+            info,
+            mod.display_name,
+            preset_key,
+            selected_variant,
+            selected_entries,
+            quiet=quiet,
+            confirm_conflicts=True if quiet else None,
+        )
+
+    def _install_active_mod_batch(self, mods: list[ModInstall], preset_key: str) -> None:
+        if not self.app.confirm_action(
+            "bulk",
+            "Install Selected Active Mods",
+            f"Install {len(mods)} selected active mod(s) to {self._install_preset_label(preset_key)}?\n\n"
+            "Targets where the same archive/selection is already active will be skipped.",
+        ):
+            return
+        success = 0
+        failed = 0
+        skipped = 0
+        for mod in mods:
+            try:
+                before_count = len(self.app.manifest.list_mods())
+                ok = self._install_active_mod_with_preset(mod, preset_key, quiet=True)
+                after_count = len(self.app.manifest.list_mods())
+                if ok and after_count > before_count:
+                    success += 1
+                elif ok:
+                    skipped += 1
+                else:
+                    failed += 1
+            except Exception as exc:
+                log.error("Selected active install failed for %s: %s", mod.mod_id, exc)
+                failed += 1
+        self._selected_mod_ids.clear()
+        self.refresh_view()
+        parts: list[str] = []
+        if success:
+            parts.append(f"Installed {success} selected active mod(s).")
+        if skipped:
+            parts.append(f"{skipped} already active/skipped.")
+        if failed:
+            parts.append(f"{failed} failed.")
+        self._set_result(" | ".join(parts) or "No selected active mods were installed.", level="success" if success and not failed else "warning")
+
     def _install_kind_for_archive_path(self, archive_path: Path) -> str:
         entry = self._library_entry(str(archive_path))
         if entry is not None and entry.get("install_kind"):
@@ -2810,6 +2989,7 @@ class ModsTab(ctk.CTkFrame):
                 )
             )
             self._set_textbox(self._installed_box, self._installed_text(installed_mods))
+            self._set_textbox(self._summary_box, "Archive summary unavailable.")
             self._set_textbox(
                 self._review_box,
                 "Source details are unavailable. Re-import this mod to inspect, reinstall, or repair this install.",
@@ -2841,8 +3021,18 @@ class ModsTab(ctk.CTkFrame):
         self._mod_name_var.set(self._compact_name(display_name))
 
         self._set_textbox(self._installed_box, self._installed_text(installed_mods))
+        self._set_textbox(self._summary_box, "\n".join(archive_summary_lines(info)))
         self._set_textbox(self._review_box, self._build_install_review(info))
         self._set_textbox(self._preview_box, self._preview_text(info))
+        self.app.set_last_install_plan_diagnostics(
+            "\n".join(
+                [
+                    f"Current archive: {archive_path.name}",
+                    *archive_summary_lines(info),
+                    f"Active on: {self._installed_to_text(installed_mods)}",
+                ]
+            )
+        )
         if not refresh_only:
             log.info("Inspected archive: %s", archive_path.name)
 
@@ -2851,6 +3041,7 @@ class ModsTab(ctk.CTkFrame):
         self._detail_header.configure(text="Select a mod")
         self._detail_meta.configure(text="")
         self._mod_name_var.set("")
+        self._set_textbox(self._summary_box, "")
         self._set_textbox(self._installed_box, "")
         self._set_textbox(self._review_box, "")
         self._set_textbox(self._preview_box, "")
@@ -2863,9 +3054,9 @@ class ModsTab(ctk.CTkFrame):
             return variant_names[0]
 
         dialog = ctk.CTkToplevel(self)
-        dialog.title("Choose Variant")
-        self.app.center_dialog(dialog, 460, 520)
-        dialog.minsize(420, 360)
+        dialog.title("Choose Pak Variant")
+        self.app.center_dialog(dialog, 540, 560)
+        dialog.minsize(480, 400)
         dialog.transient(self.winfo_toplevel())
         dialog.grab_set()
         dialog.grid_columnconfigure(0, weight=1)
@@ -2873,14 +3064,14 @@ class ModsTab(ctk.CTkFrame):
 
         ctk.CTkLabel(
             dialog,
-            text="Choose a variant",
+            text="Choose Pak Variant",
             font=self.app.ui_font("detail_title"),
         ).grid(row=0, column=0, sticky="w", padx=16, pady=(16, 6))
         ctk.CTkLabel(
             dialog,
-            text=Path(info.archive_path).name,
+            text=f"{Path(info.archive_path).name}\nChoose one pak, or choose All to install every pak in this archive.",
             text_color="#95a5a6",
-            wraplength=400,
+            wraplength=500,
             justify="left",
             font=self.app.ui_font("body"),
         ).grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 10))
@@ -2889,14 +3080,34 @@ class ModsTab(ctk.CTkFrame):
         options = ctk.CTkScrollableFrame(dialog)
         options.grid(row=2, column=0, sticky="nsew", padx=16, pady=(0, 10))
         options.grid_columnconfigure(0, weight=1)
-        for name in variant_names:
-            ctk.CTkRadioButton(
-                options,
-                text=name,
-                variable=choice_var,
-                value=name,
-                font=self.app.ui_font("body"),
-            ).grid(sticky="w", padx=6, pady=4)
+        row = 0
+        ctk.CTkRadioButton(
+            options,
+            text=f"{ALL_VARIANTS} ({len(variant_names)} pak files)",
+            variable=choice_var,
+            value=ALL_VARIANTS,
+            font=self.app.ui_font("body"),
+        ).grid(row=row, column=0, sticky="w", padx=6, pady=(4, 8))
+        row += 1
+        for group in info.variant_groups:
+            if len(info.variant_groups) > 1:
+                ctk.CTkLabel(
+                    options,
+                    text=group.base_name or "Variant group",
+                    text_color="#c1c7cd",
+                    font=self.app.ui_font("card_title"),
+                    anchor="w",
+                ).grid(row=row, column=0, sticky="ew", padx=6, pady=(8, 3))
+                row += 1
+            for variant in group.variant_names:
+                ctk.CTkRadioButton(
+                    options,
+                    text=variant,
+                    variable=choice_var,
+                    value=variant,
+                    font=self.app.ui_font("body"),
+                ).grid(row=row, column=0, sticky="w", padx=6, pady=4)
+                row += 1
 
         result = {"value": None}
 
@@ -2907,7 +3118,7 @@ class ModsTab(ctk.CTkFrame):
         buttons = ctk.CTkFrame(dialog, fg_color="transparent")
         buttons.grid(row=3, column=0, sticky="ew", padx=16, pady=(0, 16))
         ctk.CTkButton(
-            buttons, text="Use Variant", width=120, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=_accept
+            buttons, text="Use Selection", width=130, height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body"), command=_accept
         ).pack(side="left")
         ctk.CTkButton(
             buttons,
@@ -4005,6 +4216,95 @@ class ModsTab(ctk.CTkFrame):
         value = self._variant_var.get()
         return None if value == "(none)" else value
 
+    def _show_install_report_dialog(self, report: str, *, has_risk: bool = False) -> bool:
+        if self.app.preferences.confirmation_mode == "none":
+            return True
+
+        title = "Review Install Risks" if has_risk else "Review Install"
+        dialog = ctk.CTkToplevel(self)
+        dialog.title(title)
+        self.app.center_dialog(dialog, 720, 620)
+        dialog.minsize(620, 480)
+        dialog.transient(self.winfo_toplevel())
+        dialog.grab_set()
+        dialog.grid_columnconfigure(0, weight=1)
+        dialog.grid_rowconfigure(1, weight=1)
+
+        ctk.CTkLabel(
+            dialog,
+            text=title,
+            font=self.app.ui_font("detail_title"),
+        ).grid(row=0, column=0, sticky="w", padx=16, pady=(16, 8))
+        box = ctk.CTkTextbox(dialog, font=self.app.ui_font("mono_small"))
+        box.grid(row=1, column=0, sticky="nsew", padx=16, pady=(0, 10))
+        box.insert("1.0", report)
+        box.configure(state="disabled")
+        result = {"ok": False}
+
+        def _accept() -> None:
+            result["ok"] = True
+            dialog.destroy()
+
+        buttons = ctk.CTkFrame(dialog, fg_color="transparent")
+        buttons.grid(row=2, column=0, sticky="ew", padx=16, pady=(0, 16))
+        ctk.CTkButton(
+            buttons,
+            text="Install",
+            width=110,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#2d8a4e",
+            hover_color="#236b3d",
+            command=_accept,
+        ).pack(side="left")
+        ctk.CTkButton(
+            buttons,
+            text="Cancel",
+            width=100,
+            height=self.app.ui_tokens.compact_button_height,
+            font=self.app.ui_font("body"),
+            fg_color="#444444",
+            hover_color="#555555",
+            command=dialog.destroy,
+        ).pack(side="right")
+        self.wait_window(dialog)
+        return bool(result["ok"])
+
+    def _target_has_matching_install(
+        self,
+        info: ArchiveInfo,
+        target: InstallTarget,
+        selected_variant: Optional[str],
+        selected_entries: Optional[set[str]],
+    ) -> bool:
+        target_value = target.value
+        requested_entries = set(selected_entries or ())
+        list_mods = getattr(self.app.manifest, "list_mods", None)
+        if list_mods is None:
+            return False
+        for mod in list_mods():
+            if not mod.enabled:
+                continue
+            if target_value not in self._effective_targets(mod):
+                continue
+            if not self._same_archive_source(mod.source_archive, info.archive_path):
+                continue
+            if (mod.selected_variant or None) != (selected_variant or None):
+                continue
+            if requested_entries and set(mod.component_map.keys()) != requested_entries:
+                continue
+            return True
+        return False
+
+    @staticmethod
+    def _same_archive_source(left: str | Path | None, right: str | Path | None) -> bool:
+        if not left or not right:
+            return False
+        try:
+            return Path(left).resolve() == Path(right).resolve()
+        except Exception:
+            return str(left) == str(right)
+
     @staticmethod
     def _install_preset_label(preset_key: str) -> str:
         for key, label, _detail in _INSTALL_PRESETS:
@@ -4071,6 +4371,7 @@ class ModsTab(ctk.CTkFrame):
         *,
         quiet: bool = False,
         confirm_conflicts: Optional[bool] = None,
+        refresh_after: bool = True,
     ) -> bool:
         if preset_key == "hosted":
             self.app.open_remote_deploy(Path(info.archive_path))
@@ -4095,7 +4396,11 @@ class ModsTab(ctk.CTkFrame):
         warnings: list[str] = []
         plan_warning_lines: list[str] = []
         conflict_lines: list[str] = []
+        skipped_existing: list[str] = []
         for target in targets:
+            if self._target_has_matching_install(info, target, selected_variant, selected_entries):
+                skipped_existing.append(self._target_label(target))
+                continue
             try:
                 plan, error = self._prepare_install_target(
                     info,
@@ -4127,23 +4432,53 @@ class ModsTab(ctk.CTkFrame):
             if not quiet:
                 messagebox.showerror("Install Plan Error", "\n\n".join(warnings))
             return False
+        for label in skipped_existing:
+            plan_warning_lines.append(f"{label}: same archive/selection is already active; skipped.")
+
+        if not prepared:
+            if skipped_existing:
+                if not quiet:
+                    self._set_result(
+                        f"Already active on {', '.join(skipped_existing)}. No files were changed.",
+                        level="info",
+                    )
+                return True
+            if not quiet:
+                self._set_result("No install targets were available for this selection.", level="warning")
+            return False
 
         should_confirm_conflicts = (not quiet) if confirm_conflicts is None else confirm_conflicts
-        if conflict_lines and should_confirm_conflicts:
-            if not self.app.confirm_action(
-                "conflict",
-                "Managed File Conflicts",
-                "Existing managed files will be backed up before they are overwritten.\n\n" + "\n".join(conflict_lines),
+        if not quiet:
+            report = build_local_install_report(
+                info=info,
+                mod_name=mod_name,
+                preset_label=self._install_preset_label(preset_key),
+                selected_variant=selected_variant,
+                prepared_plans=prepared,
+                plan_warnings=plan_warning_lines,
+                conflict_lines=conflict_lines,
+            )
+            self.app.set_last_install_plan_diagnostics(report)
+            if not self._show_install_report_dialog(
+                report,
+                has_risk=bool(conflict_lines or plan_warning_lines),
             ):
                 return False
-
-        if plan_warning_lines and not quiet:
-            if not self.app.confirm_action(
-                "conflict",
-                "Review Install Warnings",
-                "Review these notes before installing:\n\n" + "\n".join(plan_warning_lines[:10]),
-            ):
-                return False
+        else:
+            if conflict_lines and should_confirm_conflicts:
+                if not self.app.confirm_action(
+                    "conflict",
+                    "Managed File Conflicts",
+                    "Existing managed files will be backed up before they are overwritten.\n\n" + "\n".join(conflict_lines),
+                ):
+                    return False
+            if plan_warning_lines and should_confirm_conflicts:
+                if not self.app.confirm_action(
+                    "conflict",
+                    "Review Install Warnings",
+                    "Review these notes before installing:\n\n" + "\n".join(plan_warning_lines[:10]),
+                ):
+                    return False
 
         installed_results: list[tuple[InstallTarget, ModInstall, object]] = []
         persisted_mod_ids: list[str] = []
@@ -4186,9 +4521,10 @@ class ModsTab(ctk.CTkFrame):
             return False
 
         installed_labels = [self._target_label(target) for target, _, _ in installed_results]
-        self.app.refresh_installed_tab()
-        self.app.refresh_backups_tab()
-        self.refresh_view()
+        if refresh_after:
+            self.app.refresh_installed_tab()
+            self.app.refresh_backups_tab()
+            self.refresh_view()
         if not quiet:
             preset_label = self._install_preset_label(preset_key)
             self._set_result(f"Installed '{mod_name}' to {preset_label}.", level="success")

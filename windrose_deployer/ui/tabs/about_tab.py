@@ -138,7 +138,7 @@ class AboutTab(ctk.CTkFrame):
 
         copy_support_btn = ctk.CTkButton(
             support_actions,
-            text="Copy Support Info",
+            text="Copy Diagnostics",
             width=150,
             height=self.app.ui_tokens.compact_button_height,
             font=self.app.ui_font("body"),
@@ -151,7 +151,7 @@ class AboutTab(ctk.CTkFrame):
 
         save_support_btn = ctk.CTkButton(
             support_actions,
-            text="Save Support Info",
+            text="Save Diagnostics",
             width=150,
             height=self.app.ui_tokens.compact_button_height,
             font=self.app.ui_font("body"),
@@ -360,8 +360,8 @@ class AboutTab(ctk.CTkFrame):
         self.clipboard_clear()
         self.clipboard_append(report)
         messagebox.showinfo(
-            "Support Info Copied",
-            "Redacted support info was copied to the clipboard. Review it before posting publicly.",
+            "Diagnostics Copied",
+            "Redacted diagnostics were copied to the clipboard. Review them before posting publicly.",
             parent=self.winfo_toplevel(),
         )
 
@@ -369,16 +369,16 @@ class AboutTab(ctk.CTkFrame):
         report = self.app.build_support_report()
         path = filedialog.asksaveasfilename(
             parent=self.winfo_toplevel(),
-            title="Save Support Info",
+            title="Save Diagnostics",
             defaultextension=".txt",
             filetypes=[("Text files", "*.txt"), ("All files", "*.*")],
-            initialfile="windrose-support-info.txt",
+            initialfile="windrose-diagnostics.txt",
         )
         if not path:
             return
         Path(path).write_text(report, encoding="utf-8")
         messagebox.showinfo(
-            "Support Info Saved",
-            "Redacted support info was saved. Review it before posting publicly.",
+            "Diagnostics Saved",
+            "Redacted diagnostics were saved. Review them before posting publicly.",
             parent=self.winfo_toplevel(),
         )

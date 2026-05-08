@@ -10,6 +10,7 @@ from typing import Callable, Optional
 from ..models.archive_info import ArchiveEntry, ArchiveInfo
 from ..models.remote_profile import RemoteProfile, normalize_remote_protocol
 from .archive_handler import open_archive
+from .deployment_planner import ALL_VARIANTS
 from .framework_deployment_planner import (
     framework_entry_relative_path,
     is_framework_install_kind,
@@ -126,7 +127,10 @@ def plan_remote_deployment(
             is_pak=True,
         ))
 
+    selected_pak_stems = {PurePosixPath(entry.path).stem for entry in pak_entries}
     for entry in info.companion_entries:
+        if selected_pak_stems and PurePosixPath(entry.path).stem not in selected_pak_stems:
+            continue
         plan.files.append(RemotePlannedFile(
             archive_entry_path=entry.path,
             remote_path=_join_remote(remote_mods_dir, PurePosixPath(entry.path).name),
@@ -164,6 +168,9 @@ def _select_pak_entries(
     if not info.has_variants:
         return list(info.pak_entries)
 
+    if _is_all_variants_selection(selected_variant):
+        return list(info.pak_entries)
+
     if not selected_variant:
         plan.valid = False
         plan.warnings.append("Select a variant before deploying this archive remotely.")
@@ -183,6 +190,10 @@ def _select_pak_entries(
         if not any(entry in group.variants for group in info.variant_groups)
     )
     return selected
+
+
+def _is_all_variants_selection(selected_variant: Optional[str]) -> bool:
+    return str(selected_variant or "").strip().lower() == ALL_VARIANTS.lower()
 
 
 def _join_remote(root: str, rel: str) -> str:

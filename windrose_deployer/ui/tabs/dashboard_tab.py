@@ -1,6 +1,7 @@
 """Dashboard tab for operational overview."""
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 import threading
@@ -18,6 +19,8 @@ from ...core.conflict_detector import check_plan_conflicts
 from ...core.framework_config_service import KNOWN_CONFIGS
 from ...core.remote_deployer import plan_remote_deployment
 from ...models.mod_install import InstallTarget
+
+log = logging.getLogger(__name__)
 
 
 _COMPARE_TARGETS = {
@@ -816,6 +819,7 @@ class DashboardTab(ctk.CTkFrame):
     def _run_compare(self) -> None:
         self._set_server_target_from_dashboard(refresh_inventory=False)
         self.app._ensure_server_tab().compare_now()
+        self.app.refresh_manifest_drift_warnings()
 
     def _open_full_compare(self) -> None:
         self._set_server_target_from_dashboard(refresh_inventory=False)
@@ -888,8 +892,8 @@ class DashboardTab(ctk.CTkFrame):
         ctk.CTkLabel(
             dialog,
             text=(
-                "Only safe additive actions are checked by default. "
-                "Server-only removals and ambiguous items are listed for review, not applied automatically."
+                "Checked actions install the selected client mod setup to the chosen target. "
+                "Server-only removals are listed for review, not applied automatically."
             ),
             text_color="#95a5a6",
             justify="left",
@@ -990,14 +994,6 @@ class DashboardTab(ctk.CTkFrame):
         apply_btn.pack(side="left")
         ctk.CTkButton(
             buttons,
-            text="Open Full Compare",
-            width=140,
-            fg_color="#555555",
-            hover_color="#666666",
-            command=lambda: (dialog.destroy(), self._open_full_compare()),
-        ).pack(side="left", padx=8)
-        ctk.CTkButton(
-            buttons,
             text="Close",
             width=100,
             fg_color="#444444",
@@ -1059,70 +1055,96 @@ class DashboardTab(ctk.CTkFrame):
         except Exception as exc:
             base["reason"] = f"Could not inspect archive: {exc}"
             return base
-        if info.has_variants or mod.selected_variant:
-            base["reason"] = "Variant archive; use full compare/install review so the exact variant is explicit."
-            return base
-        if mod.component_map:
-            base["reason"] = "Selected bundle components; use full compare/install review to avoid uploading extra pak files."
-            return base
+        selected_variant = mod.selected_variant or None
+        selected_entries = set(mod.component_map.keys()) if mod.component_map else None
         if target == "hosted":
             profile = self.app._ensure_server_tab()._selected_remote_profile()
             if profile is None:
                 base["reason"] = "No hosted profile selected."
                 return base
-            plan = plan_remote_deployment(info, profile, selected_variant=None, mod_name=mod.display_name)
+            if selected_entries:
+                base["reason"] = "Selected bundle components are not supported for hosted auto-sync yet."
+                return base
+            plan = plan_remote_deployment(info, profile, selected_variant=selected_variant, mod_name=mod.display_name)
             if not plan.valid:
                 base["reason"] = "; ".join(plan.warnings) or "Hosted upload plan is not valid."
                 return base
-            base.update({"enabled": True, "kind": "hosted_upload", "info": info})
+            base.update({"enabled": True, "kind": "hosted_upload", "info": info, "selected_variant": selected_variant})
             base["detail"] = f"Upload {plan.file_count} file(s) from {archive.name} to hosted ~mods."
             return base
 
         target_enum = InstallTarget.SERVER if target == "server" else InstallTarget.DEDICATED_SERVER
-        plan, error = self.app._ensure_mods_tab()._prepare_install_target(info, mod.display_name, target_enum, None)
+        plan, error = self.app._ensure_mods_tab()._prepare_install_target(
+            info,
+            mod.display_name,
+            target_enum,
+            selected_variant,
+            selected_entries,
+        )
         if plan is None:
             base["reason"] = error or "Install plan is not valid."
             return base
         conflict_report = check_plan_conflicts(plan, self.app.manifest)
+        conflict_note = ""
         if conflict_report.has_conflicts:
-            base["reason"] = "Managed file conflict detected; open full compare/install review first."
-            return base
+            conflict_note = f" Existing managed files will be backed up before overwrite ({len(conflict_report.conflicts)} conflict(s))."
         base.update(
             {
                 "enabled": True,
                 "kind": "local_install",
                 "preset": "local" if target == "server" else "dedicated",
                 "info": info,
+                "selected_variant": selected_variant,
+                "selected_entries": selected_entries,
             }
         )
-        base["detail"] = f"Install {archive.name} to {target_label} using existing backup/history flow."
+        base["detail"] = f"Install {archive.name} to {target_label} using existing backup/history flow.{conflict_note}"
         return base
 
     def _apply_local_sync_actions(self, actions: list[dict], target: str, dialog, status, apply_btn) -> None:
         success = 0
         failed = 0
+        failed_messages: list[str] = []
         for action in actions:
             try:
                 ok = self.app._ensure_mods_tab()._run_install_preset(
                     action["info"],
                     action["name"],
                     action["preset"],
-                    None,
+                    action.get("selected_variant"),
+                    action.get("selected_entries"),
                     quiet=True,
                     confirm_conflicts=False,
+                    refresh_after=False,
                 )
                 success += 1 if ok else 0
                 failed += 0 if ok else 1
-            except Exception:
+                if not ok:
+                    failed_messages.append(f"{action['name']}: install was skipped or failed")
+            except Exception as exc:
+                log.exception("Dashboard sync action failed for %s", action.get("name", "unknown"))
                 failed += 1
-        status.configure(
-            text=f"Applied {success} sync action(s). {failed} failed." if failed else f"Applied {success} sync action(s).",
-            text_color="#2d8a4e" if success and not failed else "#e67e22",
-        )
-        apply_btn.configure(state="normal", text="Apply Selected")
+                failed_messages.append(f"{action.get('name', 'unknown')}: {exc}")
+
+        mods_tab = self.app._ensure_mods_tab()
+        self.app.refresh_installed_tab()
+        self.app.refresh_backups_tab()
+        mods_tab.refresh_view()
+
+        if status.winfo_exists():
+            text = f"Applied {success} sync action(s)."
+            if failed:
+                text += f" {failed} failed."
+                if failed_messages:
+                    text += " " + "; ".join(failed_messages[:3])
+            status.configure(text=text, text_color="#2d8a4e" if success and not failed else "#e67e22")
+        if apply_btn.winfo_exists():
+            apply_btn.configure(state="normal", text="Apply Selected")
         self._set_server_target_from_dashboard(refresh_inventory=False)
         self.app._ensure_server_tab().compare_now()
-        self.refresh_view()
+        self.app.refresh_manifest_drift_warnings()
+        if self.winfo_exists():
+            self.refresh_view()
 
     def _apply_hosted_sync_actions(self, actions: list[dict], dialog, status, apply_btn) -> None:
         server_tab = self.app._ensure_server_tab()
@@ -1139,7 +1161,12 @@ class DashboardTab(ctk.CTkFrame):
             failed_messages: list[str] = []
             for action in actions:
                 try:
-                    plan = plan_remote_deployment(action["info"], profile, selected_variant=None, mod_name=action["name"])
+                    plan = plan_remote_deployment(
+                        action["info"],
+                        profile,
+                        selected_variant=action.get("selected_variant"),
+                        mod_name=action["name"],
+                    )
                     result = self.app.remote_deployer.deploy(plan, profile)
                     if result.failed:
                         failed += 1
@@ -1172,6 +1199,7 @@ class DashboardTab(ctk.CTkFrame):
                 server_tab._refresh_server_inventory()
                 self._set_server_target_from_dashboard(refresh_inventory=False)
                 server_tab.compare_now()
+                self.app.refresh_manifest_drift_warnings()
                 self.refresh_view()
 
             self.app.dispatch_to_ui(_show)

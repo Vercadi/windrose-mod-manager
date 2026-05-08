@@ -86,14 +86,18 @@ def test_support_report_includes_summary_fields_and_redacts_profile_secrets(tmp_
         data_dir=data_dir,
         backup_root=backup_root,
         last_hosted_diagnostics="Last result: Password=ftp-password",
+        last_install_plan="Install review\nPassword=should-not-leak\nBetterWind_P.pak",
     )
 
-    assert "Windrose Mod Manager support info" in report
+    assert "Windrose Mod Manager diagnostics" in report
     assert "App:" in report
     assert "Client: configured" in report
     assert "Nitrado: FTP ms2084.gamedata.io:21 as server_user" in report
     assert "Active installs: 1 / 1" in report
     assert "Recent activity: 1 shown" in report
+    assert "Last install review:" in report
+    assert "BetterWind_P.pak" in report
     assert "ftp-password" not in report
+    assert "should-not-leak" not in report
     assert "id_rsa" not in report
     assert "C:\\Users\\jonte" not in report

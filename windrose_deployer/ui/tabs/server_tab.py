@@ -13,11 +13,13 @@ from typing import TYPE_CHECKING, Optional
 import customtkinter as ctk
 
 from ...core.archive_inspector import inspect_archive
+from ...core.deployment_planner import ALL_VARIANTS
 from ...core.live_mod_inventory import (
     LiveModsFolderSnapshot,
     bundle_live_file_names,
     snapshot_live_mods_folder,
 )
+from ...core.install_report import build_remote_install_report
 from ...core.remote_deployer import plan_remote_deployment, remote_connection_diagnostics
 from ...models.deployment_record import DeployedFile, DeploymentRecord
 from ...models.mod_install import expand_target_values
@@ -2528,7 +2530,8 @@ class ServerTab(ctk.CTkFrame):
         ctk.CTkLabel(body, text="Archive:").grid(row=2, column=0, sticky="w", padx=8, pady=4)
         ctk.CTkLabel(body, text=selected_path.name, anchor="w").grid(row=2, column=1, sticky="ew", padx=8, pady=4)
         ctk.CTkLabel(body, text="Variant:").grid(row=3, column=0, sticky="w", padx=8, pady=4)
-        variant_names = [name for group in info.variant_groups for name in group.variant_names] or ["(none)"]
+        detected_variant_names = [name for group in info.variant_groups for name in group.variant_names]
+        variant_names = ([ALL_VARIANTS, *detected_variant_names] if detected_variant_names else ["(none)"])
         variant_var = ctk.StringVar(value=variant_names[0])
         variant_menu = ctk.CTkOptionMenu(body, variable=variant_var, values=variant_names)
         variant_menu.grid(row=3, column=1, sticky="ew", padx=8, pady=4)
@@ -2538,34 +2541,43 @@ class ServerTab(ctk.CTkFrame):
         def _selected_dialog_profile() -> RemoteProfile | None:
             return self.app.remote_profiles.get_profile(self._remote_profile_labels.get(profile_var.get(), ""))
 
-        def _preview_lines_for(current_profile: RemoteProfile | None) -> list[str]:
-            lines = [
-                f"Archive: {selected_path.name}",
-                f"Type: {info.archive_type.value}",
-                f"Install kind: {info.install_kind.replace('_', ' ')}",
-                f"Files: {info.total_files}",
-            ]
-            if info.likely_destinations:
-                lines.append(f"Destination: {', '.join(info.likely_destinations)}")
-            if current_profile and current_profile.ue4ss_managed_externally and info.install_kind in {"ue4ss_mod", "windrose_plus"}:
-                lines.append("")
-                lines.append(
-                    "UE4SS is marked as managed by host/provider for this profile. "
-                    "The manager will upload this mod without installing or replacing UE4SS runtime files."
+        def _selected_dialog_variant() -> str | None:
+            return None if variant_var.get() == "(none)" else variant_var.get()
+
+        def _preview_text_for(current_profile: RemoteProfile | None) -> str:
+            if current_profile is None:
+                return "Choose a hosted profile first."
+            selected_variant = _selected_dialog_variant()
+            plan = plan_remote_deployment(
+                info,
+                current_profile,
+                selected_variant=selected_variant,
+                mod_name=selected_path.stem,
+            )
+            ue4ss_external = bool(
+                current_profile.ue4ss_managed_externally
+                and info.install_kind in {"ue4ss_mod", "windrose_plus"}
+            )
+            if ue4ss_external:
+                plan.warnings.append(
+                    "UE4SS is marked as managed by host/provider. Hosted upload will not install or replace UE4SS runtime files."
                 )
-            if info.warnings or info.dependency_warnings:
-                lines.append("")
-                lines.extend(info.warnings)
-                lines.extend(info.dependency_warnings)
-            return lines
+            return build_remote_install_report(
+                info=info,
+                profile_name=current_profile.name,
+                selected_variant=selected_variant,
+                plan=plan,
+                ue4ss_external=ue4ss_external,
+            )
 
         def _refresh_preview(_choice: str | None = None) -> None:
             preview.configure(state="normal")
             preview.delete("1.0", "end")
-            preview.insert("1.0", "\n".join(_preview_lines_for(_selected_dialog_profile())) + "\n")
+            preview.insert("1.0", _preview_text_for(_selected_dialog_profile()) + "\n")
             preview.configure(state="disabled")
 
         profile_menu.configure(command=_refresh_preview)
+        variant_menu.configure(command=_refresh_preview)
         _refresh_preview()
         preview.configure(state="disabled")
         status = ctk.CTkLabel(body, text="", text_color="#95a5a6", justify="left", wraplength=470)
@@ -2594,6 +2606,18 @@ class ServerTab(ctk.CTkFrame):
             if not plan.valid:
                 messagebox.showerror("Hosted Install Error", "\n".join(plan.warnings))
                 return
+            self.app.set_last_install_plan_diagnostics(
+                build_remote_install_report(
+                    info=info,
+                    profile_name=chosen_profile.name,
+                    selected_variant=selected_variant,
+                    plan=plan,
+                    ue4ss_external=bool(
+                        chosen_profile.ue4ss_managed_externally
+                        and info.install_kind in {"ue4ss_mod", "windrose_plus"}
+                    ),
+                )
+            )
             log.info("Uploading %s to hosted server profile %s", selected_path.name, chosen_profile.name)
             status.configure(text="Uploading to hosted server...", text_color="#95a5a6")
             self._status_label.configure(text=f"Uploading {selected_path.name} to hosted server...", text_color="#95a5a6")

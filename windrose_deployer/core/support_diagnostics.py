@@ -69,6 +69,7 @@ class SupportDiagnosticsService:
         data_dir: Path,
         backup_root: Path,
         last_hosted_diagnostics: str = "",
+        last_install_plan: str = "",
         log_tail_lines: int = 80,
         history_limit: int = 20,
     ) -> str:
@@ -83,6 +84,7 @@ class SupportDiagnosticsService:
             self._manifest_summary(mods, history),
             self._framework_summary(paths, framework_state),
             self._activity_summary(history[-history_limit:]),
+            self._install_plan_diagnostics(last_install_plan),
             self._hosted_diagnostics(last_hosted_diagnostics),
             self._log_tail(data_dir / "deployer.log", log_tail_lines),
             self._storage_summary(data_dir, backup_root),
@@ -104,7 +106,7 @@ class SupportDiagnosticsService:
         frozen = bool(getattr(sys, "frozen", False))
         return "\n".join(
             [
-                "Windrose Mod Manager support info",
+                "Windrose Mod Manager diagnostics",
                 f"App: {__app_name__} v{__version__}",
                 f"Build: {'frozen exe' if frozen else 'source/dev'}",
                 f"Python: {platform.python_version()}",
@@ -223,6 +225,12 @@ class SupportDiagnosticsService:
         if not last_hosted_diagnostics.strip():
             return "Last hosted connection diagnostics: none"
         return "Last hosted connection diagnostics:\n" + last_hosted_diagnostics.strip()
+
+    @staticmethod
+    def _install_plan_diagnostics(last_install_plan: str) -> str:
+        if not last_install_plan.strip():
+            return "Last install review: none"
+        return "Last install review:\n" + last_install_plan.strip()
 
     @staticmethod
     def _log_tail(log_path: Path, line_count: int) -> str:

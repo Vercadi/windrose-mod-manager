@@ -1,8 +1,8 @@
 from pathlib import Path
 
-from windrose_deployer.core.deployment_planner import plan_deployment
+from windrose_deployer.core.deployment_planner import ALL_VARIANTS, plan_deployment
 from windrose_deployer.models.app_paths import AppPaths
-from windrose_deployer.models.archive_info import ArchiveEntry, ArchiveInfo, ArchiveType
+from windrose_deployer.models.archive_info import ArchiveEntry, ArchiveInfo, ArchiveType, VariantGroup
 from windrose_deployer.models.mod_install import InstallTarget
 
 
@@ -34,6 +34,112 @@ def test_plan_deployment_can_limit_to_selected_bundle_entries(tmp_path):
 
     names = sorted(Path(file.dest_path).name for file in plan.files)
     assert names == ["MoreStacks_10x_P.pak", "MoreStacks_10x_P.utoc"]
+
+
+def test_plan_deployment_limits_variant_companions_to_selected_variant(tmp_path):
+    client_root = tmp_path / "Windrose"
+    paths = AppPaths(client_root=client_root)
+    pak_10 = ArchiveEntry(path="MoreStacks_x10_P.pak")
+    pak_20 = ArchiveEntry(path="MoreStacks_x20_P.pak")
+    info = ArchiveInfo(
+        archive_path="variants.zip",
+        archive_type=ArchiveType.MULTI_VARIANT_PAK,
+        entries=[
+            pak_10,
+            ArchiveEntry(path="MoreStacks_x10_P.utoc"),
+            ArchiveEntry(path="MoreStacks_x10_P.ucas"),
+            pak_20,
+            ArchiveEntry(path="MoreStacks_x20_P.utoc"),
+            ArchiveEntry(path="MoreStacks_x20_P.ucas"),
+        ],
+        pak_entries=[pak_10, pak_20],
+        companion_entries=[
+            ArchiveEntry(path="MoreStacks_x10_P.utoc"),
+            ArchiveEntry(path="MoreStacks_x10_P.ucas"),
+            ArchiveEntry(path="MoreStacks_x20_P.utoc"),
+            ArchiveEntry(path="MoreStacks_x20_P.ucas"),
+        ],
+        variant_groups=[VariantGroup(base_name="MoreStacks_", variants=[pak_10, pak_20])],
+        suggested_target="paks",
+    )
+
+    plan = plan_deployment(
+        info,
+        paths,
+        InstallTarget.CLIENT,
+        selected_variant="MoreStacks_x10_P.pak",
+    )
+
+    names = sorted(Path(file.dest_path).name for file in plan.files)
+    assert names == [
+        "MoreStacks_x10_P.pak",
+        "MoreStacks_x10_P.ucas",
+        "MoreStacks_x10_P.utoc",
+    ]
+
+
+def test_plan_deployment_can_install_all_detected_variants(tmp_path):
+    client_root = tmp_path / "Windrose"
+    paths = AppPaths(client_root=client_root)
+    pak_a = ArchiveEntry(path="FasterShips10_P.pak")
+    pak_b = ArchiveEntry(path="FasterShips10_B_P.pak")
+    info = ArchiveInfo(
+        archive_path="fasterships.zip",
+        archive_type=ArchiveType.MULTI_VARIANT_PAK,
+        entries=[
+            pak_a,
+            ArchiveEntry(path="FasterShips10_P.utoc"),
+            pak_b,
+            ArchiveEntry(path="FasterShips10_B_P.utoc"),
+        ],
+        pak_entries=[pak_a, pak_b],
+        companion_entries=[
+            ArchiveEntry(path="FasterShips10_P.utoc"),
+            ArchiveEntry(path="FasterShips10_B_P.utoc"),
+        ],
+        variant_groups=[VariantGroup(base_name="FasterShips", variants=[pak_a, pak_b])],
+        suggested_target="paks",
+    )
+
+    plan = plan_deployment(
+        info,
+        paths,
+        InstallTarget.CLIENT,
+        selected_variant=ALL_VARIANTS,
+    )
+
+    names = sorted(Path(file.dest_path).name for file in plan.files)
+    assert names == [
+        "FasterShips10_B_P.pak",
+        "FasterShips10_B_P.utoc",
+        "FasterShips10_P.pak",
+        "FasterShips10_P.utoc",
+    ]
+
+
+def test_plan_deployment_selected_entries_override_variant_detection(tmp_path):
+    client_root = tmp_path / "Windrose"
+    paths = AppPaths(client_root=client_root)
+    pak_a = ArchiveEntry(path="FasterShips10_P.pak")
+    pak_b = ArchiveEntry(path="FasterShips10_B_P.pak")
+    info = ArchiveInfo(
+        archive_path="fasterships.zip",
+        archive_type=ArchiveType.MULTI_VARIANT_PAK,
+        entries=[pak_a, pak_b],
+        pak_entries=[pak_a, pak_b],
+        variant_groups=[VariantGroup(base_name="FasterShips", variants=[pak_a, pak_b])],
+        suggested_target="paks",
+    )
+
+    plan = plan_deployment(
+        info,
+        paths,
+        InstallTarget.CLIENT,
+        selected_entries={"FasterShips10_B_P.pak"},
+    )
+
+    names = sorted(Path(file.dest_path).name for file in plan.files)
+    assert names == ["FasterShips10_B_P.pak"]
 
 
 def test_plan_deployment_routes_ue4ss_runtime_to_win64(tmp_path):

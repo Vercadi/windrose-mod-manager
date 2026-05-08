@@ -3,6 +3,7 @@ from pathlib import Path
 import zipfile
 
 from windrose_deployer.core.archive_inspector import inspect_archive
+from windrose_deployer.core.deployment_planner import ALL_VARIANTS
 from windrose_deployer.core.remote_deployer import (
     RemoteDeploymentService,
     plan_remote_deployment,
@@ -146,6 +147,59 @@ def test_remote_deploy_uploads_only_selected_variant(tmp_path: Path) -> None:
     assert result.failed == []
     assert "/srv/windrose/R5/Content/Paks/~mods/Stack_Size_Changes_x10_P.pak" in uploads
     assert "/srv/windrose/R5/Content/Paks/~mods/Stack_Size_Changes_x20_P.pak" not in uploads
+
+
+def test_remote_plan_limits_variant_companions_to_selected_variant(tmp_path: Path) -> None:
+    archive = tmp_path / "variants-with-companions.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("MoreStacks_x10_P.pak", "ten")
+        zf.writestr("MoreStacks_x10_P.utoc", "ten toc")
+        zf.writestr("MoreStacks_x10_P.ucas", "ten cas")
+        zf.writestr("MoreStacks_x20_P.pak", "twenty")
+        zf.writestr("MoreStacks_x20_P.utoc", "twenty toc")
+        zf.writestr("MoreStacks_x20_P.ucas", "twenty cas")
+
+    info = inspect_archive(archive)
+    profile = _make_profile()
+    plan = plan_remote_deployment(
+        info,
+        profile,
+        selected_variant="MoreStacks_x10_P.pak",
+        mod_name="VariantMod",
+    )
+
+    remote_names = sorted(Path(item.remote_path).name for item in plan.files)
+    assert remote_names == [
+        "MoreStacks_x10_P.pak",
+        "MoreStacks_x10_P.ucas",
+        "MoreStacks_x10_P.utoc",
+    ]
+
+
+def test_remote_plan_can_upload_all_detected_variants(tmp_path: Path) -> None:
+    archive = tmp_path / "variants-all.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("FasterShips10_P.pak", "base")
+        zf.writestr("FasterShips10_P.utoc", "base toc")
+        zf.writestr("FasterShips10_B_P.pak", "bonus")
+        zf.writestr("FasterShips10_B_P.utoc", "bonus toc")
+
+    info = inspect_archive(archive)
+    profile = _make_profile()
+    plan = plan_remote_deployment(
+        info,
+        profile,
+        selected_variant=ALL_VARIANTS,
+        mod_name="FasterShips",
+    )
+
+    remote_names = sorted(Path(item.remote_path).name for item in plan.files)
+    assert remote_names == [
+        "FasterShips10_B_P.pak",
+        "FasterShips10_B_P.utoc",
+        "FasterShips10_P.pak",
+        "FasterShips10_P.utoc",
+    ]
 
 
 def test_remote_deploy_skips_unsafe_archive_paths(tmp_path: Path) -> None:

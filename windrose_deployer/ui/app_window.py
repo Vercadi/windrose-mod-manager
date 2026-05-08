@@ -96,8 +96,10 @@ class AppWindow(ctk.CTk):
         self._process_names_refreshing = False
         self._manifest_drift_warnings: list[str] = []
         self._manifest_drift_scan_started = False
+        self._manifest_drift_refreshing = False
         self._manifest_drift_scan_retries = 0
         self._last_hosted_diagnostics = ""
+        self._last_install_plan_diagnostics = ""
 
         # Inject tkdnd so all widgets get drop_target_register / dnd_bind
         self._dnd_enabled = False
@@ -1167,6 +1169,7 @@ class AppWindow(ctk.CTk):
             self._server_tab.refresh_remote_profiles()
         if self._recovery_tab is not None and ("Activity" in self._loaded_tabs or self._tabview.get() == "Activity"):
             self._recovery_tab.refresh()
+        self.refresh_manifest_drift_warnings()
         self._update_mod_badge()
 
     def refresh_backups_tab(self) -> None:
@@ -1409,8 +1412,37 @@ class AppWindow(ctk.CTk):
     def manifest_drift_warnings(self) -> list[str]:
         return list(self._manifest_drift_warnings)
 
+    def refresh_manifest_drift_warnings(self) -> None:
+        if self._manifest_drift_refreshing or not self.winfo_exists():
+            return
+        self._manifest_drift_refreshing = True
+
+        def _work() -> None:
+            try:
+                drift_warnings = self.integrity.scan_manifest_drift(self.manifest.list_mods())
+                for warning in drift_warnings:
+                    log.warning("Managed mod drift detected: %s", warning)
+            except Exception as exc:
+                log.warning("Managed mod drift refresh failed: %s", exc)
+                drift_warnings = list(self._manifest_drift_warnings)
+
+            def _show() -> None:
+                self._manifest_drift_refreshing = False
+                if not self.winfo_exists():
+                    return
+                self._manifest_drift_warnings = list(drift_warnings)
+                if "_dashboard_tab" in self.__dict__:
+                    self._dashboard_tab.refresh_view()
+
+            self.dispatch_to_ui(_show)
+
+        threading.Thread(target=_work, daemon=True).start()
+
     def set_last_hosted_diagnostics(self, text: str) -> None:
         self._last_hosted_diagnostics = text or ""
+
+    def set_last_install_plan_diagnostics(self, text: str) -> None:
+        self._last_install_plan_diagnostics = text or ""
 
     def build_support_report(self) -> str:
         return self.support_diagnostics.build_report(
@@ -1421,6 +1453,7 @@ class AppWindow(ctk.CTk):
             data_dir=self.paths.data_dir or DEFAULT_DATA_DIR,
             backup_root=self.backup.backup_root,
             last_hosted_diagnostics=self._last_hosted_diagnostics,
+            last_install_plan=self._last_install_plan_diagnostics,
         )
 
     def open_remote_deploy(self, archive_path: str | Path | None = None) -> None:
@@ -1448,20 +1481,7 @@ class AppWindow(ctk.CTk):
             self.after(5000, self._warn_on_manifest_drift)
             return
         self._manifest_drift_scan_started = True
-
-        def _work() -> None:
-            drift_warnings = self.integrity.scan_manifest_drift(self.manifest.list_mods())
-            for warning in drift_warnings:
-                log.warning("Managed mod drift detected: %s", warning)
-            def _show() -> None:
-                if not self.winfo_exists():
-                    return
-                self._manifest_drift_warnings = list(drift_warnings)
-                if "_dashboard_tab" in self.__dict__:
-                    self._dashboard_tab.refresh_view()
-            self.dispatch_to_ui(_show)
-
-        threading.Thread(target=_work, daemon=True).start()
+        self.refresh_manifest_drift_warnings()
 
     def _bind_shortcuts(self) -> None:
         self.bind("<F5>", lambda _event: self._refresh_active_view())
