@@ -8,7 +8,7 @@
 [![Patreon](https://img.shields.io/badge/Patreon-support-f96854)](https://www.patreon.com/cw/Vercadi)
 
 <p align="center">
-  <img src="assets/icon_256.png" alt="Windrose Mod Manager icon" width="96">
+  <img src="assets/banner.png" alt="Windrose Mod Manager banner">
 </p>
 
 A Windows desktop app for modding **Windrose** safely across the client, local server files, the standalone dedicated server, and hosted servers with SFTP or FTP file access.
@@ -17,7 +17,7 @@ This is not a generic mod organizer. It is a Windrose-specific client and server
 
 ## Media
 
-This README reuses the tracked app icon at `assets/icon_256.png`. No separate screenshot or banner asset is currently tracked in this repository.
+This README reuses the tracked banner at `assets/banner.png` and app icon at `assets/icon_256.png`. Additional screenshots and file-page images are hosted on the [Nexus Mods page](https://www.nexusmods.com/windrose/mods/29).
 
 ## Download
 
