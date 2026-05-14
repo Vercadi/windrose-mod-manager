@@ -1,15 +1,43 @@
 # Windrose Mod Manager
 
-A Windows desktop app for modding **Windrose** safely across the client, the local dedicated server, and hosted servers with SFTP or FTP file access.
+[![Latest release](https://img.shields.io/github/v/release/Vercadi/windrose-mod-manager)](https://github.com/Vercadi/windrose-mod-manager/releases)
+[![GitHub downloads](https://img.shields.io/github/downloads/Vercadi/windrose-mod-manager/total?label=GitHub%20downloads)](https://github.com/Vercadi/windrose-mod-manager/releases)
+[![License](https://img.shields.io/github/license/Vercadi/windrose-mod-manager)](LICENSE)
+[![Nexus Mods](https://img.shields.io/badge/Nexus%20Mods-download-orange)](https://www.nexusmods.com/windrose/mods/29)
+[![Ko-fi](https://img.shields.io/badge/Ko--fi-support-ff5f5f)](https://ko-fi.com/vercadi)
+[![Patreon](https://img.shields.io/badge/Patreon-support-f96854)](https://www.patreon.com/cw/Vercadi)
 
-**[Nexus Mods Page](https://www.nexusmods.com/windrose/mods/29)** | **[GitHub](https://github.com/Vercadi/windrose-mod-manager)**
+<p align="center">
+  <img src="assets/icon_256.png" alt="Windrose Mod Manager icon" width="96">
+</p>
 
-Planning and release notes live under [docs/](docs/):
-[Roadmap](docs/planning/ROADMAP.md) |
-[Latest release notes](docs/releases/latest_release_notes.md) |
-[Nexus post drafts](docs/releases/nexus/)
+A Windows desktop app for modding **Windrose** safely across the client, local server files, the standalone dedicated server, and hosted servers with SFTP or FTP file access.
 
-## What It Does
+This is not a generic mod organizer. It is a Windrose-specific client and server cockpit for managed installs, backups, recovery, hosted upload review, and server/world settings.
+
+## Media
+
+This README reuses the tracked app icon at `assets/icon_256.png`. No separate screenshot or banner asset is currently tracked in this repository.
+
+## Download
+
+- Packaged app: [Nexus Mods](https://www.nexusmods.com/windrose/mods/29)
+- Packaged app and checksums: [GitHub Releases](https://github.com/Vercadi/windrose-mod-manager/releases)
+- Source repository: [GitHub](https://github.com/Vercadi/windrose-mod-manager)
+- Latest release notes: [docs/releases/latest_release_notes.md](docs/releases/latest_release_notes.md)
+
+## Installation
+
+1. Download the latest release from Nexus Mods or GitHub Releases.
+2. Extract the release archive anywhere on your PC.
+3. Run `Windrose Mod Manager.exe`.
+4. Let the app auto-detect Windrose paths, or set them manually in Settings.
+
+## Update
+
+Download the latest release archive and replace the previous extracted app folder. The app also checks GitHub Releases and shows an in-app update notice when a newer version is available.
+
+## Usage
 
 Windrose Mod Manager is built around three practical jobs:
 
@@ -17,74 +45,70 @@ Windrose Mod Manager is built around three practical jobs:
 - edit local or hosted server settings safely
 - recover from mistakes with backups, restore, repair, and undo-friendly history
 
-This is not a generic mod organizer. It is a Windrose-specific client + server cockpit.
+Main workflows:
 
-## Features
+- Import or drag in `.zip`, `.7z`, `.rar`, pak-only, loose-file, mixed, or multi-variant archives.
+- Review archive contents before install.
+- Install to client, local server, client plus local server, client plus dedicated server, or hosted server.
+- Use Dashboard to compare client/server/hosted state and review sync actions before applying.
+- Use Server for local, dedicated, and hosted settings.
+- Use Activity & Backups to restore previous versions or inspect recovery history.
 
-- Auto-detects Windrose client, standalone dedicated server installs, config, and server save paths
-- Analyzes archives (`.zip`, `.7z`, `.rar`) before install
-- Supports pak-only, loose-file, mixed, and multi-variant archives
-- Unified **Library** workspace with:
-  - tracked archives
-  - applied mods grouped by target
-  - right-click install, reinstall, uninstall, and repair actions
-  - hosted live inventory view
-- **Dashboard** operations home with:
-  - client/server/hosted status
-  - target-aware compare summary
-  - guided sync review for safe client-to-server installs/uploads
-  - quick actions for launch, folder access, and backups
-- Installs mods to:
-  - client
-  - local server
-  - client + local server
-  - client + dedicated server
-  - hosted server over SFTP or FTP
-- Variant chooser for archives with multiple pak options
-- Drag-and-drop and multi-file archive import
-- Repair / verify support for managed installs
-- Safe uninstall that restores overwritten original files from backup
-- **Server** cockpit for:
-  - local server settings
-  - hosted server settings
-  - world settings
-  - client/server sync review
-  - optional hosted restart command
-- Hosted profile setup with:
-  - saved profiles
-  - connection test
-  - server-folder based path auto-detect
-  - support for `.` when FTP/SFTP opens directly inside the server folder
-  - password or SSH private-key auth
-- **Activity & Backups** with:
-  - action-based recovery timeline
-  - restore previous version
-  - undo for supported actions
-  - raw backup browser
-  - backup retention cleanup
-- Launch buttons for Windrose and the local dedicated server
-- GitHub release update notifications with in-app download link
-- Technical log panel for troubleshooting when needed
+## Requirements
 
-## Download
+- Windows 10/11
+- Windrose installed locally for client workflows
+- Windrose Dedicated Server installed through Steam for dedicated server workflows
+- SFTP or FTP file access for hosted server workflows
 
-Grab the latest release from [Nexus Mods](https://www.nexusmods.com/windrose/mods/29) or [GitHub Releases](https://github.com/Vercadi/windrose-mod-manager/releases).
+Hosted profile setup usually needs host, port, username, password or SSH private key, and the server folder path on the remote machine.
 
-## Hosted Server Notes
+## Compatibility
 
-Hosted support is built for providers that give you **SFTP or FTP access** to the server files.
+Supported archive formats:
 
-You will usually need:
+| Format | Notes |
+|---|---|
+| `.zip` | Full support |
+| `.7z` | Requires `py7zr`, included in requirements |
+| `.rar` | Requires `rarfile` plus UnRAR on PATH |
 
-- host
-- port
-- username
-- password or private key
-- the server folder path on the remote machine
+Supported mod/archive types:
+
+| Type | Description |
+|---|---|
+| Pak-only | Archives containing `.pak` files, optionally with `.utoc` / `.ucas` companions |
+| Loose-file | Archives with folder overlays for the Windrose install |
+| Mixed | Archives containing both pak files and loose files |
+| Multi-variant | Archives with multiple alternative pak choices; the user selects one |
 
 If your host does not expose SFTP or FTP file access, the hosted workflow in the app will not work.
 
-For local server management, the app supports the standalone Steam **Windrose Dedicated Server** install and uses its `R5` folder for settings and world saves.
+Known limitations:
+
+- no automatic per-mod update tracking
+- conflict detection is still warning-only; there is no load-order system
+- hosted support requires working SFTP/SSH or FTP file access
+- Windows only
+- no Nexus API integration or automatic Nexus downloads
+- no save editing, pak creation, or UE asset unpacking
+
+## Bug Reports / Support
+
+Open issues on [GitHub Issues](https://github.com/Vercadi/windrose-mod-manager/issues) and include the app version, what target you were using, the archive type, the action you tried, and relevant logs from the technical log panel.
+
+Support continued work through [Ko-fi](https://ko-fi.com/vercadi) or [Patreon](https://www.patreon.com/cw/Vercadi).
+
+## Privacy / Safety
+
+The app has no analytics, advertising, or telemetry. See [PRIVACY_POLICY.md](PRIVACY_POLICY.md).
+
+Safety model:
+
+- installs and hosted uploads use review steps before writes
+- uninstall restores overwritten original files from backup when available
+- backups, restore, repair, and activity history are part of the normal workflow
+- hosted support requires your explicit SFTP/FTP profile and actions
 
 ## Running From Source
 
@@ -106,96 +130,32 @@ python app.py
 python -m pytest -q
 ```
 
-## Supported Mod Types
-
-| Type | Description |
-|---|---|
-| **Pak-only** | Archives containing `.pak` files, optionally with `.utoc` / `.ucas` companions |
-| **Loose-file** | Archives with folder overlays for the Windrose install |
-| **Mixed** | Archives containing both pak files and loose files |
-| **Multi-variant** | Archives with multiple alternative pak choices; the user selects one |
-
-## Supported Archive Formats
-
-| Format | Notes |
-|---|---|
-| `.zip` | Full support |
-| `.7z` | Requires `py7zr` (included in requirements) |
-| `.rar` | Requires `rarfile` plus UnRAR on PATH |
-
-**RAR note:** the `rarfile` Python package requires the [UnRAR](https://www.rarlab.com/rar_add.htm) command-line tool to be installed and available on your system PATH. Without it, `.rar` archives will fail to open.
-
-## Project Structure
+## Repository Layout
 
 ```text
 windrose-mod-manager/
   app.py
+  assets/
   docs/
     planning/
     releases/
-  requirements.txt
-  windrose_deployer/
-    __init__.py
-    models/
-      app_paths.py
-      archive_info.py
-      deployment_record.py
-      mod_install.py
-      remote_profile.py
-      server_config.py
-      world_config.py
-    core/
-      archive_handler.py
-      archive_inspector.py
-      backup_manager.py
-      conflict_detector.py
-      deployment_planner.py
-      discovery.py
-      installer.py
-      integrity_service.py
-      logging_service.py
-      manifest_store.py
-      recovery_service.py
-      remote_config_service.py
-      remote_deployer.py
-      remote_profile_store.py
-      remote_provider.py
-      server_config_service.py
-      server_sync_service.py
-      sftp_provider.py
-      target_resolver.py
-      update_checker.py
-      validators.py
-      world_config_service.py
-    ui/
-      app_window.py
-      widgets/
-        status_panel.py
-      tabs/
-        about_tab.py
-        backups_tab.py
-        mods_tab.py
-        server_tab.py
-        settings_tab.py
-    utils/
-      filesystem.py
-      hashing.py
-      json_io.py
-      naming.py
   tests/
-  assets/
+  windrose_deployer/
+    core/
+    models/
+    ui/
+    utils/
 ```
 
-## Where Data Lives
+App data locations:
 
-| Data | Location (source mode) | Location (packaged exe) |
+| Data | Source mode | Packaged exe |
 |---|---|---|
-| App state / manifest | `./data/app_state.json` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
-| Settings | `./data/settings.json` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
-| Archive library | `./data/archive_library.json` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
-| Remote profiles | `./data/remote_profiles.json` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
+| App state, settings, archive library, remote profiles | `./data/` | `%LOCALAPPDATA%/WindroseModDeployer/data/` |
 | Backups | `./backups/` | `%LOCALAPPDATA%/WindroseModDeployer/backups/` |
 | Logs | `./data/deployer.log` | `%LOCALAPPDATA%/WindroseModDeployer/data/deployer.log` |
+
+Planning notes, implementation briefs, audit notes, release text, and Nexus release drafts live under [docs/](docs/) so the repository root stays focused.
 
 ## Building The Executable
 
@@ -205,25 +165,6 @@ python -m PyInstaller windrose_mod_deployer.spec --noconfirm
 
 The packaged app is written to `dist/Windrose Mod Manager/`.
 
-When packaged, the app stores its working data under `%LOCALAPPDATA%/WindroseModDeployer/` instead of the repo directory.
-
-## Planning Docs
-
-Developer planning, implementation briefs, audit notes, and Nexus release drafts are kept in [docs/](docs/) so the repository root stays focused on the app source and user-facing project files.
-
-## Known Limitations
-
-- No automatic per-mod update tracking
-- Conflict detection is still warning-only; there is no load-order system
-- Hosted support requires working SFTP/SSH or FTP file access to the server
-- Windows only
-- No Nexus API integration or automatic Nexus downloads
-- No save editing, pak creation, or UE asset unpacking
-
 ## License
 
-MIT License. See [LICENSE](LICENSE) for details.
-
-## Author
-
-**Vercadi**
+MIT License. See [LICENSE](LICENSE).
