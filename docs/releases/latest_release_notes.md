@@ -1,36 +1,36 @@
-## Windrose Mod Manager v0.7.1
+## Windrose Mod Manager v0.8.0-preview.1
 
-Windrose Mod Manager v0.7.1 is a focused trust and sync patch on top of v0.7.0. It adds clearer archive/install review text, improves diagnostics, fixes variant/component sync behavior, and cleans duplicate active manifest rows from repeated same-target installs.
+Windrose Mod Manager v0.8.0-preview.1 is a preview build focused on archive intelligence, safer deployment planning, richer install metadata, and clearer sync/install review text.
 
 ### Highlights
 
-- Added archive summaries in Mods.
-- Added pre-install and hosted upload review text before writes.
-- Added Copy Diagnostics wording and included the latest install/upload review in diagnostics.
-- Added an `All variants` option for detected multi-pak variant archives.
-- Fixed variant companion planning so selected `.pak`, `.utoc`, and `.ucas` files stay together.
-- Fixed selected bundle/component installs so sync preserves the exact client setup.
-- Fixed Review Sync Actions so selected client mods can sync directly to Local Server or Dedicated Server.
-- Cleaned duplicate active manifest rows caused by repeated installs of the same target/source/variant/files.
-- Kept external/host-managed UE4SS behavior from v0.7.0.
+- Added shared archive layout classification for standard pak archives, multi-pak bundles, multi-variant pak archives, UE4SS mods, UE4SS runtime/shim archives, config-only archives, mixed archives, and support-only archives.
+- Local and hosted deployment planning now skips obvious support/metadata files such as readmes, manifests, icons, changelogs, and Thunderstore metadata.
+- Config-only archives are blocked from normal mod install/upload and point users toward config workflows instead.
+- Mixed archives can still deploy pak payloads, while config/support files are skipped or called out for review.
+- Install records and deployment history now persist layout kind, target hint, selected variant, selected archive entries, installed archive entry paths, layout warnings, and archive hash where available.
+- Diagnostics now include layout metadata without exposing secrets.
+- Dashboard sync review details now use stored layout metadata when explaining selected variants/components and skipped support/config notes.
+- Local install and hosted upload reviews now show layout kind, destination hint, selected entries/components, planned archive entries, and clearer warning/risk text.
 
 ### Notes
 
-- The recommended local/dedicated sync flow is Dashboard -> Run Compare -> Review Sync Actions -> Apply Selected.
-- Hosted sync with selected bundle components is still conservative; use hosted upload review for those cases.
-- The host-managed UE4SS path from v0.7.0 is unchanged.
+- This is a preview build intended for testing before a final v0.8.0 release.
+- Existing v0.7.1 behavior for selected variants, `All variants`, pak companions, UE4SS external/host-managed mode, and Review Sync Actions is preserved.
+- Hosted active install tracking remains history-only for this preview; hosted uploads do not yet create active hosted install records.
 
 ### Validation
 
 - `python -m compileall windrose_deployer -q`
-- `python -m pytest -q` -> `262 passed`
+- `python -m pytest -q` -> `285 passed`
 - Source GUI smoke across Dashboard, Mods, Server, Activity, Settings, and Help
-- Packaged exe smoke launch confirmed v0.7.1 identity and startup
+- Source archive/report smoke for standard pak, multi-variant pak, local install report, hosted upload report, and sync action detail
+- Packaged exe smoke launch confirmed v0.8.0-preview.1 identity and startup
 
 ### SHA256
 
-Release zip: `A62F3C6A167368C3065A856FA1F887F6B935A405588E08910AD4ECCEF23A947D`
+Release zip: `0AFB74732161040D7D975E01F330B61E342318BF91532BC99B143B885D8FB137`
 
 ### Full Changelog
 
-https://github.com/Vercadi/windrose-mod-manager/compare/v0.7.0...v0.7.1
+https://github.com/Vercadi/windrose-mod-manager/compare/v0.7.1...v0.8.0-preview.1

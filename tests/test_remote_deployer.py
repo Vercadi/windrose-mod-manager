@@ -61,7 +61,7 @@ def test_remote_plan_requires_root_for_loose_files(tmp_path: Path) -> None:
     archive = tmp_path / "mixed.zip"
     with zipfile.ZipFile(archive, "w") as zf:
         zf.writestr("R5/Content/Paks/~mods/test.pak", "pak")
-        zf.writestr("Config/extra.ini", "value=1")
+        zf.writestr("extras/helper.dll", "helper")
 
     info = inspect_archive(archive)
     profile = _make_profile()
@@ -71,6 +71,62 @@ def test_remote_plan_requires_root_for_loose_files(tmp_path: Path) -> None:
 
     assert not plan.valid
     assert any("configure server folder" in warning.lower() for warning in plan.warnings)
+
+
+def test_remote_plan_skips_support_metadata_files(tmp_path: Path) -> None:
+    archive = tmp_path / "metadata.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("SomeMod.pak", "pak")
+        zf.writestr("README.md", "readme")
+        zf.writestr("manifest.json", "{}")
+        zf.writestr("icon.png", "png")
+
+    info = inspect_archive(archive)
+    profile = _make_profile()
+    profile.remote_root_dir = ""
+
+    plan = plan_remote_deployment(info, profile, mod_name="PakOnly")
+
+    assert plan.valid
+    assert [item.archive_entry_path for item in plan.files] == ["SomeMod.pak"]
+
+
+def test_remote_plan_blocks_config_only_archive_from_normal_upload(tmp_path: Path) -> None:
+    archive = tmp_path / "config-only.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("ServerDescription.json", "{}")
+        zf.writestr("settings.cfg", "value=true")
+        zf.writestr("README.md", "readme")
+
+    info = inspect_archive(archive)
+    profile = _make_profile()
+
+    plan = plan_remote_deployment(info, profile, mod_name="Config Pack")
+
+    assert not plan.valid
+    assert plan.file_count == 0
+    assert "config-only archives" in "\n".join(plan.warnings).lower()
+
+
+def test_remote_plan_mixed_archive_skips_config_and_support_files(tmp_path: Path) -> None:
+    archive = tmp_path / "mixed-config.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("SomeMod.pak", "pak")
+        zf.writestr("Config/settings.ini", "value=true")
+        zf.writestr("README.txt", "readme")
+        zf.writestr("thunderstore.toml", "metadata")
+
+    info = inspect_archive(archive)
+    profile = _make_profile()
+    profile.remote_root_dir = ""
+
+    plan = plan_remote_deployment(info, profile, mod_name="Mixed Config")
+
+    assert plan.valid
+    assert [item.archive_entry_path for item in plan.files] == ["SomeMod.pak"]
+    warning_text = "\n".join(plan.warnings).lower()
+    assert "config files" in warning_text
+    assert "support/metadata files" in warning_text
 
 
 def test_remote_plan_uses_root_defaults_when_overrides_blank(tmp_path: Path) -> None:

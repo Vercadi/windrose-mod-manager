@@ -1,5 +1,7 @@
 from pathlib import Path
+import zipfile
 
+from windrose_deployer.core.archive_inspector import inspect_archive
 from windrose_deployer.core.deployment_planner import ALL_VARIANTS, plan_deployment
 from windrose_deployer.models.app_paths import AppPaths
 from windrose_deployer.models.archive_info import ArchiveEntry, ArchiveInfo, ArchiveType, VariantGroup
@@ -283,3 +285,58 @@ def test_plan_deployment_routes_windrose_plus_package_to_server_root(tmp_path):
         "WindrosePlus\\enabled.txt",
         "install.ps1",
     ]
+
+
+def test_plan_deployment_skips_support_metadata_from_pak_archive(tmp_path):
+    archive = tmp_path / "support-metadata.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("BetterWind_P.pak", "pak")
+        zf.writestr("README.md", "readme")
+        zf.writestr("manifest.json", "{}")
+        zf.writestr("icon.png", "png")
+
+    info = inspect_archive(archive)
+    paths = AppPaths(client_root=tmp_path / "Windrose")
+    plan = plan_deployment(info, paths, InstallTarget.CLIENT, mod_name="Better Wind")
+
+    assert plan.valid
+    assert [file.archive_entry_path for file in plan.files] == ["BetterWind_P.pak"]
+
+
+def test_plan_deployment_blocks_config_only_archive_from_normal_install(tmp_path):
+    archive = tmp_path / "config-only.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("ServerDescription.json", "{}")
+        zf.writestr("settings.cfg", "value=true")
+        zf.writestr("README.md", "readme")
+
+    info = inspect_archive(archive)
+    paths = AppPaths(client_root=tmp_path / "Windrose")
+    plan = plan_deployment(info, paths, InstallTarget.CLIENT, mod_name="Config Pack")
+
+    assert not plan.valid
+    assert plan.file_count == 0
+    assert "config-only archives" in "\n".join(plan.warnings).lower()
+
+
+def test_plan_deployment_mixed_archive_skips_support_and_config_files(tmp_path):
+    archive = tmp_path / "mixed.zip"
+    with zipfile.ZipFile(archive, "w") as zf:
+        zf.writestr("BetterWind_P.pak", "pak")
+        zf.writestr("extras/helper.dll", "helper")
+        zf.writestr("Config/settings.ini", "value=true")
+        zf.writestr("README.txt", "readme")
+        zf.writestr("thunderstore.toml", "metadata")
+
+    info = inspect_archive(archive)
+    paths = AppPaths(client_root=tmp_path / "Windrose")
+    plan = plan_deployment(info, paths, InstallTarget.CLIENT, mod_name="Mixed Pack")
+
+    assert plan.valid
+    assert sorted(file.archive_entry_path for file in plan.files) == [
+        "BetterWind_P.pak",
+        "extras/helper.dll",
+    ]
+    warning_text = "\n".join(plan.warnings).lower()
+    assert "config files" in warning_text
+    assert "support/metadata files" in warning_text

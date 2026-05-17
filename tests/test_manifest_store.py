@@ -4,6 +4,7 @@ import pytest
 from pathlib import Path
 
 from windrose_deployer.core.manifest_store import ManifestStore
+from windrose_deployer.models.deployment_record import DeploymentRecord
 from windrose_deployer.models.metadata import ModMetadata
 from windrose_deployer.models.mod_install import ModInstall
 
@@ -15,7 +16,12 @@ def _make_mod(mod_id: str = "test_mod", files: list[str] | None = None) -> ModIn
         source_archive="test.zip",
         archive_hash="abc123",
         install_type="pak_only",
+        layout_kind="standard_pak_archive",
+        target_root_hint="paks",
         selected_variant=None,
+        selected_entries=["test.pak"],
+        installed_archive_entries=["test.pak"],
+        layout_warnings=["Support/metadata files were skipped during deployment planning."],
         targets=["client"],
         installed_files=files or ["C:/mods/test.pak"],
         backed_up_files=[],
@@ -99,6 +105,11 @@ class TestManifestStore:
         assert loaded.metadata.version_tag == "1.0.0"
         assert loaded.metadata.nexus_mod_id == "29"
         assert loaded.component_map == {"test.pak": ["C:/mods/test.pak"]}
+        assert loaded.layout_kind == "standard_pak_archive"
+        assert loaded.target_root_hint == "paks"
+        assert loaded.selected_entries == ["test.pak"]
+        assert loaded.installed_archive_entries == ["test.pak"]
+        assert loaded.layout_warnings == ["Support/metadata files were skipped during deployment planning."]
 
     def test_legacy_flat_metadata_fields_still_load(self, tmp_path):
         state_file = tmp_path / "app_state.json"
@@ -122,3 +133,58 @@ class TestManifestStore:
         assert mod.metadata.nexus_mod_id == "42"
         assert mod.metadata.nexus_file_id == "100"
         assert mod.metadata.version_tag == "2.0.0"
+        assert mod.layout_kind == ""
+        assert mod.selected_entries == []
+
+    def test_legacy_history_records_still_load_without_layout_metadata(self, tmp_path):
+        state_file = tmp_path / "app_state.json"
+        state_file.write_text(json.dumps({
+            "schema_version": 2,
+            "mods": [],
+            "history": [{
+                "mod_id": "old",
+                "timestamp": "2026-04-01T00:00:00",
+                "target": "client",
+                "action": "install",
+                "display_name": "Old Mod",
+                "source_archive": "old.zip",
+                "install_kind": "standard_mod",
+                "notes": "Installed 1 files",
+                "files": [{
+                    "source_archive_path": "old.pak",
+                    "dest_path": "C:/mods/old.pak",
+                    "was_overwrite": False,
+                }],
+            }],
+        }), encoding="utf-8")
+
+        record = ManifestStore(tmp_path).list_history()[0]
+
+        assert record.display_name == "Old Mod"
+        assert record.layout_kind == ""
+        assert record.selected_entries == []
+        assert record.installed_archive_entries == []
+
+    def test_deployment_record_layout_metadata_round_trip(self):
+        record = DeploymentRecord(
+            mod_id="mod",
+            display_name="Mod",
+            source_archive="mod.zip",
+            archive_hash="abc123",
+            selected_variant="Mod_x10_P.pak",
+            selected_entries=["Mod_x10_P.pak"],
+            installed_archive_entries=["Mod_x10_P.pak", "Mod_x10_P.utoc"],
+            layout_kind="multi_variant_pak_archive",
+            target_root_hint="paks",
+            layout_warnings=["Support/metadata files were skipped."],
+        )
+
+        loaded = DeploymentRecord.from_dict(record.to_dict())
+
+        assert loaded.archive_hash == "abc123"
+        assert loaded.selected_variant == "Mod_x10_P.pak"
+        assert loaded.selected_entries == ["Mod_x10_P.pak"]
+        assert loaded.installed_archive_entries == ["Mod_x10_P.pak", "Mod_x10_P.utoc"]
+        assert loaded.layout_kind == "multi_variant_pak_archive"
+        assert loaded.target_root_hint == "paks"
+        assert loaded.layout_warnings == ["Support/metadata files were skipped."]

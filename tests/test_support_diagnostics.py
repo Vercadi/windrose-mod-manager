@@ -51,6 +51,15 @@ def test_support_report_includes_summary_fields_and_redacts_profile_secrets(tmp_
             mod_id="m1",
             display_name="Mining",
             source_archive="Mining.zip",
+            layout_kind="multi_variant_pak_archive",
+            target_root_hint="paks",
+            selected_variant="Mining_x10_P.pak",
+            selected_entries=["Mining_x10_P.pak"],
+            installed_archive_entries=["Mining_x10_P.pak", "Mining_x10_P.utoc"],
+            layout_warnings=[
+                "Support/metadata files were skipped during deployment planning.",
+                "Password=layout-secret",
+            ],
             targets=["client"],
             installed_files=[str(client_root / "R5" / "Content" / "Paks" / "~mods" / "Mining_P.pak")],
         )
@@ -61,6 +70,15 @@ def test_support_report_includes_summary_fields_and_redacts_profile_secrets(tmp_
             action="install",
             target="client",
             display_name="Mining",
+            layout_kind="multi_variant_pak_archive",
+            target_root_hint="paks",
+            selected_variant="Mining_x10_P.pak",
+            selected_entries=["Mining_x10_P.pak"],
+            installed_archive_entries=["Mining_x10_P.pak", "Mining_x10_P.utoc"],
+            layout_warnings=[
+                "Support/metadata files were skipped during deployment planning.",
+                "Password=history-secret",
+            ],
         )
     )
     remote_profiles = RemoteProfileStore(data_dir)
@@ -94,10 +112,16 @@ def test_support_report_includes_summary_fields_and_redacts_profile_secrets(tmp_
     assert "Client: configured" in report
     assert "Nitrado: FTP ms2084.gamedata.io:21 as server_user" in report
     assert "Active installs: 1 / 1" in report
+    assert "Layout metadata:" in report
+    assert "multi_variant_pak_archive" in report
+    assert "Mining_x10_P.pak" in report
+    assert "Support/metadata files were skipped" in report
     assert "Recent activity: 1 shown" in report
     assert "Last install review:" in report
     assert "BetterWind_P.pak" in report
     assert "ftp-password" not in report
     assert "should-not-leak" not in report
+    assert "layout-secret" not in report
+    assert "history-secret" not in report
     assert "id_rsa" not in report
     assert "C:\\Users\\jonte" not in report

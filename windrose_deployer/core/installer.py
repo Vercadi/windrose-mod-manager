@@ -38,6 +38,18 @@ def _canonical_installed_path(path_str: str) -> str:
     return path_str
 
 
+def _dedupe_lines(lines) -> list[str]:
+    seen: set[str] = set()
+    result: list[str] = []
+    for raw in lines:
+        line = str(raw).strip()
+        if not line or line in seen:
+            continue
+        seen.add(line)
+        result.append(line)
+    return result
+
+
 class Installer:
     """Executes planned deployments and tracks results."""
 
@@ -122,6 +134,8 @@ class Installer:
         if failed_count:
             notes += f" ({failed_count} failed)"
             log.warning("Partial install: %d succeeded, %d failed", len(deployed_files), failed_count)
+        layout_notes = _dedupe_lines([*plan.layout_warnings, *plan.warnings])
+        installed_archive_entries = [file.source_archive_path for file in deployed_files]
 
         mod = ModInstall(
             mod_id=mod_id,
@@ -130,7 +144,12 @@ class Installer:
             archive_hash=archive_hash,
             install_type=plan.install_type,
             install_kind=plan.install_kind,
+            layout_kind=plan.layout_kind,
+            target_root_hint=plan.target_root_hint,
             selected_variant=plan.selected_variant,
+            selected_entries=list(plan.selected_entries),
+            installed_archive_entries=installed_archive_entries,
+            layout_warnings=layout_notes,
             targets=[plan.target.value],
             installed_files=installed_paths,
             backed_up_files=backed_up_paths,
@@ -145,7 +164,14 @@ class Installer:
             action="install",
             display_name=plan.mod_name,
             source_archive=str(archive_path),
+            archive_hash=archive_hash,
             install_kind=plan.install_kind,
+            layout_kind=plan.layout_kind,
+            target_root_hint=plan.target_root_hint,
+            selected_variant=plan.selected_variant,
+            selected_entries=list(plan.selected_entries),
+            installed_archive_entries=installed_archive_entries,
+            layout_warnings=layout_notes,
             files=deployed_files,
             notes=notes,
         )

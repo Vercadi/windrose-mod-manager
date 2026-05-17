@@ -37,6 +37,7 @@ from ...models.world_config import (
     PRESET_OPTIONS,
     WorldConfig,
 )
+from ...utils.hashing import hash_file
 
 if TYPE_CHECKING:
     from ..app_window import AppWindow
@@ -2025,6 +2026,19 @@ class ServerTab(ctk.CTkFrame):
             files = [DeployedFile(source_archive_path="", dest_path=path) for path in uploaded_paths]
         archive_text = str(archive_path or "")
         archive_stem = Path(archive_text).stem if archive_text else (display_name or "Hosted Upload")
+        archive_hash = None
+        if archive_text:
+            try:
+                archive_hash = hash_file(Path(archive_text))
+            except Exception:
+                archive_hash = None
+        installed_archive_entries = [file.source_archive_path for file in files if file.source_archive_path]
+        layout_warnings = self._dedupe_lines(
+            [
+                *list(getattr(plan, "layout_warnings", []) or []),
+                *list(getattr(plan, "warnings", []) or []),
+            ]
+        )
         self.app.manifest.add_record(
             DeploymentRecord(
                 mod_id=f"hosted:{profile.profile_id}:{archive_stem}",
@@ -2032,12 +2046,31 @@ class ServerTab(ctk.CTkFrame):
                 target="hosted",
                 display_name=display_name or archive_stem,
                 source_archive=archive_text,
+                archive_hash=archive_hash,
                 install_kind=getattr(plan, "install_kind", "standard_mod"),
+                layout_kind=getattr(plan, "layout_kind", ""),
+                target_root_hint=getattr(plan, "target_root_hint", ""),
+                selected_variant=getattr(plan, "selected_variant", None),
+                selected_entries=list(getattr(plan, "selected_entries", []) or []),
+                installed_archive_entries=installed_archive_entries,
+                layout_warnings=layout_warnings,
                 files=files,
                 notes=notes,
             )
         )
         self.app.dispatch_to_ui(lambda: self.app.refresh_backups_tab())
+
+    @staticmethod
+    def _dedupe_lines(lines) -> list[str]:
+        seen: set[str] = set()
+        result: list[str] = []
+        for raw in lines:
+            line = str(raw).strip()
+            if not line or line in seen:
+                continue
+            seen.add(line)
+            result.append(line)
+        return result
 
     def open_hosted_setup(self) -> None:
         dialog = ctk.CTkToplevel(self)

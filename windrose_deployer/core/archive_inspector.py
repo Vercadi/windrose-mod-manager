@@ -9,6 +9,7 @@ from typing import Optional
 
 from ..models.archive_info import ArchiveEntry, ArchiveInfo, ArchiveType, VariantGroup
 from .archive_handler import ArchiveReader, open_archive, is_supported_archive
+from .archive_layout import classify_archive_layout
 from .framework_detector import analyze_archive_framework
 
 log = logging.getLogger(__name__)
@@ -61,6 +62,7 @@ def inspect_archive(archive_path: Path) -> ArchiveInfo:
     _detect_variants(info)
     _suggest_target(info)
     _detect_frameworks(info)
+    _apply_layout_notes(info)
 
     if info.has_variants:
         info.archive_type = ArchiveType.MULTI_VARIANT_PAK
@@ -195,3 +197,12 @@ def _detect_frameworks(info: ArchiveInfo) -> None:
         info.dependency_warnings.append(
             f"Review recommended: this archive may depend on {analysis.framework_name}."
         )
+
+
+def _apply_layout_notes(info: ArchiveInfo) -> None:
+    layout = classify_archive_layout(info)
+    existing = set(info.warnings) | set(info.dependency_warnings)
+    for warning in layout.warnings:
+        if warning not in existing:
+            info.warnings.append(warning)
+            existing.add(warning)

@@ -66,7 +66,12 @@ class ModInstall:
     archive_hash: Optional[str] = None
     install_type: str = "pak_only"
     install_kind: str = "standard_mod"
+    layout_kind: str = ""
+    target_root_hint: str = ""
     selected_variant: Optional[str] = None
+    selected_entries: list[str] = field(default_factory=list)
+    installed_archive_entries: list[str] = field(default_factory=list)
+    layout_warnings: list[str] = field(default_factory=list)
     targets: list[str] = field(default_factory=list)
     installed_files: list[str] = field(default_factory=list)
     backed_up_files: list[str] = field(default_factory=list)
@@ -88,7 +93,12 @@ class ModInstall:
             "archive_hash": self.archive_hash,
             "install_type": self.install_type,
             "install_kind": self.install_kind,
+            "layout_kind": self.layout_kind,
+            "target_root_hint": self.target_root_hint,
             "selected_variant": self.selected_variant,
+            "selected_entries": self.selected_entries,
+            "installed_archive_entries": self.installed_archive_entries,
+            "layout_warnings": self.layout_warnings,
             "targets": self.targets,
             "installed_files": self.installed_files,
             "backed_up_files": self.backed_up_files,
@@ -108,7 +118,12 @@ class ModInstall:
             archive_hash=d.get("archive_hash"),
             install_type=d.get("install_type", "pak_only"),
             install_kind=d.get("install_kind", "standard_mod"),
+            layout_kind=d.get("layout_kind", ""),
+            target_root_hint=d.get("target_root_hint", ""),
             selected_variant=d.get("selected_variant"),
+            selected_entries=d.get("selected_entries", []),
+            installed_archive_entries=d.get("installed_archive_entries", []),
+            layout_warnings=d.get("layout_warnings", []),
             targets=d.get("targets", []),
             installed_files=d.get("installed_files", []),
             backed_up_files=d.get("backed_up_files", []),

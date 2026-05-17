@@ -15,6 +15,7 @@ from urllib.request import urlopen
 import customtkinter as ctk
 
 from ...core.archive_inspector import inspect_archive
+from ...core.archive_layout import layout_display_name
 from ...core.conflict_detector import check_plan_conflicts
 from ...core.framework_config_service import KNOWN_CONFIGS
 from ...core.remote_deployer import plan_remote_deployment
@@ -1037,12 +1038,13 @@ class DashboardTab(ctk.CTkFrame):
     def _build_sync_action_for_mod(self, mod, target: str) -> dict:
         target_label = self._target_label(target)
         archive = Path(mod.source_archive) if mod.source_archive else None
+        archive_name = archive.name if archive else "not tracked"
         base = {
             "mod_id": mod.mod_id,
             "name": mod.display_name,
             "target": target,
             "title": f"{mod.display_name} -> {target_label}",
-            "detail": f"Source archive: {archive.name if archive else 'not tracked'}",
+            "detail": self._sync_metadata_detail(mod, target_label=target_label, archive_name=archive_name),
             "archive": archive,
             "enabled": False,
             "reason": "",
@@ -1070,7 +1072,15 @@ class DashboardTab(ctk.CTkFrame):
                 base["reason"] = "; ".join(plan.warnings) or "Hosted upload plan is not valid."
                 return base
             base.update({"enabled": True, "kind": "hosted_upload", "info": info, "selected_variant": selected_variant})
-            base["detail"] = f"Upload {plan.file_count} file(s) from {archive.name} to hosted ~mods."
+            base["detail"] = self._sync_metadata_detail(
+                mod,
+                target_label=target_label,
+                archive_name=archive_name,
+                action="Upload",
+                file_count=plan.file_count,
+                target_hint=getattr(plan, "target_root_hint", ""),
+                layout_kind=getattr(plan, "layout_kind", ""),
+            )
             return base
 
         target_enum = InstallTarget.SERVER if target == "server" else InstallTarget.DEDICATED_SERVER
@@ -1098,8 +1108,58 @@ class DashboardTab(ctk.CTkFrame):
                 "selected_entries": selected_entries,
             }
         )
-        base["detail"] = f"Install {archive.name} to {target_label} using existing backup/history flow.{conflict_note}"
+        base["detail"] = self._sync_metadata_detail(
+            mod,
+            target_label=target_label,
+            archive_name=archive_name,
+            action="Install",
+            file_count=plan.file_count,
+            target_hint=getattr(plan, "target_root_hint", ""),
+            layout_kind=getattr(plan, "layout_kind", ""),
+            extra_note=conflict_note.strip(),
+        )
         return base
+
+    @staticmethod
+    def _sync_metadata_detail(
+        mod,
+        *,
+        target_label: str,
+        archive_name: str,
+        action: str | None = None,
+        file_count: int | None = None,
+        target_hint: str = "",
+        layout_kind: str = "",
+        extra_note: str = "",
+    ) -> str:
+        parts = [f"Source archive: {archive_name}"]
+        layout_value = layout_kind or getattr(mod, "layout_kind", "")
+        if layout_value:
+            parts.append(f"Layout: {layout_display_name(layout_value)}")
+        selected_variant = getattr(mod, "selected_variant", None)
+        if selected_variant:
+            parts.append(f"Variant: {selected_variant}")
+        selected_entries = list(getattr(mod, "selected_entries", []) or [])
+        if not selected_entries and getattr(mod, "component_map", None):
+            selected_entries = list(getattr(mod, "component_map", {}).keys())
+        installed_entries = list(getattr(mod, "installed_archive_entries", []) or [])
+        if selected_entries:
+            parts.append(f"Selected entries: {len(selected_entries)}")
+        elif getattr(mod, "component_map", None):
+            parts.append(f"Selected entries: {len(getattr(mod, 'component_map', {}))}")
+        if installed_entries:
+            parts.append(f"Installed archive entries: {len(installed_entries)}")
+        target_hint_value = target_hint or getattr(mod, "target_root_hint", "")
+        if target_hint_value:
+            parts.append(f"Target hint: {target_hint_value}")
+        layout_notes = " ".join(getattr(mod, "layout_warnings", []) or []).lower()
+        if "support/metadata" in layout_notes or "config" in layout_notes:
+            parts.append("Support/config skipped or requires review")
+        if action and file_count is not None:
+            parts.insert(0, f"{action} {file_count} file(s) to {target_label}")
+        if extra_note:
+            parts.append(extra_note)
+        return " | ".join(parts)
 
     def _apply_local_sync_actions(self, actions: list[dict], target: str, dialog, status, apply_btn) -> None:
         success = 0

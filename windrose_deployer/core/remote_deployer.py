@@ -10,6 +10,7 @@ from typing import Callable, Optional
 from ..models.archive_info import ArchiveEntry, ArchiveInfo
 from ..models.remote_profile import RemoteProfile, normalize_remote_protocol
 from .archive_handler import open_archive
+from .archive_layout import ArchiveLayout, ArchiveLayoutKind, classify_archive_layout
 from .deployment_planner import ALL_VARIANTS
 from .framework_deployment_planner import (
     framework_entry_relative_path,
@@ -38,6 +39,10 @@ class RemoteDeploymentPlan:
     archive_path: str
     selected_variant: Optional[str] = None
     install_kind: str = "standard_mod"
+    layout_kind: str = ""
+    target_root_hint: str = ""
+    selected_entries: list[str] = field(default_factory=list)
+    layout_warnings: list[str] = field(default_factory=list)
     files: list[RemotePlannedFile] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     valid: bool = True
@@ -71,16 +76,32 @@ def plan_remote_deployment(
     selected_variant: Optional[str] = None,
     mod_name: Optional[str] = None,
 ) -> RemoteDeploymentPlan:
+    layout = classify_archive_layout(info)
     plan = RemoteDeploymentPlan(
         profile_id=profile.profile_id,
         mod_name=mod_name or Path(info.archive_path).stem,
         archive_path=info.archive_path,
         selected_variant=selected_variant,
         install_kind=info.install_kind,
+        layout_kind=layout.kind.value,
+        target_root_hint=layout.target_root_hint,
+        layout_warnings=list(layout.warnings),
     )
 
     remote_mods_dir = profile.resolved_mods_dir()
     remote_root_dir = profile.normalized_root_dir()
+
+    if not is_framework_install_kind(info.install_kind) and layout.kind == ArchiveLayoutKind.CONFIG_ONLY:
+        plan.valid = False
+        _extend_unique(plan.warnings, layout.warnings)
+        plan.warnings.append("Config-only archives are not uploaded through normal hosted mod deployment. Use a config workflow or provider panel for config files.")
+        return plan
+
+    if not is_framework_install_kind(info.install_kind) and layout.kind == ArchiveLayoutKind.UNKNOWN and not layout.installable_files:
+        plan.valid = False
+        _extend_unique(plan.warnings, layout.warnings)
+        plan.warnings.append("No installable Windrose mod payload was found.")
+        return plan
 
     if is_framework_install_kind(info.install_kind):
         if not remote_root_dir:
@@ -137,14 +158,15 @@ def plan_remote_deployment(
             is_pak=True,
         ))
 
-    if info.loose_entries:
+    loose_entries = _installable_loose_entries(info, layout)
+    if loose_entries:
         if not remote_root_dir:
             plan.valid = False
             plan.warnings.append(
-                "This archive contains loose files. Configure Server Folder first, or use explicit hosted path overrides."
+                "This archive contains loose installable files. Configure Server Folder first, or use explicit hosted path overrides."
             )
         else:
-            for entry in info.loose_entries:
+            for entry in loose_entries:
                 rel = strip_archive_prefix(entry.path, info.root_prefix)
                 plan.files.append(RemotePlannedFile(
                     archive_entry_path=entry.path,
@@ -152,12 +174,44 @@ def plan_remote_deployment(
                     is_pak=False,
                 ))
 
+    _add_layout_warnings(plan, layout)
+
     if not plan.files:
         plan.valid = False
         if not plan.warnings:
             plan.warnings.append("No files were selected for remote deployment.")
 
     return plan
+
+
+def _installable_loose_entries(info: ArchiveInfo, layout: ArchiveLayout) -> list[ArchiveEntry]:
+    installable_paths = {
+        entry.path
+        for entry in layout.installable_files
+        if not entry.is_unreal_asset
+    }
+    return [entry for entry in info.loose_entries if entry.path in installable_paths]
+
+
+def _add_layout_warnings(plan: RemoteDeploymentPlan, layout: ArchiveLayout) -> None:
+    if layout.kind != ArchiveLayoutKind.MIXED:
+        return
+    _extend_unique(plan.warnings, layout.warnings)
+    if layout.config_files:
+        plan.warnings.append("Config files were found in this mixed archive and are not uploaded by normal hosted mod deployment.")
+    skipped_support = [entry for entry in layout.support_files if entry.path not in layout.installable_paths]
+    if skipped_support:
+        plan.warnings.append("Support/metadata files were skipped during hosted deployment planning.")
+
+
+def _extend_unique(target: list[str], values) -> None:
+    seen = set(target)
+    for raw in values:
+        value = str(raw).strip()
+        if not value or value in seen:
+            continue
+        target.append(value)
+        seen.add(value)
 
 
 def _select_pak_entries(

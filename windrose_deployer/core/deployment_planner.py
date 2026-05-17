@@ -9,6 +9,7 @@ from typing import Optional
 from ..models.app_paths import AppPaths
 from ..models.archive_info import ArchiveEntry, ArchiveInfo, ArchiveType
 from ..models.mod_install import InstallTarget
+from .archive_layout import ArchiveLayout, ArchiveLayoutKind, classify_archive_layout
 from .framework_deployment_planner import (
     framework_entry_relative_path,
     framework_install_root,
@@ -38,7 +39,11 @@ class DeploymentPlan:
     target: InstallTarget
     install_type: str
     install_kind: str = "standard_mod"
+    layout_kind: str = ""
+    target_root_hint: str = ""
     selected_variant: Optional[str] = None
+    selected_entries: list[str] = field(default_factory=list)
+    layout_warnings: list[str] = field(default_factory=list)
     files: list[PlannedFile] = field(default_factory=list)
     warnings: list[str] = field(default_factory=list)
     valid: bool = True
@@ -58,14 +63,31 @@ def plan_deployment(
 ) -> DeploymentPlan:
     """Build a deployment plan from archive analysis and target selection."""
     name = mod_name or PurePosixPath(info.archive_path).stem
+    layout = classify_archive_layout(info)
     plan = DeploymentPlan(
         mod_name=name,
         archive_path=info.archive_path,
         target=target,
         install_type=info.archive_type.value,
         install_kind=info.install_kind,
+        layout_kind=layout.kind.value,
+        target_root_hint=layout.target_root_hint,
         selected_variant=selected_variant,
+        selected_entries=sorted(selected_entries or []),
+        layout_warnings=list(layout.warnings),
     )
+
+    if not is_framework_install_kind(info.install_kind) and layout.kind == ArchiveLayoutKind.CONFIG_ONLY:
+        plan.valid = False
+        _extend_unique(plan.warnings, layout.warnings)
+        plan.warnings.append("Config-only archives are not installed through normal mod deployment. Use a config workflow or edit known config files directly.")
+        return plan
+
+    if not is_framework_install_kind(info.install_kind) and layout.kind == ArchiveLayoutKind.UNKNOWN and not layout.installable_files:
+        plan.valid = False
+        _extend_unique(plan.warnings, layout.warnings)
+        plan.warnings.append("No installable Windrose mod payload was found.")
+        return plan
 
     if info.archive_type == ArchiveType.UNKNOWN:
         plan.valid = False
@@ -94,7 +116,8 @@ def plan_deployment(
 
     _plan_paks(info, plan, pak_targets, selected_variant, selected_entries)
     _plan_companions(info, plan, pak_targets, selected_variant, selected_entries)
-    _plan_loose(info, plan, loose_targets, selected_entries)
+    _plan_loose(info, plan, loose_targets, selected_entries, layout)
+    _add_non_framework_layout_warnings(plan, layout)
 
     if plan.file_count == 0:
         plan.valid = False
@@ -242,8 +265,16 @@ def _plan_loose(
     plan: DeploymentPlan,
     loose_targets: list[Path],
     selected_entries: Optional[set[str]],
+    layout: ArchiveLayout,
 ) -> None:
+    installable_loose_paths = {
+        entry.path
+        for entry in layout.installable_files
+        if not entry.is_unreal_asset
+    }
     for entry in info.loose_entries:
+        if entry.path not in installable_loose_paths:
+            continue
         if selected_entries and entry.path not in selected_entries:
             continue
         rel = strip_archive_prefix(entry.path, info.root_prefix)
@@ -253,3 +284,24 @@ def _plan_loose(
                 dest_path=tgt / Path(rel),
                 is_pak=False,
             ))
+
+
+def _add_non_framework_layout_warnings(plan: DeploymentPlan, layout: ArchiveLayout) -> None:
+    if layout.kind != ArchiveLayoutKind.MIXED:
+        return
+    _extend_unique(plan.warnings, layout.warnings)
+    if layout.config_files:
+        plan.warnings.append("Config files were found in this mixed archive and are not installed by normal mod deployment.")
+    skipped_support = [entry for entry in layout.support_files if entry.path not in layout.installable_paths]
+    if skipped_support:
+        plan.warnings.append("Support/metadata files were skipped during deployment planning.")
+
+
+def _extend_unique(target: list[str], values) -> None:
+    seen = set(target)
+    for raw in values:
+        value = str(raw).strip()
+        if not value or value in seen:
+            continue
+        target.append(value)
+        seen.add(value)

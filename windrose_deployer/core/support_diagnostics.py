@@ -82,6 +82,7 @@ class SupportDiagnosticsService:
             self._target_summary(paths),
             self._hosted_summary(profiles),
             self._manifest_summary(mods, history),
+            self._layout_metadata_summary(mods, history),
             self._framework_summary(paths, framework_state),
             self._activity_summary(history[-history_limit:]),
             self._install_plan_diagnostics(last_install_plan),
@@ -169,6 +170,98 @@ class SupportDiagnosticsService:
             "- Install kinds: " + (", ".join(f"{key}={value}" for key, value in sorted(kind_counts.items())) or "none"),
         ]
         return "\n".join(rows)
+
+    @staticmethod
+    def _layout_metadata_summary(mods: list[ModInstall], history: list[DeploymentRecord]) -> str:
+        layout_counts: Counter[str] = Counter()
+        for mod in mods:
+            if mod.layout_kind:
+                layout_counts[mod.layout_kind] += 1
+        for record in history:
+            if record.layout_kind and not any(mod.mod_id == record.mod_id for mod in mods):
+                layout_counts[record.layout_kind] += 1
+
+        latest_record = next(
+            (
+                record
+                for record in reversed(history)
+                if record.layout_kind or record.selected_entries or record.installed_archive_entries or record.layout_warnings
+            ),
+            None,
+        )
+        latest_mod = next(
+            (
+                mod
+                for mod in sorted(mods, key=lambda item: item.install_time or "", reverse=True)
+                if mod.layout_kind or mod.selected_entries or mod.installed_archive_entries or mod.layout_warnings
+            ),
+            None,
+        )
+
+        rows = ["Layout metadata:"]
+        rows.append(
+            "- Layouts: "
+            + (", ".join(f"{key}={value}" for key, value in sorted(layout_counts.items())) or "none recorded")
+        )
+        if latest_record is not None:
+            rows.extend(SupportDiagnosticsService._layout_metadata_rows(
+                label="Latest history",
+                name=latest_record.display_name or latest_record.mod_id,
+                layout_kind=latest_record.layout_kind,
+                target_root_hint=latest_record.target_root_hint,
+                selected_variant=latest_record.selected_variant,
+                selected_entries=latest_record.selected_entries,
+                installed_archive_entries=latest_record.installed_archive_entries,
+                layout_warnings=latest_record.layout_warnings,
+            ))
+        elif latest_mod is not None:
+            rows.extend(SupportDiagnosticsService._layout_metadata_rows(
+                label="Latest install",
+                name=latest_mod.display_name or latest_mod.mod_id,
+                layout_kind=latest_mod.layout_kind,
+                target_root_hint=latest_mod.target_root_hint,
+                selected_variant=latest_mod.selected_variant,
+                selected_entries=latest_mod.selected_entries,
+                installed_archive_entries=latest_mod.installed_archive_entries,
+                layout_warnings=latest_mod.layout_warnings,
+            ))
+        else:
+            rows.append("- Latest: none recorded")
+        return "\n".join(rows)
+
+    @staticmethod
+    def _layout_metadata_rows(
+        *,
+        label: str,
+        name: str,
+        layout_kind: str,
+        target_root_hint: str,
+        selected_variant: str | None,
+        selected_entries: list[str],
+        installed_archive_entries: list[str],
+        layout_warnings: list[str],
+    ) -> list[str]:
+        parts = [name or "(unknown)"]
+        if layout_kind:
+            parts.append(layout_kind)
+        if target_root_hint:
+            parts.append(f"target hint: {target_root_hint}")
+        if selected_variant:
+            parts.append(f"variant: {selected_variant}")
+        parts.append(f"selected entries: {len(selected_entries or [])}")
+        parts.append(f"installed archive entries: {len(installed_archive_entries or [])}")
+        rows = [f"- {label}: " + " | ".join(parts)]
+        if selected_entries:
+            rows.append("- Selected: " + ", ".join(selected_entries[:6]) + (" ..." if len(selected_entries) > 6 else ""))
+        if installed_archive_entries:
+            rows.append(
+                "- Installed archive entries: "
+                + ", ".join(installed_archive_entries[:8])
+                + (" ..." if len(installed_archive_entries) > 8 else "")
+            )
+        if layout_warnings:
+            rows.append("- Layout notes: " + "; ".join(layout_warnings[:4]) + (" ..." if len(layout_warnings) > 4 else ""))
+        return rows
 
     @staticmethod
     def _framework_summary(paths: AppPaths, service: FrameworkStateService) -> str:
