@@ -272,7 +272,7 @@ class AboutTab(ctk.CTkFrame):
 
         text = ctk.CTkTextbox(
             card,
-            height=180,
+            height=260,
             font=self.app.ui_font("mono"),
         )
         text.grid(row=1, column=0, sticky="ew", padx=16, pady=(0, 14))
@@ -280,11 +280,24 @@ class AboutTab(ctk.CTkFrame):
             "1.0",
             "\n".join(
                 [
-                    "Start in Mods to inspect an archive before installing it.",
-                    "Use Server to compare local or hosted server state before applying changes.",
-                    "Use Activity & Backups to undo installs or restore previous config versions.",
-                    "If hosted connection tests fail, verify FTP/SFTP protocol, host, port, account, and server folder.",
-                    "If installs look wrong, compare with the Technical Log before rebuilding the executable.",
+                    "Adding mods:",
+                    "- Open Mods.",
+                    "- Click Add Mod Files, or drop archives into Inactive Mods.",
+                    "- Downloads can be on any drive.",
+                    "- For extracted pak files, select or drop the pak/utoc/ucas files together.",
+                    "",
+                    "Hosted server paths:",
+                    "- Server Folder is the folder that contains R5.",
+                    "- If FTP shows windrose/R5, use windrose.",
+                    "- If FTP opens directly inside the server folder, use .",
+                    "- For Nitrado FTP, use the Nitrado FTP preset and FTP Credentials.",
+                    "",
+                    "General:",
+                    "- Start in Mods to inspect an archive before installing it.",
+                    "- Use Server to compare local or hosted server state before applying changes.",
+                    "- Use Activity & Backups to undo installs or restore previous config versions.",
+                    "- If hosted connection tests fail, verify FTP/SFTP protocol, host, port, account, and server folder.",
+                    "- If installs look wrong, compare with the Technical Log before rebuilding the executable.",
                 ]
             ),
         )

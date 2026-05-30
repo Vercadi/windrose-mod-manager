@@ -1,37 +1,39 @@
-## Windrose Mod Manager v0.8.0
+## Windrose Mod Manager v0.8.1
 
-Windrose Mod Manager v0.8.0 focuses on archive intelligence, safer deployment planning, richer install metadata, and clearer install/sync review text.
+Windrose Mod Manager v0.8.1 is a focused usability patch for two common setup pain points: adding mods from anywhere on the PC, and configuring hosted FTP paths for providers such as Nitrado.
 
 ### Highlights
 
-- Added shared archive layout classification for standard pak archives, multi-pak bundles, multi-variant pak archives, UE4SS mods, UE4SS runtime/shim archives, config-only archives, mixed archives, and support-only archives.
-- Local and hosted deployment planning now skip obvious support/metadata files such as readmes, manifests, icons, changelogs, and Thunderstore metadata.
-- Config-only archives are blocked from normal mod install/upload and point users toward config workflows instead.
-- Mixed archives can still deploy pak payloads, while config/support files are skipped or called out for review.
-- Install records and deployment history now persist layout kind, target hint, selected variant, selected archive entries, installed archive entry paths, layout warnings, and archive hash where available.
-- Diagnostics now include layout metadata without exposing secrets.
-- Dashboard sync review details now use stored layout metadata when explaining selected variants/components and skipped support/config notes.
-- Local install and hosted upload reviews now show layout kind, destination hint, selected entries/components, planned archive entries, and clearer warning/risk text.
+- Renamed the inactive mod import action to `Add Mod Files...`.
+- Added `Add Folder...` and shallow folder scanning for supported mod files.
+- Made the Mods empty state explain that downloads can be on any drive.
+- Folder import/drop now finds `.zip`, `.7z`, `.rar`, `.pak`, `.utoc`, and `.ucas` files directly inside the selected folder and one level below it.
+- Loose pak companion imports still use the existing manager-owned bundle flow.
+- Hosted setup now uses clearer `Server Folder` wording with concrete examples for `windrose/R5` and direct `R5` logins.
+- Added a conservative `Nitrado FTP` preset: FTP, port `21`, `Server Folder = windrose`, and `Mods Folder Override = windrose/Mods`.
+- Hosted setup now shows resolved path previews for mods upload, server settings, and world saves.
+- Help and first-run copy now point users toward `Add Mod Files...`, folder import, and hosted path examples.
 
 ### Notes
 
-- Existing v0.7.1 behavior for selected variants, `All variants`, pak companions, UE4SS external/host-managed mode, and Review Sync Actions is preserved.
-- Hosted active install tracking remains history-only in v0.8.0; hosted uploads do not yet create active hosted install records.
-- Hosted uploads were smoke-tested with the real hosted planner/deploy path against a fake remote provider. Real provider behavior still depends on the host's SFTP/FTP access and paths.
+- Generic hosted defaults are unchanged. Without a provider override, `Server Folder = windrose` still derives mods to `windrose/R5/Content/Paks/~mods`.
+- The Nitrado preset is editable. If a user's FTP browser does not show `windrose/Mods`, they can clear `Mods Folder Override` and use the normal derived path.
+- This release does not add remote path auto-detection, Thunderstore/Gale integration, or the broader config center.
 
 ### Validation
 
 - `python -m compileall windrose_deployer -q`
-- `python -m pytest -q` -> `285 passed`
+- `python -m pytest -q` -> `295 passed`
 - Source GUI smoke across Dashboard, Mods, Server, Activity, Settings, and Help
-- Source archive/report smoke for standard pak, multi-variant pak, local install report, hosted upload report, and sync action detail
-- Hosted upload smoke for standard pak, selected variant, `All variants`, mixed archive filtering, config-only blocking, and UE4SS external mode
-- Packaged exe smoke launch confirmed v0.8.0 identity and startup
+- Source import smoke for archive import and folder import with loose pak companions
+- Source hosted setup smoke for the `Nitrado FTP` preset and resolved path guidance
+- Remote deployment planner smoke confirmed Nitrado uploads target `windrose/Mods`
+- Packaged exe smoke launch confirmed v0.8.1 identity and startup
 
 ### SHA256
 
-Release zip: `983798E2FFF8D31FBE8377CF0D3131352138732384CC589D665E2E452D6B707E`
+Release zip: `E8BBCEA1A2880B1C59A48F2F7AC54A1AC9990B0AB7EC574DCC1DA23F56939311`
 
 ### Full Changelog
 
-https://github.com/Vercadi/windrose-mod-manager/compare/v0.7.1...v0.8.0
+https://github.com/Vercadi/windrose-mod-manager/compare/v0.8.0...v0.8.1

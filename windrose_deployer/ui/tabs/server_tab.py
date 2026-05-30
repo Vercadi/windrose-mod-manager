@@ -20,6 +20,7 @@ from ...core.live_mod_inventory import (
     snapshot_live_mods_folder,
 )
 from ...core.install_report import build_remote_install_report
+from ...core.hosted_provider_presets import NITRADO_FTP_PRESET, apply_hosted_provider_preset
 from ...core.remote_deployer import plan_remote_deployment, remote_connection_diagnostics
 from ...models.deployment_record import DeployedFile, DeploymentRecord
 from ...models.mod_install import expand_target_values
@@ -2106,9 +2107,8 @@ class ServerTab(ctk.CTkFrame):
         ctk.CTkLabel(
             body,
             text=(
-                "Start with the hosted server folder. The manager can derive the Windrose mods folder, "
-                "server settings file, and world saves folder from it. If your login already opens inside "
-                "the Windrose server folder, you can enter '.' here or leave it blank and fill the overrides manually."
+                "Start with Server Folder: the folder your FTP/SFTP login sees as the Windrose server root. "
+                "If the file browser shows windrose/R5, use windrose. If it opens directly to R5, use '.'."
             ),
             justify="left",
             wraplength=520,
@@ -2192,8 +2192,12 @@ class ServerTab(ctk.CTkFrame):
         ctk.CTkEntry(root_card, textvariable=vars_map["root"]).grid(row=1, column=1, sticky="ew", padx=8, pady=4)
         ctk.CTkLabel(
             root_card,
-            text="Example: /home/container, C:/Games/WindroseServer, or '.' when the login already lands inside the server folder",
+            text=(
+                "Examples: windrose when FTP shows windrose/R5, /home/container for Linux hosts, "
+                "or '.' when the login already lands inside the server folder."
+            ),
             justify="left",
+            wraplength=520,
             text_color="#95a5a6",
         ).grid(row=2, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 6))
         ctk.CTkCheckBox(
@@ -2223,7 +2227,10 @@ class ServerTab(ctk.CTkFrame):
         )
         ctk.CTkLabel(
             overrides,
-            text="Leave these blank unless your host uses non-standard paths.",
+            text=(
+                "Leave these blank unless your host uses non-standard paths. For Nitrado, the preset uses "
+                "Mods Folder Override = windrose/Mods; clear it if your FTP browser does not show that folder."
+            ),
             justify="left",
             wraplength=520,
             text_color="#95a5a6",
@@ -2249,11 +2256,37 @@ class ServerTab(ctk.CTkFrame):
         )
         restart_hint_label.grid(row=6, column=0, columnspan=2, sticky="ew", padx=12, pady=(0, 8))
 
+        preview_card = ctk.CTkFrame(body)
+        preview_card.grid(row=5, column=0, sticky="ew", padx=8, pady=(0, 8))
+        preview_card.grid_columnconfigure(1, weight=1)
+        ctk.CTkLabel(preview_card, text="Resolved Paths", font=ctk.CTkFont(size=14, weight="bold")).grid(
+            row=0, column=0, columnspan=2, sticky="w", padx=12, pady=(12, 8)
+        )
+        preview_labels: dict[str, ctk.CTkLabel] = {}
+        preview_rows = [
+            ("mods", "Mods upload folder"),
+            ("server", "Server settings file"),
+            ("save", "World saves folder"),
+        ]
+        for row, (key, label) in enumerate(preview_rows, start=1):
+            ctk.CTkLabel(preview_card, text=label + ":").grid(row=row, column=0, sticky="nw", padx=12, pady=4)
+            value = ctk.CTkLabel(
+                preview_card,
+                text="(not set)",
+                anchor="w",
+                justify="left",
+                text_color="#d0d0d0",
+                font=ctk.CTkFont(family="Consolas", size=11),
+                wraplength=380,
+            )
+            value.grid(row=row, column=1, sticky="ew", padx=(8, 12), pady=4)
+            preview_labels[key] = value
+
         status = ctk.CTkLabel(body, text="", text_color="#95a5a6", justify="left", wraplength=520)
-        status.grid(row=5, column=0, sticky="ew", padx=8, pady=(4, 8))
+        status.grid(row=6, column=0, sticky="ew", padx=8, pady=(4, 8))
 
         provider_card = ctk.CTkFrame(body)
-        provider_card.grid(row=6, column=0, sticky="ew", padx=8, pady=(0, 8))
+        provider_card.grid(row=7, column=0, sticky="ew", padx=8, pady=(0, 8))
         provider_card.grid_columnconfigure(0, weight=1)
         ctk.CTkLabel(provider_card, text="Provider Shortcuts", font=ctk.CTkFont(size=14, weight="bold")).grid(
             row=0, column=0, sticky="w", padx=12, pady=(12, 4)
@@ -2261,8 +2294,8 @@ class ServerTab(ctk.CTkFrame):
         ctk.CTkLabel(
             provider_card,
             text=(
-                "These only set the protocol and normal default port. For Nitrado, use the FTP Credentials "
-                "hostname, username, password, and port 21. Query/RCON/Game ports are not FTP ports."
+                "Use provider FTP/SFTP credentials exactly as shown in the host panel. "
+                "Nitrado Query/RCON/Game ports are not FTP ports."
             ),
             justify="left",
             wraplength=520,
@@ -2296,6 +2329,31 @@ class ServerTab(ctk.CTkFrame):
             )
             profile.apply_root_defaults(overwrite=False)
             return profile
+
+        def _preview_profile() -> RemoteProfile:
+            profile = RemoteProfile(
+                profile_id=current.profile_id,
+                name=vars_map["name"].get().strip() or "Hosted Server",
+                protocol=vars_map["protocol"].get(),
+                host=vars_map["host"].get().strip(),
+                port=int(vars_map["port"].get().strip() or default_port_for_protocol(vars_map["protocol"].get())),
+                username=vars_map["username"].get().strip(),
+                remote_root_dir=vars_map["root"].get().strip(),
+                remote_mods_dir=vars_map["mods"].get().strip(),
+                remote_server_description_path=vars_map["server_desc"].get().strip(),
+                remote_save_root=vars_map["save_root"].get().strip(),
+            )
+            profile.apply_root_defaults(overwrite=False)
+            return profile
+
+        def _refresh_resolved_paths(*_args) -> None:
+            try:
+                profile = _preview_profile()
+            except ValueError:
+                return
+            preview_labels["mods"].configure(text=profile.resolved_mods_dir() or "(not set)")
+            preview_labels["server"].configure(text=profile.resolved_server_description_path() or "(not set)")
+            preview_labels["save"].configure(text=profile.resolved_save_root() or "(not set)")
 
         last_diagnostics = {"text": ""}
 
@@ -2375,6 +2433,30 @@ class ServerTab(ctk.CTkFrame):
                 text=f"{label} preset applied ({protocol.upper()}, {port_note}). Fill in the provider host and credentials from your panel.",
                 text_color="#2d8a4e",
             )
+
+        def _apply_nitrado_preset() -> None:
+            profile = apply_hosted_provider_preset(
+                RemoteProfile(
+                    profile_id=current.profile_id,
+                    name=vars_map["name"].get().strip() or "Hosted Server",
+                    protocol=vars_map["protocol"].get(),
+                    host=vars_map["host"].get().strip(),
+                    port=21,
+                    username=vars_map["username"].get().strip(),
+                    auth_mode=auth_var.get(),
+                    password=vars_map["password"].get(),
+                    private_key_path=vars_map["key"].get().strip(),
+                    remote_root_dir=vars_map["root"].get().strip(),
+                    remote_mods_dir=vars_map["mods"].get().strip(),
+                    remote_server_description_path=vars_map["server_desc"].get().strip(),
+                    remote_save_root=vars_map["save_root"].get().strip(),
+                    restart_command=vars_map["restart"].get().strip(),
+                    ue4ss_managed_externally=bool(external_ue4ss_var.get()),
+                ),
+                NITRADO_FTP_PRESET,
+            )
+            _apply_profile_fields(profile)
+            status.configure(text=NITRADO_FTP_PRESET.status, text_color="#2d8a4e")
 
         sync_state = {"last_protocol": normalize_remote_protocol(vars_map["protocol"].get())}
 
@@ -2477,12 +2559,20 @@ class ServerTab(ctk.CTkFrame):
 
         ctk.CTkButton(
             preset_buttons,
+            text="Nitrado FTP",
+            width=126,
+            fg_color="#555555",
+            hover_color="#666666",
+            command=_apply_nitrado_preset,
+        ).grid(row=0, column=0, sticky="w", padx=(0, 6), pady=(0, 6))
+        ctk.CTkButton(
+            preset_buttons,
             text="Host Havoc SFTP",
             width=132,
             fg_color="#555555",
             hover_color="#666666",
             command=lambda: _apply_provider_preset("sftp", 22, "Host Havoc SFTP"),
-        ).pack(side="left", padx=(0, 6))
+        ).grid(row=0, column=1, sticky="w", padx=6, pady=(0, 6))
         ctk.CTkButton(
             preset_buttons,
             text="Host Havoc FTP",
@@ -2490,7 +2580,7 @@ class ServerTab(ctk.CTkFrame):
             fg_color="#555555",
             hover_color="#666666",
             command=lambda: _apply_provider_preset("ftp", 21, "Host Havoc FTP"),
-        ).pack(side="left", padx=6)
+        ).grid(row=1, column=0, sticky="w", padx=(0, 6))
         ctk.CTkButton(
             preset_buttons,
             text="Indifferent Broccoli FTP",
@@ -2498,14 +2588,14 @@ class ServerTab(ctk.CTkFrame):
             fg_color="#555555",
             hover_color="#666666",
             command=lambda: _apply_provider_preset("ftp", 21, "Indifferent Broccoli FTP"),
-        ).pack(side="left", padx=6)
+        ).grid(row=1, column=1, sticky="w", padx=6)
 
         buttons = ctk.CTkFrame(body, fg_color="transparent")
-        buttons.grid(row=7, column=0, sticky="ew", padx=8, pady=(4, 8))
+        buttons.grid(row=8, column=0, sticky="ew", padx=8, pady=(4, 8))
         ctk.CTkButton(
             buttons,
-            text="Auto-Detect Paths",
-            width=146,
+            text="Fill Paths",
+            width=96,
             fg_color="#555555",
             hover_color="#666666",
             command=_apply_root_defaults,
@@ -2514,17 +2604,20 @@ class ServerTab(ctk.CTkFrame):
         copy_diagnostics_btn = ctk.CTkButton(
             buttons,
             text="Copy Diagnostics",
-            width=140,
+            width=132,
             fg_color="#555555",
             hover_color="#666666",
             command=_copy_diagnostics,
         )
         copy_diagnostics_btn.pack(side="left", padx=6)
-        ctk.CTkButton(buttons, text="Save Profile", width=110, fg_color="#2d8a4e", hover_color="#236b3d", command=_save).pack(side="left", padx=6)
-        ctk.CTkButton(buttons, text="Close", width=100, fg_color="#444444", hover_color="#555555", command=dialog.destroy).pack(side="right")
+        ctk.CTkButton(buttons, text="Save Profile", width=104, fg_color="#2d8a4e", hover_color="#236b3d", command=_save).pack(side="left", padx=6)
+        ctk.CTkButton(buttons, text="Close", width=88, fg_color="#444444", hover_color="#555555", command=dialog.destroy).pack(side="right")
+        for key in ("root", "mods", "server_desc", "save_root"):
+            vars_map[key].trace_add("write", _refresh_resolved_paths)
         vars_map["protocol"].trace_add("write", _sync_auth_fields)
         auth_var.trace_add("write", _sync_auth_fields)
         _sync_auth_fields()
+        _refresh_resolved_paths()
 
     def open_hosted_install_dialog(self, archive_path: str | Path | None) -> None:
         selected_path = Path(archive_path) if archive_path else None

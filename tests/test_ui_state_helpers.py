@@ -3,6 +3,7 @@ from types import SimpleNamespace
 
 from windrose_deployer.core.lazy_tabs import LazyTabController
 from windrose_deployer.ui.app_window import AppWindow
+from windrose_deployer.ui.tabs.mods_tab import ModsTab
 from windrose_deployer.ui.ui_state import banner
 
 
@@ -148,3 +149,16 @@ def test_dashboard_overview_uses_lightweight_state_before_server_tab_exists():
     assert overview["source_key"] == "dedicated_server"
     assert overview["hosted_state"] == "Configured"
     assert app._lazy_tabs.is_constructed("Server") is False
+
+
+def test_mods_import_text_explains_drag_drop_fallback_and_any_drive():
+    tab = object.__new__(ModsTab)
+    tab.app = SimpleNamespace(_dnd_enabled=True)
+
+    assert "Downloads can be on any drive" in ModsTab._archive_import_hint_text(tab)
+    assert ".zip" in ModsTab._empty_import_text(tab)
+
+    tab.app._dnd_enabled = False
+
+    assert "Drag/drop is unavailable" in ModsTab._archive_import_hint_text(tab)
+    assert "Add Mod Files or Add Folder" in ModsTab._empty_import_text(tab)

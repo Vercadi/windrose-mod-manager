@@ -1521,7 +1521,8 @@ class AppWindow(ctk.CTk):
             body,
             text=(
                 "Use Mods for archives and applied installs, Server for local, dedicated, or hosted settings, "
-                "and Activity & Backups when you need to undo or restore changes."
+                "and Activity & Backups when you need to undo or restore changes. Your downloads can be anywhere; "
+                "the manager will track or copy what it needs."
             ),
             justify="left",
             wraplength=460,
@@ -1571,7 +1572,7 @@ class AppWindow(ctk.CTk):
 
         ctk.CTkButton(
             action_frame,
-            text="Import First Archive",
+            text="Add Mod Files...",
             width=150,
             fg_color="#2d8a4e",
             hover_color="#236b3d",

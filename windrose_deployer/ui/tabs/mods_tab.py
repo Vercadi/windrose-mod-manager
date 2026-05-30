@@ -26,7 +26,8 @@ from ...core.live_mod_inventory import (
     bundle_live_file_names,
     snapshot_live_mods_folder,
 )
-from ...core.pak_bundle_importer import import_pak_bundles, is_pak_bundle_file
+from ...core.import_source_collector import collect_importable_sources
+from ...core.pak_bundle_importer import import_pak_bundles
 from ...core.version_hints import possible_update_hint_for_archive
 from ...models.archive_info import ArchiveInfo
 from ...models.deployment_record import DeployedFile, DeploymentRecord
@@ -311,11 +312,17 @@ class ModsTab(ctk.CTkFrame):
             row=0, column=0, sticky="w"
         )
         add_btn = ctk.CTkButton(
-            header, text="Add", width=64, fg_color="#2980b9", hover_color="#2471a3", command=self.import_archives,
+            header, text="Add Mod Files...", width=128, fg_color="#2980b9", hover_color="#2471a3", command=self.import_archives,
             height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body")
         )
         add_btn.grid(row=0, column=1, sticky="e", padx=(8, 6))
         self._action_buttons.append(add_btn)
+        folder_btn = ctk.CTkButton(
+            header, text="Add Folder...", width=108, fg_color="#555555", hover_color="#666666", command=self.import_folder,
+            height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body")
+        )
+        folder_btn.grid(row=0, column=2, sticky="e", padx=(0, 6))
+        self._action_buttons.append(folder_btn)
         self._filter_menu = ctk.CTkOptionMenu(
             header,
             variable=self._filter_var,
@@ -324,12 +331,12 @@ class ModsTab(ctk.CTkFrame):
             command=lambda _value: self._refresh_library_ui(refresh_applied=False),
             font=self.app.ui_font("body"),
         )
-        self._filter_menu.grid(row=0, column=2, sticky="e", padx=(0, 6))
+        self._filter_menu.grid(row=0, column=3, sticky="e", padx=(0, 6))
         refresh_btn = ctk.CTkButton(
             header, text="Refresh", width=72, fg_color="#555555", hover_color="#666666", command=self.refresh_view,
             height=self.app.ui_tokens.compact_button_height, font=self.app.ui_font("body")
         )
-        refresh_btn.grid(row=0, column=3, sticky="e")
+        refresh_btn.grid(row=0, column=4, sticky="e")
         self._action_buttons.append(refresh_btn)
 
         actions = ctk.CTkFrame(panel, fg_color="transparent")
@@ -380,7 +387,7 @@ class ModsTab(ctk.CTkFrame):
 
         self._archive_hint_label = ctk.CTkLabel(
             panel,
-            text="Double-click an inactive mod to choose a target. Right-click rows for more actions. Drop archives or pak files anywhere in this pane.",
+            text=self._archive_import_hint_text(),
             justify="left",
             wraplength=self.app.ui_tokens.panel_wrap,
             text_color="#95a5a6",
@@ -463,6 +470,9 @@ class ModsTab(ctk.CTkFrame):
 
     def import_archives(self) -> None:
         self._on_browse()
+
+    def import_folder(self) -> None:
+        self._on_browse_folder()
 
     def library_entries(self) -> list[dict]:
         return list(self._library)
@@ -803,18 +813,10 @@ class ModsTab(ctk.CTkFrame):
         return archive_path, archive_hash, False, False
 
     def _import_source_paths(self, paths: list[Path]) -> tuple[list[Path], list[str]]:
-        archive_paths: list[Path] = []
-        pak_paths: list[Path] = []
-        warnings: list[str] = []
-
-        for path in paths:
-            suffix = path.suffix.lower()
-            if suffix in SUPPORTED_EXTENSIONS:
-                archive_paths.append(path)
-            elif is_pak_bundle_file(path):
-                pak_paths.append(path)
-            else:
-                warnings.append(f"Skipped unsupported file: {path.name}")
+        collection = collect_importable_sources(paths)
+        archive_paths = collection.archive_files
+        pak_paths = collection.pak_files
+        warnings = list(collection.warnings)
 
         imported_paths: list[Path] = []
         for archive_path in archive_paths:
@@ -839,6 +841,32 @@ class ModsTab(ctk.CTkFrame):
             imported_paths.append(bundle.archive_path)
 
         return imported_paths, warnings
+
+    def _archive_import_hint_text(self) -> str:
+        if getattr(self.app, "_dnd_enabled", False):
+            return "Drop mod archives here, or click Add Mod Files. Downloads can be on any drive."
+        return "Drag/drop is unavailable on this system. Use Add Mod Files or Add Folder instead."
+
+    def _empty_import_text(self) -> str:
+        if getattr(self.app, "_dnd_enabled", False):
+            return "\n".join(
+                [
+                    "Drop mod archives here",
+                    "or click Add Mod Files...",
+                    "",
+                    "Supported: .zip, .7z, .rar, .pak, .utoc, .ucas",
+                    "Files can be on D:, E:, Downloads, or any folder you choose.",
+                ]
+            )
+        return "\n".join(
+            [
+                "No inactive mods yet.",
+                "Drag/drop is unavailable on this system. Use Add Mod Files or Add Folder.",
+                "",
+                "Supported: .zip, .7z, .rar, .pak, .utoc, .ucas",
+                "Files can be on D:, E:, Downloads, or any folder you choose.",
+            ]
+        )
 
     def _get_archive_info(self, archive_path: Path) -> ArchiveInfo:
         key = str(archive_path)
@@ -2081,7 +2109,7 @@ class ModsTab(ctk.CTkFrame):
 
         if not filtered_entries:
             empty_text = (
-                "Drop archives or pak files into this list, or use Add to track your first inactive mod."
+                self._empty_import_text()
                 if not self._search_var.get().strip() and self._selected_filter_value() == "available"
                 else "No inactive mods match the current search or filter."
             )
@@ -2895,9 +2923,17 @@ class ModsTab(ctk.CTkFrame):
 
     def _register_dnd(self) -> None:
         if not getattr(self.app, "_dnd_enabled", False):
+            self._archive_hint_label.configure(text=self._archive_import_hint_text())
             return
         try:
-            for widget in (self._archive_panel, self._library_list, self._archive_hint_label):
+            widgets = (
+                self,
+                self._top_host,
+                self._archive_panel,
+                self._library_list,
+                self._archive_hint_label,
+            )
+            for widget in dict.fromkeys(widgets):
                 widget.drop_target_register("DND_Files")
                 widget.dnd_bind("<<Drop>>", self._on_drop)
                 widget.dnd_bind("<<DragEnter>>", self._on_drag_enter)
@@ -2917,9 +2953,15 @@ class ModsTab(ctk.CTkFrame):
     def _on_drop(self, event) -> None:
         self._archive_panel.configure(border_color="#3b3b3b")
         self._archive_hint_label.configure(text_color="#95a5a6")
-        imported, warnings = self._import_source_paths(self._parse_drop_data(event.data))
+        self._handle_import_paths(
+            self._parse_drop_data(event.data),
+            empty_warning="The drop did not contain a supported mod file or folder.",
+        )
+
+    def _handle_import_paths(self, paths: list[Path], *, empty_warning: str) -> None:
+        imported, warnings = self._import_source_paths(paths)
         if not imported:
-            warning_text = " ".join(warnings[:2]) if warnings else "The drop did not contain a supported mod file."
+            warning_text = " ".join(warnings[:2]) if warnings else empty_warning
             self._set_result(warning_text, level="warning")
             return
         self._save_library()
@@ -2954,16 +2996,19 @@ class ModsTab(ctk.CTkFrame):
         paths = filedialog.askopenfilenames(title="Select Mod File(s)", filetypes=_FILETYPES)
         if not paths:
             return
-        valid, warnings = self._import_source_paths([Path(path) for path in paths])
-        self._save_library()
-        self._refresh_library_ui()
-        if len(valid) == 1:
-            self._load_archive(valid[0])
-        if valid:
-            suffix = " " + " ".join(warnings[:2]) if warnings else ""
-            self._set_result(f"Added {len(valid)} inactive mod(s).{suffix}", level="success" if not warnings else "warning")
-        elif warnings:
-            self._set_result(" ".join(warnings[:2]), level="warning")
+        self._handle_import_paths(
+            [Path(path) for path in paths],
+            empty_warning="No supported mod files were selected.",
+        )
+
+    def _on_browse_folder(self) -> None:
+        folder = filedialog.askdirectory(title="Select Folder Containing Mod Files")
+        if not folder:
+            return
+        self._handle_import_paths(
+            [Path(folder)],
+            empty_warning="No supported mod files were found in that folder.",
+        )
 
     def _load_archive(self, archive_path: Path, *, refresh_only: bool = False) -> None:
         archive_str = str(archive_path)
